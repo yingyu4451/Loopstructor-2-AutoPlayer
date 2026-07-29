@@ -1253,7 +1253,7 @@ internal sealed class MainForm : Form
         _gamePath.Text = _game.GameRoot;
         _validationState.Text = "已验证 Skyspine 1.237 / " + ShortHash(_game.AssemblySha256);
         _validationState.ForeColor = Theme.TealDark;
-        _pluginState.Text = "插件已启用  0.1.0";
+        _pluginState.Text = "插件已启用  " + _hello.PluginVersion;
         _pluginState.ForeColor = Theme.TealDark;
         _sessionTrusted = true;
         _connection.SetState("安全连接", Theme.Teal);

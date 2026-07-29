@@ -23,13 +23,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.1.0 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.1 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.0
+.\scripts\package.ps1 -Version 0.1.1
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
@@ -37,7 +37,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## 使用发布包
 
 1. 解压 `Loopstructor.AutoPlayer-<version>-win-x64.zip` 到单独目录。
-2. 启动 `manager\Loopstructor.AutoPlayer.Manager.exe`。
+2. 启动解压目录根部的 `Loopstructor.AutoPlayer.Manager.exe`。`manager\` 是内部运行时与旧版更新兼容目录，不需要在其中查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
 5. 新建或选择独立 QA profile；不要把正常玩家存档目录配置为测试 profile。
@@ -103,6 +103,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```text
 src/Loopstructor.AutoPlayer.Core/      共享协议、状态模型与决策引擎
 src/Loopstructor.AutoPlayer.Plugin/    netstandard2.1 BepInEx 5 插件
+src/Loopstructor.AutoPlayer.Launcher/  根目录单文件启动器
 src/Loopstructor.AutoPlayer.Manager/   .NET 8 Windows 管理器
 src/Loopstructor.AutoPlayer.Updater/   独立更新进程
 tests/                                 自动化测试
@@ -114,7 +115,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成 Windows x64 zip、SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。更新器只从同一个 Release 获取清单指定的资产，并在替换前校验文件大小、SHA-256 和包内 `autoplayer-release.json`。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成 Windows x64 zip、SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。更新器只从同一个 Release 获取清单指定的资产，并在替换前校验文件大小、SHA-256 和包内 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是可运行目录和根部 Manager EXE，不再包含第二层产品 ZIP。
 
 默认发布与更新源为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)。Manager 设置可以切换到其他仓库；环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 的优先级更高，适合临时测试 fork。
 

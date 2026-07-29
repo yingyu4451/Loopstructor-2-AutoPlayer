@@ -66,13 +66,52 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1 -Version '${{ steps.version.outputs.version }}' -SkipBuild
 
-      - name: Upload packaged artifacts
+      - name: Upload runnable program artifact
         uses: actions/upload-artifact@v4
         with:
           name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
-          path: artifacts/release/*
+          path: artifacts/package/Loopstructor.AutoPlayer/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Download runnable artifact for verification
+        uses: actions/download-artifact@v4
+        with:
+          name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
+          path: artifacts/workflow-artifact-verification
+
+      - name: Verify runnable artifact layout
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\workflow-artifact-verification'
+          $requiredFiles = @(
+            'Loopstructor.AutoPlayer.Manager.exe'
+            'autoplayer-release.json'
+            'checksums.sha256'
+          )
+          foreach ($relativePath in $requiredFiles) {
+            $path = Join-Path $artifactRoot $relativePath
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Workflow artifact is missing root file: $relativePath"
+            }
+          }
+
+          foreach ($relativePath in @('manager', 'payload', 'updater')) {
+            $path = Join-Path $artifactRoot $relativePath
+            if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+              throw "Workflow artifact is missing root directory: $relativePath"
+            }
+          }
+
+          $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json
+          if ($marker.managerPath -ne 'Loopstructor.AutoPlayer.Manager.exe') {
+            throw "Workflow artifact Manager entry point is not at the root: $($marker.managerPath)"
+          }
+
+          $nestedProductZips = @(Get-ChildItem -LiteralPath $artifactRoot -Recurse -File -Filter '*.zip')
+          if ($nestedProductZips.Count -ne 0) {
+            throw "Workflow artifact root must contain runnable files, not a nested product ZIP: $($nestedProductZips.Name -join ', ')"
+          }
 
       - name: Publish GitHub release
         if: github.event_name == 'push'

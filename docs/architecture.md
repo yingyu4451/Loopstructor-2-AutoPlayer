@@ -22,6 +22,7 @@ flowchart LR
 
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
+| `Loopstructor.AutoPlayer.Launcher` | .NET 8 Windows 单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
 | `Loopstructor.AutoPlayer.Manager` | .NET 8 Windows | 选择游戏、安装载荷、创建 QA profile、生成会话凭据、启动游戏、显示状态和发起更新 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows | 在管理器退出后校验并替换工具文件，避免运行中的文件被覆盖 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
@@ -142,7 +143,8 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 ## 发布包结构
 
 ```text
-manager/                         管理器自包含发布文件
+Loopstructor.AutoPlayer.Manager.exe  用户启动的根目录单文件入口
+manager/                         管理器自包含运行时及旧版更新兼容入口
 updater/                         更新器自包含发布文件
 payload/
   bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
@@ -152,4 +154,4 @@ version.json                     版本兼容信息
 checksums.sha256                 包内逐文件 SHA-256
 ```
 
-游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出。保留内部 `manager\` 入口是为了让已发布的 `v0.1.0` Updater 仍能验证、替换并重启新版；用户无需进入该目录。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。

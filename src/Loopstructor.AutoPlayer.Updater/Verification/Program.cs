@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -10,6 +11,9 @@ try
 {
     VerifySemanticVersions();
     VerifyDefaultUpdateConfiguration(verificationRoot);
+    VerifyLegacyManagerEntryPoint(verificationRoot);
+    VerifyManagerRestartEntryPoint(verificationRoot);
+    VerifyManagerEntryPointTraversalRejected(verificationRoot);
     VerifyZipExtraction(verificationRoot);
     VerifyTransactionalReplacement(verificationRoot);
     VerifyInterruptedRecovery(verificationRoot);
@@ -98,6 +102,45 @@ static void VerifyZipExtraction(string root)
     }
 
     ExpectInvalidData(() => extractor.Extract(linkZip, Path.Combine(root, "link-extracted")), "ZIP symlink rejection");
+}
+
+static void VerifyLegacyManagerEntryPoint(string root)
+{
+    string legacy = Path.Combine(root, "legacy-release");
+    CreateRelease(legacy, "0.0.9", "manager/Loopstructor.AutoPlayer.Manager.exe");
+    ReleaseMarker marker = new ReleasePackageValidator().Validate(legacy, "0.0.9");
+    Require(
+        marker.ManagerPath == "manager/Loopstructor.AutoPlayer.Manager.exe",
+        "legacy nested Manager entry point remains valid");
+}
+
+static void VerifyManagerRestartEntryPoint(string root)
+{
+    string release = Path.Combine(root, "restart-release");
+    CreateRelease(release, "0.1.1");
+    ProcessStartInfo startInfo = ManagerRestarter.CreateStartInfo(release);
+    Require(
+        startInfo.FileName == Path.Combine(release, "Loopstructor.AutoPlayer.Manager.exe"),
+        "Updater restarts through the root Manager entry point");
+    Require(startInfo.WorkingDirectory == release, "root Manager restart working directory");
+    Require(
+        startInfo.ArgumentList.SequenceEqual(new[] { "--restarted-after-update" }),
+        "root Manager restart argument");
+}
+
+static void VerifyManagerEntryPointTraversalRejected(string root)
+{
+    string release = Path.Combine(root, "entry-traversal-release");
+    CreateRelease(release, "0.1.1");
+    ReleaseMarker marker = JsonSerializer.Deserialize<ReleaseMarker>(
+        File.ReadAllText(Path.Combine(release, "autoplayer-release.json")))!;
+    marker.ManagerPath = "../Loopstructor.AutoPlayer.Manager.exe";
+    File.WriteAllText(Path.Combine(release, "autoplayer-release.json"), JsonSerializer.Serialize(marker));
+    File.WriteAllText(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"), "outside");
+
+    ExpectInvalidData(
+        () => new ReleasePackageValidator().Validate(release, "0.1.1"),
+        "Manager entry point traversal rejection");
 }
 
 static void VerifyTransactionalReplacement(string root)
@@ -228,15 +271,19 @@ static void VerifyTargetLock(string root)
         "target-scoped updater journals");
 }
 
-static void CreateRelease(string root, string version)
+static void CreateRelease(
+    string root,
+    string version,
+    string managerPath = "Loopstructor.AutoPlayer.Manager.exe")
 {
     Directory.CreateDirectory(Path.Combine(root, "manager"));
     Directory.CreateDirectory(Path.Combine(root, "updater"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "plugin"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex", "BepInEx", "core"));
-    File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Manager.dll"), version);
-    File.WriteAllText(Path.Combine(root, "updater", "Loopstructor.AutoPlayer.Updater.dll"), version);
+    File.WriteAllText(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"), "root-launcher-" + version);
+    File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Manager.exe"), version);
+    File.WriteAllText(Path.Combine(root, "updater", "Loopstructor.AutoPlayer.Updater.exe"), version);
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "winhttp.dll"), "x64-loader");
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "doorstop_config.ini"), "enabled=true");
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "BepInEx", "core", "BepInEx.dll"), "5.4.23.5");
@@ -249,6 +296,8 @@ static void CreateRelease(string root, string version)
         {
             Version = version,
             BepInExVersion = "5.4.23.5",
+            ManagerPath = managerPath,
+            UpdaterPath = "updater/Loopstructor.AutoPlayer.Updater.exe",
             BepInExPayloadPath = "payload/bepinex",
             PluginPayloadPath = "payload/plugin"
         }));

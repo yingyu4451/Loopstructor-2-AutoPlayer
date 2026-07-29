@@ -60,28 +60,29 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.0
+.\scripts\package.ps1 -Version 0.1.1
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.0 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.1 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.0-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.0-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.1-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.1-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
 zip 内部结构：
 
 ```text
-manager/
+Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
+manager/                              内部 Manager 运行时及 v0.1.0 更新兼容入口
 updater/
 payload/
   bepinex/
@@ -100,9 +101,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 ```json
 {
   "schemaVersion": 1,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.0-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.1-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -134,10 +135,10 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 1. 从 tag 提取 SemVer；
 2. 构建和测试；
 3. 生成 Windows x64 发布包、SHA-256 与更新清单；
-4. 上传 workflow artifact；
+4. 上传未压缩目录作为 workflow artifact，并重新下载验证根部 EXE、marker、checksums 且不存在内嵌产品 ZIP；
 5. 创建 GitHub Release，重跑时覆盖同名 assets。
 
-手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。
+手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；解开后应直接得到程序文件，不应再出现产品 ZIP。
 
 ## 仓库与首次发布
 
@@ -159,8 +160,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -178,7 +179,7 @@ git push origin v0.1.0
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
-- 解压 zip，验证 marker、逐文件 checksums 和两个可执行程序；
+- 解压 zip，验证根启动器、`manager\` 兼容入口、Updater、marker 和逐文件 checksums；确认只需从根目录启动 Manager；
 - 用前一版本执行一次完整自更新与失败回滚测试；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；

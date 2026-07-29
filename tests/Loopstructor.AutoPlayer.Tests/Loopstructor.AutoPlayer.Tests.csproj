@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Core\Loopstructor.AutoPlayer.Core.csproj" />
+    <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Launcher\Loopstructor.AutoPlayer.Launcher.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj" />
   </ItemGroup>
 </Project>

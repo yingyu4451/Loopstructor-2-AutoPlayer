@@ -13,6 +13,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $repositoryRoot = Get-RepositoryRoot
 $runtimeIdentifier = 'win-x64'
+$launcherProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Launcher\Loopstructor.AutoPlayer.Launcher.csproj'
 $managerProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj'
 $updaterProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj'
 $pluginProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj'
@@ -158,6 +159,41 @@ function Publish-WindowsProject {
     )
 }
 
+function Publish-RootLauncher {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Project,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Output,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PackageVersion
+    )
+
+    Invoke-DotNet -Arguments @(
+        'restore',
+        $Project,
+        '--runtime', $runtimeIdentifier,
+        '--configfile', $script:NuGetConfigPath,
+        '--verbosity', 'minimal',
+        '-p:PublishRootLauncher=true'
+    )
+
+    Invoke-DotNet -Arguments @(
+        'publish',
+        $Project,
+        '--configuration', 'Release',
+        '--runtime', $runtimeIdentifier,
+        '--self-contained', 'true',
+        '--no-restore',
+        '--output', $Output,
+        '--nologo',
+        "-p:Version=$PackageVersion",
+        '-p:PublishRootLauncher=true'
+    )
+}
+
 function New-DeterministicZip {
     param(
         [Parameter(Mandatory = $true)]
@@ -198,7 +234,7 @@ function New-DeterministicZip {
     }
 }
 
-foreach ($requiredProject in @($managerProject, $updaterProject, $pluginProject)) {
+foreach ($requiredProject in @($launcherProject, $managerProject, $updaterProject, $pluginProject)) {
     if (-not (Test-Path -LiteralPath $requiredProject -PathType Leaf)) {
         throw "Required release project not found: $requiredProject"
     }
@@ -224,12 +260,24 @@ foreach ($directory in @($packageWorkRoot, $releaseRoot)) {
 
 $managerOutput = Join-Path $packageRoot 'manager'
 $updaterOutput = Join-Path $packageRoot 'updater'
+$launcherOutput = Join-Path $packageWorkRoot 'launcher'
 $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 
 Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-WindowsProject -Project $updaterProject -Output $updaterOutput -PackageVersion $packageVersion
+Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
+
+$launcherFiles = @(Get-ChildItem -LiteralPath $launcherOutput -Recurse -File -Force)
+$launcherExecutable = Join-Path $launcherOutput 'Loopstructor.AutoPlayer.Launcher.exe'
+if ($launcherFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $launcherExecutable -PathType Leaf)) {
+    $launcherNames = ($launcherFiles | ForEach-Object { $_.FullName.Substring($launcherOutput.Length + 1) }) -join ', '
+    throw "Root launcher must publish as exactly one executable. Found: $launcherNames"
+}
+
+$rootManagerExecutable = Join-Path $packageRoot 'Loopstructor.AutoPlayer.Manager.exe'
+Copy-Item -LiteralPath $launcherExecutable -Destination $rootManagerExecutable
 
 $bepInExArchive = Get-VerifiedBepInExArchive -RuntimeInfo $bepInEx
 New-Item -ItemType Directory -Path $bepInExPayloadOutput -Force | Out-Null
@@ -256,7 +304,7 @@ $marker = [ordered]@{
     schemaVersion = 1
     version = $packageVersion
     runtimeIdentifier = $runtimeIdentifier
-    managerPath = 'manager/Loopstructor.AutoPlayer.Manager.exe'
+    managerPath = 'Loopstructor.AutoPlayer.Manager.exe'
     updaterPath = 'updater/Loopstructor.AutoPlayer.Updater.exe'
     payloadPath = 'payload'
     bepInExPayloadPath = 'payload/bepinex'

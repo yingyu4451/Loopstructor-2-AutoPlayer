@@ -159,6 +159,8 @@ public sealed class ReleaseMarker
 {
     public string Version { get; set; } = string.Empty;
     public string BepInExVersion { get; set; } = string.Empty;
+    public string ManagerPath { get; set; } = "manager/Loopstructor.AutoPlayer.Manager.exe";
+    public string UpdaterPath { get; set; } = "updater/Loopstructor.AutoPlayer.Updater.exe";
     public string BepInExPayloadPath { get; set; } = string.Empty;
     public string PluginPayloadPath { get; set; } = string.Empty;
 }

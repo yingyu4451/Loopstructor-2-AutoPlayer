@@ -21,14 +21,7 @@ public sealed class ReleasePackageValidator
             ValidateTargetPath(root);
         }
 
-        string markerPath = Path.Combine(root, "autoplayer-release.json");
-        if (!File.Exists(markerPath))
-        {
-            throw new InvalidDataException("Release root is missing autoplayer-release.json.");
-        }
-
-        ReleaseMarker marker = JsonSerializer.Deserialize<ReleaseMarker>(File.ReadAllText(markerPath), JsonOptions)
-                               ?? throw new InvalidDataException("Release marker is empty.");
+        ReleaseMarker marker = ReadMarker(root);
         if (!SemanticVersion.TryParse(marker.Version, out _))
         {
             throw new InvalidDataException("Release marker version is invalid.");
@@ -51,6 +44,18 @@ public sealed class ReleasePackageValidator
         RequireDirectory(root, "payload");
         RequireExecutableOrDll(root, "manager", "Loopstructor.AutoPlayer.Manager");
         RequireExecutableOrDll(root, "updater", "Loopstructor.AutoPlayer.Updater");
+        ResolveEntryPoint(
+            root,
+            marker.ManagerPath,
+            "manager/Loopstructor.AutoPlayer.Manager.exe",
+            "Loopstructor.AutoPlayer.Manager",
+            "Manager entry point");
+        ResolveEntryPoint(
+            root,
+            marker.UpdaterPath,
+            "updater/Loopstructor.AutoPlayer.Updater.exe",
+            "Loopstructor.AutoPlayer.Updater",
+            "Updater entry point");
 
         string bepinexPayload = string.IsNullOrWhiteSpace(marker.BepInExPayloadPath)
             ? Path.Combine("payload", "bepinex")
@@ -72,6 +77,38 @@ public sealed class ReleasePackageValidator
 
     public static string NormalizeRoot(string path) => Path.GetFullPath(path)
         .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    internal static ReleaseMarker ReadMarker(string rootPath)
+    {
+        string root = NormalizeRoot(rootPath);
+        string markerPath = Path.Combine(root, "autoplayer-release.json");
+        if (!File.Exists(markerPath))
+        {
+            throw new InvalidDataException("Release root is missing autoplayer-release.json.");
+        }
+
+        return JsonSerializer.Deserialize<ReleaseMarker>(File.ReadAllText(markerPath), JsonOptions)
+               ?? throw new InvalidDataException("Release marker is empty.");
+    }
+
+    internal static string ResolveEntryPoint(
+        string rootPath,
+        string configuredPath,
+        string fallbackPath,
+        string expectedStem,
+        string label)
+    {
+        string root = NormalizeRoot(rootPath);
+        string relative = string.IsNullOrWhiteSpace(configuredPath) ? fallbackPath : configuredPath;
+        string fileName = Path.GetFileName(relative);
+        if (!string.Equals(fileName, expectedStem + ".exe", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(fileName, expectedStem + ".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(label + " has an unexpected file name.");
+        }
+
+        return RequireSafeRelativeFile(root, relative, label);
+    }
 
     private static void ValidateTargetPath(string root)
     {
@@ -127,6 +164,23 @@ public sealed class ReleasePackageValidator
         if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(full))
         {
             throw new InvalidDataException(label + " directory is missing or outside the release root.");
+        }
+
+        return full;
+    }
+
+    private static string RequireSafeRelativeFile(string root, string relative, string label)
+    {
+        if (Path.IsPathRooted(relative))
+        {
+            throw new InvalidDataException(label + " path must be relative.");
+        }
+
+        string full = Path.GetFullPath(Path.Combine(root, relative));
+        string prefix = root + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+        {
+            throw new InvalidDataException(label + " is missing or outside the release root.");
         }
 
         return full;
