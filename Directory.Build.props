@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>PoneGames QA</Authors>
+    <RepositoryType>git</RepositoryType>
+
+    <BepInExRuntimeVersion>5.4.23.5</BepInExRuntimeVersion>
+    <BepInExRuntimeArchiveName>BepInEx_win_x64_$(BepInExRuntimeVersion).zip</BepInExRuntimeArchiveName>
+    <BepInExRuntimeDownloadUrl>https://github.com/BepInEx/BepInEx/releases/download/v$(BepInExRuntimeVersion)/$(BepInExRuntimeArchiveName)</BepInExRuntimeDownloadUrl>
+    <BepInExRuntimeSha256>82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4</BepInExRuntimeSha256>
+  </PropertyGroup>
+</Project>

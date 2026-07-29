@@ -1,0 +1,34 @@
+.vs/
+.idea/
+.dotnet/
+.dotnet-staging-*/
+.tools/
+artifacts/
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+*.binlog
+*.trx
+*.nupkg
+*.snupkg
+payload/
+release-output/
+
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+
+# Runtime evidence and crash output
+*.log
+*.dmp
+/profiles/
+/evidence/
+/logs/
+/state/

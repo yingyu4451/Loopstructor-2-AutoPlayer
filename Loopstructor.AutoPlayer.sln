@@ -1,0 +1,49 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Core", "src\Loopstructor.AutoPlayer.Core\Loopstructor.AutoPlayer.Core.csproj", "{EF690EDC-78FA-4FEA-AB52-98FE40DDBE9D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Plugin", "src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj", "{8F0FF1E5-E08D-42D9-9EEC-DA50FDD86361}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Manager", "src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj", "{FEE475C2-BC58-4106-8E1F-55771F577882}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Updater", "src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj", "{6E92D859-B2A3-4594-BF59-1E12B2E2A665}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Updater.Verification", "src\Loopstructor.AutoPlayer.Updater\Verification\Verification.csproj", "{A31F7CE0-8843-4E32-BBF7-4C16D257384E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Loopstructor.AutoPlayer.Tests", "tests\Loopstructor.AutoPlayer.Tests\Loopstructor.AutoPlayer.Tests.csproj", "{4E10E46D-9422-49C0-A746-A754CA6DD70D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EF690EDC-78FA-4FEA-AB52-98FE40DDBE9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EF690EDC-78FA-4FEA-AB52-98FE40DDBE9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EF690EDC-78FA-4FEA-AB52-98FE40DDBE9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EF690EDC-78FA-4FEA-AB52-98FE40DDBE9D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8F0FF1E5-E08D-42D9-9EEC-DA50FDD86361}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F0FF1E5-E08D-42D9-9EEC-DA50FDD86361}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F0FF1E5-E08D-42D9-9EEC-DA50FDD86361}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F0FF1E5-E08D-42D9-9EEC-DA50FDD86361}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FEE475C2-BC58-4106-8E1F-55771F577882}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEE475C2-BC58-4106-8E1F-55771F577882}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEE475C2-BC58-4106-8E1F-55771F577882}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEE475C2-BC58-4106-8E1F-55771F577882}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6E92D859-B2A3-4594-BF59-1E12B2E2A665}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E92D859-B2A3-4594-BF59-1E12B2E2A665}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E92D859-B2A3-4594-BF59-1E12B2E2A665}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E92D859-B2A3-4594-BF59-1E12B2E2A665}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A31F7CE0-8843-4E32-BBF7-4C16D257384E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A31F7CE0-8843-4E32-BBF7-4C16D257384E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A31F7CE0-8843-4E32-BBF7-4C16D257384E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A31F7CE0-8843-4E32-BBF7-4C16D257384E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E10E46D-9422-49C0-A746-A754CA6DD70D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E10E46D-9422-49C0-A746-A754CA6DD70D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E10E46D-9422-49C0-A746-A754CA6DD70D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E10E46D-9422-49C0-A746-A754CA6DD70D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
