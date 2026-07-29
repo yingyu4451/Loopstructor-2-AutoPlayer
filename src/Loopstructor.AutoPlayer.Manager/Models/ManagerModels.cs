@@ -85,14 +85,17 @@ internal readonly record struct RunControlAvailability(
 
 public sealed class ManagerSettings
 {
+    public const string DefaultGitHubOwner = "yingyu4451";
+    public const string DefaultGitHubRepository = "gui2";
+
     public string GameRoot { get; set; } = string.Empty;
     public string ProfileName { get; set; } = "qa-default";
     public bool ContinueExistingProfile { get; set; }
     public AutomationGameMode GameMode { get; set; } = AutomationGameMode.Common;
     public int SpeedState { get; set; } = 2;
     public int MaxRunMinutes { get; set; } = 120;
-    public string GitHubOwner { get; set; } = string.Empty;
-    public string GitHubRepository { get; set; } = string.Empty;
+    public string GitHubOwner { get; set; } = DefaultGitHubOwner;
+    public string GitHubRepository { get; set; } = DefaultGitHubRepository;
     public bool CheckUpdatesOnStart { get; set; } = true;
 }
 

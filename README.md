@@ -116,11 +116,6 @@ docs/                                  架构、安全与发布说明
 
 push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成 Windows x64 zip、SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。更新器只从同一个 Release 获取清单指定的资产，并在替换前校验文件大小、SHA-256 和包内 `autoplayer-release.json`。
 
-当前目录尚未配置 Git 仓库和远端。首次发布前仍需由项目所有者明确提供：
+默认发布与更新源为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)。Manager 设置可以切换到其他仓库；环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 的优先级更高，适合临时测试 fork。
 
-- GitHub owner 或 organization；
-- repository 名称；
-- 仓库公开或私有；
-- 私有仓库更新所需的认证方式。
-
-没有明确的 `owner/repository` 坐标时，可以本地构建和打包，但不能可靠查询或发布 GitHub Release，也不能启用正式自更新。
+公开仓库可匿名检查 GitHub Releases。私有仓库必须在启动 Manager 的进程环境中提供只读 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_TOKEN`；不要把 token 写入源码、Manager 设置、发布包或日志。

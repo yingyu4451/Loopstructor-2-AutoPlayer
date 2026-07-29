@@ -113,8 +113,8 @@ public sealed class UpdateCommandOptions
 
 public sealed class UpdateSourceSettings
 {
-    public string GitHubOwner { get; set; } = string.Empty;
-    public string GitHubRepository { get; set; } = string.Empty;
+    public string GitHubOwner { get; set; } = "yingyu4451";
+    public string GitHubRepository { get; set; } = "gui2";
     public string RuntimeIdentifier { get; set; } = "win-x64";
     public string ManifestAssetName { get; set; } = "autoplayer-update-manifest.json";
 }

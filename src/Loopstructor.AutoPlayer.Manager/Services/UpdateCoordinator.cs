@@ -202,14 +202,28 @@ public sealed class UpdateCoordinator
         return false;
     }
 
-    private static bool TryResolveCoordinates(ManagerSettings settings, out string owner, out string repository)
+    internal static bool TryResolveCoordinates(ManagerSettings settings, out string owner, out string repository)
     {
-        owner = string.IsNullOrWhiteSpace(settings.GitHubOwner)
-            ? Environment.GetEnvironmentVariable(GitHubOwnerEnvironmentVariable) ?? string.Empty
-            : settings.GitHubOwner.Trim();
-        repository = string.IsNullOrWhiteSpace(settings.GitHubRepository)
-            ? Environment.GetEnvironmentVariable(GitHubRepositoryEnvironmentVariable) ?? string.Empty
-            : settings.GitHubRepository.Trim();
+        ArgumentNullException.ThrowIfNull(settings);
+        owner = ResolveCoordinate(
+            GitHubOwnerEnvironmentVariable,
+            settings.GitHubOwner,
+            ManagerSettings.DefaultGitHubOwner);
+        repository = ResolveCoordinate(
+            GitHubRepositoryEnvironmentVariable,
+            settings.GitHubRepository,
+            ManagerSettings.DefaultGitHubRepository);
         return CoordinatePattern.IsMatch(owner) && CoordinatePattern.IsMatch(repository);
+    }
+
+    private static string ResolveCoordinate(string environmentVariable, string configuredValue, string defaultValue)
+    {
+        string? environmentValue = Environment.GetEnvironmentVariable(environmentVariable);
+        if (!string.IsNullOrWhiteSpace(environmentValue))
+        {
+            return environmentValue.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(configuredValue) ? defaultValue : configuredValue.Trim();
     }
 }

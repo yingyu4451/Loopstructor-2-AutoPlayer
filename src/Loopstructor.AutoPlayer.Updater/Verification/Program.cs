@@ -9,6 +9,7 @@ Directory.CreateDirectory(verificationRoot);
 try
 {
     VerifySemanticVersions();
+    VerifyDefaultUpdateConfiguration(verificationRoot);
     VerifyZipExtraction(verificationRoot);
     VerifyTransactionalReplacement(verificationRoot);
     VerifyInterruptedRecovery(verificationRoot);
@@ -27,6 +28,38 @@ static void VerifySemanticVersions()
     Require(SemanticVersion.TryParse("1.0.0-beta.1", out SemanticVersion? preview), "preview SemVer parse");
     Require(SemanticVersion.TryParse("1.0.0", out SemanticVersion? stable), "stable SemVer parse");
     Require(preview!.CompareTo(stable) < 0, "SemVer prerelease precedence");
+}
+
+static void VerifyDefaultUpdateConfiguration(string root)
+{
+    string? originalOwner = Environment.GetEnvironmentVariable(UpdateConfigurationLoader.GitHubOwnerEnvironmentVariable);
+    string? originalRepository = Environment.GetEnvironmentVariable(UpdateConfigurationLoader.GitHubRepositoryEnvironmentVariable);
+    string? originalToken = Environment.GetEnvironmentVariable(UpdateConfigurationLoader.GitHubTokenEnvironmentVariable);
+    string? originalGitHubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+    try
+    {
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubOwnerEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubRepositoryEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubTokenEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", null);
+
+        string applicationDirectory = Path.Combine(root, "default-update-configuration");
+        Directory.CreateDirectory(applicationDirectory);
+        UpdateCommandOptions options = UpdateCommandOptions.Parse(new[] { "check", "--current-version", "0.1.0" });
+        LoadedUpdateConfiguration configuration = new UpdateConfigurationLoader().Load(options, applicationDirectory);
+
+        Require(configuration.ConfigurationPath.Length == 0, "default update configuration does not require a file");
+        Require(configuration.Source.GitHubOwner == "yingyu4451", "default GitHub owner");
+        Require(configuration.Source.GitHubRepository == "gui2", "default GitHub repository");
+        Require(configuration.GitHubToken.Length == 0, "default update configuration does not invent a token");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubOwnerEnvironmentVariable, originalOwner);
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubRepositoryEnvironmentVariable, originalRepository);
+        Environment.SetEnvironmentVariable(UpdateConfigurationLoader.GitHubTokenEnvironmentVariable, originalToken);
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", originalGitHubToken);
+    }
 }
 
 static void VerifyZipExtraction(string root)

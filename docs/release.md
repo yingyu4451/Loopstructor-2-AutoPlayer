@@ -139,24 +139,21 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 
 手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。
 
-## 首次发布前必须确定仓库坐标
+## 仓库与首次发布
 
-当前工作目录没有 Git 仓库或 GitHub remote。首次发布仍需要项目所有者明确 `owner/repository`，例如 `PoneGames/Loopstructor-AutoPlayer`。这项信息不能从 Unity 项目或本地目录可靠推断。
+Git 仓库和 `origin` 已配置为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)，默认分支为 `main`。Manager 与 Updater 的默认更新源使用相同坐标；环境变量可在不改包的情况下临时覆盖到测试 fork。
 
-还必须决定仓库是公开还是私有：
+仓库可见性决定客户端认证方式：
 
 - 公开仓库可使用 GitHub Releases 匿名检查更新；
 - 私有仓库必须设计 token 的安全存储、最小权限和撤销流程，不能把个人访问令牌编译进程序。
 
-坐标确定后，初始化示例为：
+发布前先确认本地提交已经推送到正确远端：
 
 ```powershell
-git init
-git branch -M main
-git remote add origin https://github.com/<owner>/<repository>.git
-git add .
-git commit -m "Initial AutoPlayer release"
-git push -u origin main
+git remote -v
+git status --short --branch
+git fetch origin
 ```
 
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
@@ -168,7 +165,7 @@ git push origin v0.1.0
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
 
-管理器的更新源也必须使用同一个 owner/repository。坐标尚未提供时，应显示“更新源未配置”，允许本地使用，但不得猜测仓库或查询无关项目。
+如果仓库保持私有，每台测试机都必须通过进程环境或受控的秘密管理器提供只读 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_TOKEN`。不要使用 `setx` 永久保存 token，不要把 token 写入 Manager 设置、仓库、发布包或日志。公开仓库不需要 token。
 
 ## 发布检查表
 
@@ -185,7 +182,7 @@ git push origin v0.1.0
 - 用前一版本执行一次完整自更新与失败回滚测试；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；
-- GitHub `owner/repository`、公开/私有选择和私有仓库认证方式必须由项目所有者提供；未提供时只生成本地包，不发布 Release，也不启用正式自更新。
+- GitHub 发布与更新坐标保持为 `yingyu4451/gui2`；若仓库私有，确认测试机通过安全环境提供只读 token，且发布包、日志和 Git 历史均不含 token。
 
 ## 升级 BepInEx
 
