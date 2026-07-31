@@ -49,8 +49,6 @@ internal sealed class MainForm : Form
     private Button _launchButton = null!;
     private TextBox _profileName = null!;
     private CheckBox _continueProfile = null!;
-    private TextBox _githubOwner = null!;
-    private TextBox _githubRepository = null!;
     private CheckBox _autoUpdateCheck = null!;
     private ComboBox _mode = null!;
     private NumericUpDown _speed = null!;
@@ -317,10 +315,6 @@ internal sealed class MainForm : Form
         fields.Controls.Add(_launchButton);
         fields.Controls.Add(Divider());
 
-        _githubOwner = InputBox();
-        _githubRepository = InputBox();
-        fields.Controls.Add(FieldPanel("GitHub Owner", _githubOwner));
-        fields.Controls.Add(FieldPanel("GitHub Repository", _githubRepository));
         _autoUpdateCheck = new CheckBox
         {
             Text = "启动 Manager 时检查更新",
@@ -530,14 +524,13 @@ internal sealed class MainForm : Form
 
     private void BindSettings()
     {
+        _settings.NormalizeUpdateSource();
         _gamePath.Text = _settings.GameRoot;
         _profileName.Text = string.IsNullOrWhiteSpace(_settings.ProfileName) ? "qa-default" : _settings.ProfileName;
         _continueProfile.Checked = _settings.ContinueExistingProfile;
         _mode.SelectedIndex = _settings.GameMode == AutomationGameMode.Random ? 1 : 0;
         _speed.Value = Math.Clamp(_settings.SpeedState, 0, 2);
         _maxMinutes.Value = Math.Clamp(_settings.MaxRunMinutes, 5, 480);
-        _githubOwner.Text = _settings.GitHubOwner;
-        _githubRepository.Text = _settings.GitHubRepository;
         _autoUpdateCheck.Checked = _settings.CheckUpdatesOnStart;
     }
 
@@ -1349,8 +1342,7 @@ internal sealed class MainForm : Form
         _settings.GameMode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common;
         _settings.SpeedState = (int)_speed.Value;
         _settings.MaxRunMinutes = (int)_maxMinutes.Value;
-        _settings.GitHubOwner = _githubOwner.Text.Trim();
-        _settings.GitHubRepository = _githubRepository.Text.Trim();
+        _settings.NormalizeUpdateSource();
         _settings.CheckUpdatesOnStart = _autoUpdateCheck.Checked;
         try
         {

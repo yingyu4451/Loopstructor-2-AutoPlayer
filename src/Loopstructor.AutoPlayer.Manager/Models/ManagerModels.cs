@@ -97,6 +97,15 @@ public sealed class ManagerSettings
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
     public bool CheckUpdatesOnStart { get; set; } = true;
+
+    public void NormalizeUpdateSource()
+    {
+        GitHubOwner = NormalizeCoordinate(GitHubOwner, DefaultGitHubOwner);
+        GitHubRepository = NormalizeCoordinate(GitHubRepository, DefaultGitHubRepository);
+    }
+
+    private static string NormalizeCoordinate(string? value, string defaultValue) =>
+        string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
 }
 
 public sealed class GameInstallValidation

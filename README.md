@@ -23,13 +23,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.1.1 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.2 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.1
+.\scripts\package.ps1 -Version 0.1.2
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
@@ -117,6 +117,6 @@ docs/                                  架构、安全与发布说明
 
 push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成 Windows x64 zip、SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。更新器只从同一个 Release 获取清单指定的资产，并在替换前校验文件大小、SHA-256 和包内 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是可运行目录和根部 Manager EXE，不再包含第二层产品 ZIP。
 
-默认发布与更新源为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)。Manager 设置可以切换到其他仓库；环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 的优先级更高，适合临时测试 fork。
+默认发布与更新源为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)，Manager 界面不再显示仓库地址输入框，也无需手工填写。旧版本遗留的空白更新源会自动迁移为该默认值；开发测试 fork 时仍可用环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 临时覆盖。
 
 公开仓库可匿名检查 GitHub Releases。私有仓库必须在启动 Manager 的进程环境中提供只读 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_TOKEN`；不要把 token 写入源码、Manager 设置、发布包或日志。

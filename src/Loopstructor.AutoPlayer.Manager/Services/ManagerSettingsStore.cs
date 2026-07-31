@@ -23,8 +23,10 @@ public sealed class ManagerSettingsStore
 
         try
         {
-            return JsonConvert.DeserializeObject<ManagerSettings>(File.ReadAllText(SettingsPath))
-                   ?? new ManagerSettings();
+            ManagerSettings settings = JsonConvert.DeserializeObject<ManagerSettings>(File.ReadAllText(SettingsPath))
+                                       ?? new ManagerSettings();
+            settings.NormalizeUpdateSource();
+            return settings;
         }
         catch (Exception exception)
         {
@@ -36,6 +38,7 @@ public sealed class ManagerSettingsStore
     public void Save(ManagerSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        settings.NormalizeUpdateSource();
         AtomicFile.WriteAllText(SettingsPath, JsonConvert.SerializeObject(settings, Formatting.Indented));
     }
 }

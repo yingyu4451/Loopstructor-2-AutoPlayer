@@ -60,21 +60,21 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.1
+.\scripts\package.ps1 -Version 0.1.2
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.1 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.2 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.1-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.1-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.2-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.2-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
@@ -101,9 +101,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 ```json
 {
   "schemaVersion": 1,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.1-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.2-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -142,7 +142,7 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 
 ## 仓库与首次发布
 
-Git 仓库和 `origin` 已配置为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)，默认分支为 `main`。Manager 与 Updater 的默认更新源使用相同坐标；环境变量可在不改包的情况下临时覆盖到测试 fork。
+Git 仓库和 `origin` 已配置为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)，默认分支为 `main`。Manager 与 Updater 的默认更新源使用相同坐标，Manager 界面不提供仓库地址输入框；旧版 `settings.json` 中的空白坐标会在加载和保存时迁移为该默认值，因此用户无需手工填写。环境变量可在不改包的情况下临时覆盖到测试 fork。
 
 仓库可见性决定客户端认证方式：
 
@@ -160,8 +160,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
