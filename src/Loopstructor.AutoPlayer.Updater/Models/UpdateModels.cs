@@ -193,6 +193,9 @@ internal sealed class GitHubAssetResponse
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    [JsonPropertyName("url")]
+    public string ApiUrl { get; set; } = string.Empty;
+
     [JsonPropertyName("browser_download_url")]
     public string BrowserDownloadUrl { get; set; } = string.Empty;
 

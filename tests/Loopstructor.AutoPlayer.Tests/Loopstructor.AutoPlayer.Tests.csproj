@@ -17,5 +17,6 @@
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Core\Loopstructor.AutoPlayer.Core.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Launcher\Loopstructor.AutoPlayer.Launcher.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj" />
+    <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj" />
   </ItemGroup>
 </Project>

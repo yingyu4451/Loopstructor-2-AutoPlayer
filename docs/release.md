@@ -60,25 +60,25 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.3
+.\scripts\package.ps1 -Version 0.1.4
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.3 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.4 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.3-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.3-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.4-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.4-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 同时用于手动下载和新版自动更新。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 同时用于手动下载和新版自动更新。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -104,15 +104,17 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.3-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.4-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
 ```
 
-更新器必须从同一个 GitHub Release 的 assets 中按 `assetName` 获取这唯一 ZIP 的 `browser_download_url`，不能信任清单中附带的任意下载 URL。下载后依次验证：
+公开仓库且未提供 token 时，更新器不调用匿名 GitHub REST API。它先访问 `https://github.com/<owner>/<repository>/releases/latest`，只接受跳转到同一仓库的精确版本 tag；随后通过该 tag 的 `releases/download/<tag>/...` Release 资产地址下载清单和 ZIP。这样不会消耗匿名 REST API 每个出口 IP 每小时 60 次的配额，也避免在清单下载后继续使用可变化的 `latest` 地址。
+
+提供 token（包括访问私有仓库）时，更新器才调用 GitHub REST API，并使用同一个 API Release 返回的资产 URL。凭据只发送给 `api.github.com`；资产下载跳转到 GitHub Release CDN 后不得转发 `Authorization`。两种路径都不能信任清单中附带的任意下载 URL，并且必须确认精确 Release tag、清单 `version` 和版本化 `assetName` 一致。下载后依次验证：
 
 1. `schemaVersion` 支持；
 2. `version` 是比当前版本新的 SemVer；
@@ -126,6 +128,8 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 验证完成后在 staging 目录解压，退出管理器，再由独立 Updater 替换工具目录。任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
 
 清单协议从 schema 1 升级为 schema 2，归档也从扁平结构改为固定包装目录。因此 `v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载 `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 并解压；完成这次迁移后，后续新版可以按 schema 2 和同一归档结构自动更新。
+
+`v0.1.3` 的无 token 更新检查仍调用匿名 REST API。如果它正报告 `403 (rate limit exceeded)`，可等待配额恢复、仅在当前 Manager 进程环境中临时提供只读 token，或手动下载并安装 `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 一次。安装 `v0.1.4` 后，公开仓库的无 token 更新改用网页端 `releases/latest` 和精确 tag 的 Release 资产地址。
 
 ## GitHub Actions
 
@@ -152,7 +156,8 @@ Git 仓库和 `origin` 已配置为 [`yingyu4451/gui2`](https://github.com/yingy
 
 仓库可见性决定客户端认证方式：
 
-- 公开仓库可使用 GitHub Releases 匿名检查更新；
+- 公开仓库在无 token 时使用网页端 `releases/latest` 和精确 tag 的 Release 资产地址，不调用匿名 REST API，也不占用每个出口 IP 每小时 60 次的匿名 API 配额；
+- 提供 token 或访问私有仓库时使用 GitHub REST API 的资产 URL；token 只能发送给 `api.github.com`，不得转发给 Release CDN；
 - 私有仓库必须设计 token 的安全存储、最小权限和撤销流程，不能把个人访问令牌编译进程序。
 
 发布前先确认本地提交已经推送到正确远端：
@@ -166,13 +171,13 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
 
-如果仓库保持私有，每台测试机都必须通过进程环境或受控的秘密管理器提供只读 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_TOKEN`。不要使用 `setx` 永久保存 token，不要把 token 写入 Manager 设置、仓库、发布包或日志。公开仓库不需要 token。
+如果仓库保持私有，每台测试机都必须通过进程环境或受控的秘密管理器提供只读 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_TOKEN`。不要使用 `setx` 永久保存 token，不要把 token 写入 Manager 设置、仓库、发布包或日志；下载重定向到 Release CDN 时也不得携带该 token。公开仓库不需要 token。
 
 ## 发布检查表
 
@@ -187,6 +192,7 @@ git push origin v0.1.3
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
 - 解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器、内部 Manager、Updater、marker 和逐文件 checksums；
 - 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；
+- 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
 - 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
 - 发布后续版本时，用支持 schema 2 的前一版本执行一次完整自更新与失败回滚测试；`v0.1.2` 到 `v0.1.3` 只验证手动迁移；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
