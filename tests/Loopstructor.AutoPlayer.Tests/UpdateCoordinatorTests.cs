@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
 using Newtonsoft.Json;
@@ -142,7 +143,41 @@ public sealed class UpdateCoordinatorTests
     }
 
     [Fact]
-    public void TryCreateInvocation_DllWithoutSelfContainedExecutableIsRejected()
+    public void TryCreateInvocation_SharedRuntimeStartsManagerDirectoryUpdater()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "LoopstructorAutoPlayerTests",
+            Guid.NewGuid().ToString("N"));
+        string managerDirectory = Path.Combine(root, "manager");
+        Directory.CreateDirectory(managerDirectory);
+        try
+        {
+            string sharedUpdaterExecutable = Path.Combine(managerDirectory, "Loopstructor.AutoPlayer.Updater.exe");
+            string legacyUpdaterDirectory = Path.Combine(root, "updater");
+            Directory.CreateDirectory(legacyUpdaterDirectory);
+            File.WriteAllBytes(
+                Path.Combine(legacyUpdaterDirectory, "Loopstructor.AutoPlayer.Updater.exe"),
+                Array.Empty<byte>());
+            File.WriteAllBytes(sharedUpdaterExecutable, Array.Empty<byte>());
+            UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
+
+            bool created = coordinator.TryCreateInvocation(out ProcessStartInfo startInfo, "check");
+
+            Assert.True(created);
+            Assert.Equal(sharedUpdaterExecutable, startInfo.FileName);
+            Assert.Equal(managerDirectory, startInfo.WorkingDirectory);
+            Assert.False(startInfo.UseShellExecute);
+            Assert.Equal(new[] { "check" }, startInfo.ArgumentList);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryCreateInvocation_CompatibilityAssemblyWithoutUpdaterExecutableIsRejected()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -160,6 +195,35 @@ public sealed class UpdateCoordinatorTests
             bool created = coordinator.TryCreateInvocation(out _, "check");
 
             Assert.False(created);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryCreateInvocation_LegacyExecutableRemainsSupported()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "LoopstructorAutoPlayerTests",
+            Guid.NewGuid().ToString("N"));
+        string updaterDirectory = Path.Combine(root, "updater");
+        Directory.CreateDirectory(updaterDirectory);
+        try
+        {
+            string updaterExecutable = Path.Combine(updaterDirectory, "Loopstructor.AutoPlayer.Updater.exe");
+            File.WriteAllBytes(updaterExecutable, Array.Empty<byte>());
+            UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
+
+            bool created = coordinator.TryCreateInvocation(out ProcessStartInfo startInfo, "apply");
+
+            Assert.True(created);
+            Assert.Equal(updaterExecutable, startInfo.FileName);
+            Assert.Equal(updaterDirectory, startInfo.WorkingDirectory);
+            Assert.False(startInfo.UseShellExecute);
+            Assert.Equal(new[] { "apply" }, startInfo.ArgumentList);
         }
         finally
         {

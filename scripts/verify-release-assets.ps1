@@ -284,26 +284,30 @@ foreach ($requiredFile in @(
     'autoplayer-release.json'
     'checksums.sha256'
     'manager/Loopstructor.AutoPlayer.Manager.exe'
-    'updater/Loopstructor.AutoPlayer.Updater.exe'
-    'updater/System.Windows.Forms.dll'
-    'updater/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
-    'updater/hostfxr.dll'
-    'updater/hostpolicy.dll'
-    'updater/coreclr.dll'
+    'manager/Loopstructor.AutoPlayer.Manager.dll'
+    'manager/Loopstructor.AutoPlayer.Updater.exe'
+    'manager/Loopstructor.AutoPlayer.Updater.dll'
+    'manager/Loopstructor.AutoPlayer.Updater.deps.json'
+    'manager/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
+    'manager/System.Windows.Forms.dll'
+    'manager/hostfxr.dll'
+    'manager/hostpolicy.dll'
+    'manager/coreclr.dll'
+    'updater/Loopstructor.AutoPlayer.Updater.dll'
 )) {
     if (-not ($packagePaths -ccontains $requiredFile)) {
         throw "Release archive is missing required file: $requiredFile"
     }
 }
 
-$managerPackageFiles = @($packagePaths | Where-Object {
-    $_.StartsWith('manager/', [StringComparison]::Ordinal)
+$updaterCompatibilityFiles = @($packagePaths | Where-Object {
+    $_.StartsWith('updater/', [StringComparison]::Ordinal)
 })
-if ($managerPackageFiles.Count -ne 1 -or
+if ($updaterCompatibilityFiles.Count -ne 1 -or
     -not [StringComparer]::Ordinal.Equals(
-        $managerPackageFiles[0],
-        'manager/Loopstructor.AutoPlayer.Manager.exe')) {
-    throw "Internal Manager must be exactly one self-contained EXE: $($managerPackageFiles -join ', ')"
+        $updaterCompatibilityFiles[0],
+        'updater/Loopstructor.AutoPlayer.Updater.dll')) {
+    throw "Updater compatibility directory contains unexpected files: $($updaterCompatibilityFiles -join ', ')"
 }
 foreach ($requiredDirectory in @('manager/', 'payload/', 'updater/')) {
     if (@($packagePaths | Where-Object { $_.StartsWith($requiredDirectory, [StringComparison]::Ordinal) }).Count -eq 0) {
@@ -315,7 +319,7 @@ $markerEntryName = "$prefix" + 'autoplayer-release.json'
 $marker = Read-ZipEntryText -Path $archivePath -EntryName $markerEntryName | ConvertFrom-Json
 if (-not [StringComparer]::Ordinal.Equals([string]$marker.version, $packageVersion) -or
     -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor.AutoPlayer.Manager.exe') -or
-    -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'updater/Loopstructor.AutoPlayer.Updater.exe')) {
+    -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'manager/Loopstructor.AutoPlayer.Updater.exe')) {
     throw 'Release marker version, root Manager entry point, or Updater entry point is incorrect.'
 }
 

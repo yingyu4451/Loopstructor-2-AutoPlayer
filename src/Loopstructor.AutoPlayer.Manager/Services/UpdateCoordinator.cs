@@ -41,7 +41,7 @@ public sealed class UpdateCoordinator
             return new ManagerUpdateStatus
             {
                 CurrentVersion = CurrentVersion,
-                Message = "发布目录中缺少独立的 Updater 可执行文件。"
+                Message = "发布目录中缺少随包提供的更新组件。"
             };
         }
 
@@ -138,7 +138,7 @@ public sealed class UpdateCoordinator
 
         if (!TryCreateInvocation(out ProcessStartInfo startInfo, "apply"))
         {
-            return (false, "发布目录中缺少独立的 Updater 可执行文件。");
+            return (false, "发布目录中缺少随包提供的更新组件。");
         }
 
         startInfo.ArgumentList.Add("--target");
@@ -172,6 +172,17 @@ public sealed class UpdateCoordinator
 
     internal bool TryCreateInvocation(out ProcessStartInfo startInfo, string command)
     {
+        if (File.Exists(_layout.SharedUpdaterExecutable))
+        {
+            startInfo = new ProcessStartInfo(_layout.SharedUpdaterExecutable)
+            {
+                WorkingDirectory = Path.GetDirectoryName(_layout.SharedUpdaterExecutable)!,
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add(command);
+            return true;
+        }
+
         if (File.Exists(_layout.UpdaterExecutable))
         {
             startInfo = new ProcessStartInfo(_layout.UpdaterExecutable)

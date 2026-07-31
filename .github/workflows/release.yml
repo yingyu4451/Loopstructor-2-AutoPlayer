@@ -92,8 +92,15 @@ jobs:
             'Loopstructor.AutoPlayer.Manager.exe'
             'autoplayer-release.json'
             'checksums.sha256'
-            'updater/Loopstructor.AutoPlayer.Updater.exe'
-            'updater/System.Windows.Forms.dll'
+            'manager/Loopstructor.AutoPlayer.Manager.exe'
+            'manager/Loopstructor.AutoPlayer.Manager.dll'
+            'manager/Loopstructor.AutoPlayer.Updater.exe'
+            'manager/Loopstructor.AutoPlayer.Updater.dll'
+            'manager/Loopstructor.AutoPlayer.Updater.deps.json'
+            'manager/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
+            'manager/coreclr.dll'
+            'manager/System.Windows.Forms.dll'
+            'updater/Loopstructor.AutoPlayer.Updater.dll'
           )
           foreach ($relativePath in $requiredFiles) {
             $path = Join-Path $artifactRoot $relativePath
@@ -109,16 +116,19 @@ jobs:
             }
           }
 
-          $managerFiles = @(Get-ChildItem -LiteralPath (Join-Path $artifactRoot 'manager') -Recurse -File)
-          if ($managerFiles.Count -ne 1 -or $managerFiles[0].Name -cne 'Loopstructor.AutoPlayer.Manager.exe') {
-            throw "Internal Manager must be one self-contained EXE, not a framework-dependent file set: $($managerFiles.Name -join ', ')"
+          $updaterCompatibilityFiles = @(
+            Get-ChildItem -LiteralPath (Join-Path $artifactRoot 'updater') -Recurse -File
+          )
+          if ($updaterCompatibilityFiles.Count -ne 1 -or
+              $updaterCompatibilityFiles[0].Name -cne 'Loopstructor.AutoPlayer.Updater.dll') {
+            throw "Updater compatibility directory contains unexpected files: $($updaterCompatibilityFiles.Name -join ', ')"
           }
 
           $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json
           if ($marker.managerPath -ne 'Loopstructor.AutoPlayer.Manager.exe') {
             throw "Workflow artifact Manager entry point is not at the root: $($marker.managerPath)"
           }
-          if ($marker.updaterPath -cne 'updater/Loopstructor.AutoPlayer.Updater.exe') {
+          if ($marker.updaterPath -cne 'manager/Loopstructor.AutoPlayer.Updater.exe') {
             throw "Workflow artifact Updater entry point is incorrect: $($marker.updaterPath)"
           }
 

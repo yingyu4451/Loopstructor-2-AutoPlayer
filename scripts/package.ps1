@@ -157,7 +157,10 @@ function Publish-WindowsProject {
         '--output', $Output,
         '--nologo',
         "-p:Version=$PackageVersion",
-        '-p:PublishReadyToRun=false'
+        '-p:PublishReadyToRun=false',
+        '-p:DebugType=none',
+        '-p:DebugSymbols=false',
+        '-p:SatelliteResourceLanguages=zh-Hans'
     )
 
     if ($SingleFile) {
@@ -165,9 +168,7 @@ function Publish-WindowsProject {
             '-p:PublishSingleFile=true',
             '-p:PublishTrimmed=false',
             '-p:IncludeNativeLibrariesForSelfExtract=true',
-            '-p:EnableCompressionInSingleFile=true',
-            '-p:DebugType=none',
-            '-p:DebugSymbols=false'
+            '-p:EnableCompressionInSingleFile=true'
         )
     }
     else {
@@ -230,6 +231,13 @@ function New-DeterministicZip {
         Remove-Item -LiteralPath $Destination -Force
     }
 
+    $compressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
+    if ([Enum]::GetNames([System.IO.Compression.CompressionLevel]) -contains 'SmallestSize') {
+        $compressionLevel = [Enum]::Parse(
+            [System.IO.Compression.CompressionLevel],
+            'SmallestSize')
+    }
+
     $archive = [System.IO.Compression.ZipFile]::Open($Destination, [System.IO.Compression.ZipArchiveMode]::Create)
     try {
         $normalizedPrefix = $EntryPrefix.Trim().Trim('/')
@@ -242,7 +250,7 @@ function New-DeterministicZip {
             else {
                 "$normalizedPrefix/$relativeEntry"
             }
-            $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+            $entry = $archive.CreateEntry($entryName, $compressionLevel)
             $entry.LastWriteTime = [DateTimeOffset]::Parse('1980-01-01T00:00:00Z')
 
             $input = [System.IO.File]::OpenRead($file.FullName)
@@ -383,26 +391,49 @@ $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 
-Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion -SingleFile
-Publish-WindowsProject -Project $updaterProject -Output $updaterOutput -PackageVersion $packageVersion
+# Both apphosts must share this one self-contained runtime directory.
+Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion
+Publish-WindowsProject -Project $updaterProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
+New-Item -ItemType Directory -Path $updaterOutput -Force | Out-Null
+# v0.1.8 validates that the legacy updater directory still contains this assembly stem.
+Copy-Item -LiteralPath (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Updater.dll') -Destination $updaterOutput
 
-foreach ($requiredUpdaterFile in @(
+foreach ($requiredManagerFile in @(
+    'Loopstructor.AutoPlayer.Manager.exe'
+    'Loopstructor.AutoPlayer.Manager.dll'
     'Loopstructor.AutoPlayer.Updater.exe'
+    'Loopstructor.AutoPlayer.Updater.dll'
+    'Loopstructor.AutoPlayer.Updater.deps.json'
+    'Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
+    'hostfxr.dll'
+    'hostpolicy.dll'
+    'coreclr.dll'
     'System.Windows.Forms.dll'
 )) {
-    $requiredUpdaterPath = Join-Path $updaterOutput $requiredUpdaterFile
-    if (-not (Test-Path -LiteralPath $requiredUpdaterPath -PathType Leaf)) {
-        throw "Updater publish is missing required file: $requiredUpdaterFile"
+    $requiredManagerPath = Join-Path $managerOutput $requiredManagerFile
+    if (-not (Test-Path -LiteralPath $requiredManagerPath -PathType Leaf)) {
+        throw "Shared Manager runtime is missing required file: $requiredManagerFile"
     }
 }
 
-$managerFiles = @(Get-ChildItem -LiteralPath $managerOutput -Recurse -File -Force)
-$bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'
-if ($managerFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $bundledManagerExecutable -PathType Leaf)) {
-    $managerNames = ($managerFiles | ForEach-Object { $_.FullName.Substring($managerOutput.Length + 1) }) -join ', '
-    throw "Manager must publish as exactly one self-contained executable. Found: $managerNames"
+foreach ($requiredUpdaterFile in @(
+    'Loopstructor.AutoPlayer.Updater.dll'
+)) {
+    $requiredUpdaterPath = Join-Path $updaterOutput $requiredUpdaterFile
+    if (-not (Test-Path -LiteralPath $requiredUpdaterPath -PathType Leaf)) {
+        throw "Updater compatibility directory is missing required file: $requiredUpdaterFile"
+    }
 }
+
+$updaterCompatibilityFiles = @(Get-ChildItem -LiteralPath $updaterOutput -Recurse -File -Force)
+if ($updaterCompatibilityFiles.Count -ne 1 -or
+    $updaterCompatibilityFiles[0].Name -cne 'Loopstructor.AutoPlayer.Updater.dll') {
+    throw "Updater compatibility directory must contain only Loopstructor.AutoPlayer.Updater.dll: $($updaterCompatibilityFiles.Name -join ', ')"
+}
+
+$bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'
+$bundledUpdaterExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Updater.exe'
 
 $launcherFiles = @(Get-ChildItem -LiteralPath $launcherOutput -Recurse -File -Force)
 $launcherExecutable = Join-Path $launcherOutput 'Loopstructor.AutoPlayer.Launcher.exe'
@@ -436,7 +467,7 @@ Get-ChildItem -LiteralPath $pluginOutput -File | Where-Object {
 }
 
 Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe') -ExpectedVersion $packageVersion
-Assert-ProductVersion -Path (Join-Path $updaterOutput 'Loopstructor.AutoPlayer.Updater.exe') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path $bundledUpdaterExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $rootManagerExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $pluginPayloadOutput 'Loopstructor.AutoPlayer.Plugin.dll') -ExpectedVersion $packageVersion
 
@@ -445,7 +476,7 @@ $marker = [ordered]@{
     version = $packageVersion
     runtimeIdentifier = $runtimeIdentifier
     managerPath = 'Loopstructor.AutoPlayer.Manager.exe'
-    updaterPath = 'updater/Loopstructor.AutoPlayer.Updater.exe'
+    updaterPath = 'manager/Loopstructor.AutoPlayer.Updater.exe'
     payloadPath = 'payload'
     bepInExPayloadPath = 'payload/bepinex'
     pluginPayloadPath = 'payload/plugin'

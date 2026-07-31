@@ -11,7 +11,7 @@
 | BepInEx 编译包 | `BepInEx.Core 5.4.21` |
 | Unity 编译引用 | `UnityEngine.Modules 2022.3.62` |
 | 插件目标框架 | `netstandard2.1`（对应当前 Unity 2022 项目的 `apiCompatibilityLevel: 6`） |
-| Manager/Updater RID | `win-x64`；Manager 为自包含单文件，Updater 为自包含发布 |
+| Manager/Updater RID | `win-x64`；Manager 自包含目录携带唯一一套运行时，Updater 复用该运行时 |
 
 BepInEx runtime 下载地址和 SHA-256 集中在 `Directory.Build.props`：
 
@@ -60,32 +60,35 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.8
+.\scripts\package.ps1 -Version 0.1.9
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.8 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.9 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.8-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.8-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.9-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.9-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.8-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.9-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
   Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
   manager/
-    Loopstructor.AutoPlayer.Manager.exe 内部 Manager 自包含单文件
+    Loopstructor.AutoPlayer.Manager.exe 内部 Manager 入口
+    Loopstructor.AutoPlayer.Updater.exe 内部 Updater 入口
+    System.Windows.Forms.dll            Manager/Updater 共用运行时文件
   updater/
+    Loopstructor.AutoPlayer.Updater.dll 旧版包结构兼容标记
   payload/
     bepinex/
     plugin/
@@ -94,7 +97,7 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装系统 .NET；根启动器和内部 Manager 均为自包含单文件，`manager\` 目录只包含内部 Manager EXE，`updater\` 仍包含自己的自包含运行时。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装系统 .NET；根启动器为自包含单文件，内部 Manager 与 Updater 都位于 `manager\`，并只携带唯一一套 .NET/WinForms 运行时。`updater\` 只保留供旧版包结构校验使用的小型程序集，不重复携带运行时。更新应用前，Updater 会把自身和共享运行时一起复制到临时目录，因此仍能安全替换整个程序目录。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
@@ -105,9 +108,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.8-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.9-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -172,8 +175,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.8
-git push origin v0.1.8
+git tag v0.1.9
+git push origin v0.1.9
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -191,7 +194,7 @@ git push origin v0.1.8
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
-- 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、`manager\` 只含内部 Manager 单文件、Updater 自带运行时、marker 和逐文件 checksums；不得在 ZIP 预览中运行；
+- 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套运行时、`updater\` 不重复携带运行时、marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
 - 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
