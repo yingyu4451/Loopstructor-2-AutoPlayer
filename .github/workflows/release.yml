@@ -92,11 +92,13 @@ jobs:
             'Loopstructor.AutoPlayer.Manager.exe'
             'autoplayer-release.json'
             'checksums.sha256'
+            'updater/Loopstructor.AutoPlayer.Updater.exe'
+            'updater/System.Windows.Forms.dll'
           )
           foreach ($relativePath in $requiredFiles) {
             $path = Join-Path $artifactRoot $relativePath
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-              throw "Workflow artifact is missing root file: $relativePath"
+              throw "Workflow artifact is missing required file: $relativePath"
             }
           }
 
@@ -115,6 +117,9 @@ jobs:
           $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json
           if ($marker.managerPath -ne 'Loopstructor.AutoPlayer.Manager.exe') {
             throw "Workflow artifact Manager entry point is not at the root: $($marker.managerPath)"
+          }
+          if ($marker.updaterPath -cne 'updater/Loopstructor.AutoPlayer.Updater.exe') {
+            throw "Workflow artifact Updater entry point is incorrect: $($marker.updaterPath)"
           }
 
           $nestedProductZips = @(Get-ChildItem -LiteralPath $artifactRoot -Recurse -File -Filter '*.zip')

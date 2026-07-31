@@ -7,7 +7,9 @@ public sealed class SelfRelocator
 {
     private const string TemporaryFolderName = "LoopstructorAutoPlayerUpdater";
 
-    public bool RelaunchFromTemporaryCopy(IReadOnlyList<string> originalArguments)
+    public Process RelaunchFromTemporaryCopy(
+        IReadOnlyList<string> originalArguments,
+        bool redirectOutput = false)
     {
         string sourceRoot = Path.GetFullPath(AppContext.BaseDirectory)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -37,6 +39,9 @@ public sealed class SelfRelocator
 
         startInfo.WorkingDirectory = destinationRoot;
         startInfo.UseShellExecute = false;
+        startInfo.CreateNoWindow = true;
+        startInfo.RedirectStandardOutput = redirectOutput;
+        startInfo.RedirectStandardError = redirectOutput;
         foreach (string argument in originalArguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -49,7 +54,7 @@ public sealed class SelfRelocator
             throw new InvalidOperationException("Windows 未能启动更新器临时副本。");
         }
 
-        return true;
+        return process;
     }
 
     private static void CopyDirectory(string sourceRoot, string destinationRoot)

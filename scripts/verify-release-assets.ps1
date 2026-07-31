@@ -285,6 +285,7 @@ foreach ($requiredFile in @(
     'checksums.sha256'
     'manager/Loopstructor.AutoPlayer.Manager.exe'
     'updater/Loopstructor.AutoPlayer.Updater.exe'
+    'updater/System.Windows.Forms.dll'
     'updater/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
     'updater/hostfxr.dll'
     'updater/hostpolicy.dll'
@@ -313,8 +314,9 @@ foreach ($requiredDirectory in @('manager/', 'payload/', 'updater/')) {
 $markerEntryName = "$prefix" + 'autoplayer-release.json'
 $marker = Read-ZipEntryText -Path $archivePath -EntryName $markerEntryName | ConvertFrom-Json
 if (-not [StringComparer]::Ordinal.Equals([string]$marker.version, $packageVersion) -or
-    -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor.AutoPlayer.Manager.exe')) {
-    throw 'Release marker version or root Manager entry point is incorrect.'
+    -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor.AutoPlayer.Manager.exe') -or
+    -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'updater/Loopstructor.AutoPlayer.Updater.exe')) {
+    throw 'Release marker version, root Manager entry point, or Updater entry point is incorrect.'
 }
 
 Write-Host "Verified release ZIP: $archiveName"

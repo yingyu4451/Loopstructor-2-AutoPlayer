@@ -387,6 +387,16 @@ Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageV
 Publish-WindowsProject -Project $updaterProject -Output $updaterOutput -PackageVersion $packageVersion
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
 
+foreach ($requiredUpdaterFile in @(
+    'Loopstructor.AutoPlayer.Updater.exe'
+    'System.Windows.Forms.dll'
+)) {
+    $requiredUpdaterPath = Join-Path $updaterOutput $requiredUpdaterFile
+    if (-not (Test-Path -LiteralPath $requiredUpdaterPath -PathType Leaf)) {
+        throw "Updater publish is missing required file: $requiredUpdaterFile"
+    }
+}
+
 $managerFiles = @(Get-ChildItem -LiteralPath $managerOutput -Recurse -File -Force)
 $bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'
 if ($managerFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $bundledManagerExecutable -PathType Leaf)) {

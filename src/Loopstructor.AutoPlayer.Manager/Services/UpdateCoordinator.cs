@@ -156,7 +156,7 @@ public sealed class UpdateCoordinator
         startInfo.ArgumentList.Add("--restart-manager");
         startInfo.Environment[GitHubOwnerEnvironmentVariable] = owner;
         startInfo.Environment[GitHubRepositoryEnvironmentVariable] = repository;
-        startInfo.CreateNoWindow = false;
+        startInfo.CreateNoWindow = true;
         try
         {
             Process? process = Process.Start(startInfo);

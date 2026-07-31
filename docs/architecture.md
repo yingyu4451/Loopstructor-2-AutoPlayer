@@ -142,7 +142,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.7-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.8-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

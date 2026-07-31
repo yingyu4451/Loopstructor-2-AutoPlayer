@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Diagnostics;
+using Loopstructor.AutoPlayer.Updater.Models;
 
 namespace Loopstructor.AutoPlayer.Updater.Services;
 
@@ -12,15 +14,27 @@ public sealed class SecureZipExtractor
 
     public void Extract(string archivePath, string destinationRoot)
     {
-        ExtractCore(archivePath, destinationRoot, requiredRootDirectory: null);
+        ExtractCore(archivePath, destinationRoot, requiredRootDirectory: null, progress: null, default);
     }
 
     public void ExtractReleasePackage(string archivePath, string destinationRoot)
     {
-        ExtractCore(archivePath, destinationRoot, ReleaseArchiveRootDirectory);
+        ExtractCore(archivePath, destinationRoot, ReleaseArchiveRootDirectory, progress: null, default);
     }
 
-    private static void ExtractCore(string archivePath, string destinationRoot, string? requiredRootDirectory)
+    public void ExtractReleasePackage(
+        string archivePath,
+        string destinationRoot,
+        IProgress<ArchiveExtractionProgress>? progress,
+        CancellationToken cancellationToken = default) =>
+        ExtractCore(archivePath, destinationRoot, ReleaseArchiveRootDirectory, progress, cancellationToken);
+
+    private static void ExtractCore(
+        string archivePath,
+        string destinationRoot,
+        string? requiredRootDirectory,
+        IProgress<ArchiveExtractionProgress>? progress,
+        CancellationToken cancellationToken)
     {
         string archive = Path.GetFullPath(archivePath);
         string destination = Path.GetFullPath(destinationRoot)
@@ -47,6 +61,7 @@ public sealed class SecureZipExtractor
         long expandedTotal = 0;
         foreach (ZipArchiveEntry entry in zip.Entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ValidatedEntry? validated = ValidateEntry(
                 entry,
                 destination,
@@ -91,6 +106,7 @@ public sealed class SecureZipExtractor
 
         foreach (ValidatedEntry entry in entries.Values)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string? parent = Path.GetDirectoryName(entry.RelativePath);
             while (!string.IsNullOrWhiteSpace(parent))
             {
@@ -103,8 +119,15 @@ public sealed class SecureZipExtractor
             }
         }
 
+        int totalFiles = entries.Values.Count(item => !item.IsDirectory);
+        int extractedFiles = 0;
+        long extractedBytes = 0;
+        TimeSpan lastReportedAt = TimeSpan.Zero;
+        Stopwatch extractionClock = Stopwatch.StartNew();
+        ReportProgressSafely(progress, new ArchiveExtractionProgress(0, expandedTotal, 0, totalFiles));
         foreach (ValidatedEntry validated in entries.Values.OrderBy(item => item.IsDirectory ? 0 : 1))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (validated.IsDirectory)
             {
                 Directory.CreateDirectory(validated.FullPath);
@@ -124,15 +147,25 @@ public sealed class SecureZipExtractor
             long written = 0;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int read = input.Read(buffer, 0, buffer.Length);
                 if (read == 0) break;
                 written += read;
+                extractedBytes += read;
                 if (written > validated.Entry.Length || written > MaximumSingleFileBytes)
                 {
                     throw new InvalidDataException("ZIP 条目的解压大小超过声明长度：" + validated.Entry.FullName);
                 }
 
                 output.Write(buffer, 0, read);
+                TimeSpan elapsed = extractionClock.Elapsed;
+                if (elapsed - lastReportedAt >= TimeSpan.FromMilliseconds(100))
+                {
+                    ReportProgressSafely(
+                        progress,
+                        new ArchiveExtractionProgress(extractedBytes, expandedTotal, extractedFiles, totalFiles));
+                    lastReportedAt = elapsed;
+                }
             }
 
             if (written != validated.Entry.Length)
@@ -148,6 +181,25 @@ public sealed class SecureZipExtractor
             {
                 // Invalid archive timestamps are non-authoritative metadata.
             }
+
+            extractedFiles++;
+            ReportProgressSafely(
+                progress,
+                new ArchiveExtractionProgress(extractedBytes, expandedTotal, extractedFiles, totalFiles));
+        }
+    }
+
+    private static void ReportProgressSafely(
+        IProgress<ArchiveExtractionProgress>? progress,
+        ArchiveExtractionProgress value)
+    {
+        try
+        {
+            progress?.Report(value);
+        }
+        catch
+        {
+            // Progress display is non-authoritative and must never weaken archive validation.
         }
     }
 

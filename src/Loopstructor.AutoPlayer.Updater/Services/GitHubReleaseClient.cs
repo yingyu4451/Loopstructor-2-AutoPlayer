@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Loopstructor.AutoPlayer.Updater.Models;
@@ -37,6 +38,15 @@ public sealed class GitHubReleaseClient
         string destinationPath,
         CancellationToken cancellationToken = default)
     {
+        await DownloadVerifiedPackageAsync(update, destinationPath, progress: null, cancellationToken);
+    }
+
+    public async Task DownloadVerifiedPackageAsync(
+        ResolvedUpdate update,
+        string destinationPath,
+        IProgress<PackageDownloadProgress>? progress,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(update);
         ValidateResolvedPackage(update);
         if (File.Exists(destinationPath))
@@ -65,6 +75,11 @@ public sealed class GitHubReleaseClient
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[] buffer = new byte[128 * 1024];
         long total = 0;
+        long lastReportedBytes = 0;
+        TimeSpan lastReportedAt = TimeSpan.Zero;
+        double smoothedBytesPerSecond = 0;
+        Stopwatch downloadClock = Stopwatch.StartNew();
+        ReportProgressSafely(progress, new PackageDownloadProgress(0, update.Manifest.Size, 0));
         try
         {
             while (true)
@@ -79,6 +94,22 @@ public sealed class GitHubReleaseClient
 
                 hash.AppendData(buffer, 0, read);
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                TimeSpan elapsed = downloadClock.Elapsed;
+                TimeSpan sampleDuration = elapsed - lastReportedAt;
+                bool completed = total == update.Manifest.Size;
+                if (completed || sampleDuration >= TimeSpan.FromMilliseconds(200))
+                {
+                    double seconds = Math.Max(sampleDuration.TotalSeconds, 0.001d);
+                    double sampleSpeed = (total - lastReportedBytes) / seconds;
+                    smoothedBytesPerSecond = smoothedBytesPerSecond <= 0
+                        ? sampleSpeed
+                        : (smoothedBytesPerSecond * 0.7d) + (sampleSpeed * 0.3d);
+                    ReportProgressSafely(
+                        progress,
+                        new PackageDownloadProgress(total, update.Manifest.Size, smoothedBytesPerSecond));
+                    lastReportedBytes = total;
+                    lastReportedAt = elapsed;
+                }
             }
 
             await output.FlushAsync(cancellationToken);
@@ -93,12 +124,34 @@ public sealed class GitHubReleaseClient
             {
                 throw new InvalidDataException("下载的安装包 SHA-256 与发布清单不一致。");
             }
+
+            if (lastReportedBytes != total)
+            {
+                double averageSpeed = total / Math.Max(downloadClock.Elapsed.TotalSeconds, 0.001d);
+                ReportProgressSafely(
+                    progress,
+                    new PackageDownloadProgress(total, update.Manifest.Size, averageSpeed));
+            }
         }
         catch
         {
             await output.DisposeAsync();
             try { File.Delete(destinationPath); } catch { }
             throw;
+        }
+    }
+
+    private static void ReportProgressSafely(
+        IProgress<PackageDownloadProgress>? progress,
+        PackageDownloadProgress value)
+    {
+        try
+        {
+            progress?.Report(value);
+        }
+        catch
+        {
+            // Progress display is non-authoritative and must never interrupt a verified download.
         }
     }
 

@@ -14,6 +14,7 @@ public sealed class UpdateCommandOptions
     public bool JsonOutput { get; private set; }
     public bool RestartManager { get; private set; }
     public bool StagedRun { get; private set; }
+    public bool DemoUi { get; private set; }
     public string CurrentVersion { get; private set; } = "0.0.0";
     public string TargetRoot { get; private set; } = string.Empty;
     public string ConfigPath { get; private set; } = string.Empty;
@@ -50,6 +51,9 @@ public sealed class UpdateCommandOptions
                     break;
                 case "--staged-run":
                     result.StagedRun = true;
+                    break;
+                case "--demo-ui":
+                    result.DemoUi = true;
                     break;
                 case "--current-version":
                     result.CurrentVersion = NextValue(args, ref index, current);
@@ -95,6 +99,11 @@ public sealed class UpdateCommandOptions
         if (result.Command == UpdateCommand.Apply && string.IsNullOrWhiteSpace(result.TargetRoot))
         {
             throw new ArgumentException("apply 命令必须提供 --target <release-root>。");
+        }
+
+        if (result.DemoUi && (result.Command != UpdateCommand.Apply || result.JsonOutput))
+        {
+            throw new ArgumentException("--demo-ui 只能用于非 JSON 的 apply 命令。");
         }
 
         return result;
@@ -153,6 +162,7 @@ public sealed class UpdaterResult
     public string LatestVersion { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public string BackupDirectory { get; set; } = string.Empty;
+    public bool ManagerRestartFailed { get; set; }
 }
 
 public sealed class ReleaseMarker

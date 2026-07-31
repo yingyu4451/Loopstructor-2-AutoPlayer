@@ -47,7 +47,11 @@ public sealed class TransactionalInstaller
         return Path.Combine(parent, ".LoopstructorAutoPlayer-staging-" + Guid.NewGuid().ToString("N"));
     }
 
-    public string Apply(string stagingRoot, string targetRoot, string expectedVersion)
+    public string Apply(
+        string stagingRoot,
+        string targetRoot,
+        string expectedVersion,
+        Action<UpdateInstallPhase>? progress = null)
     {
         string target = ReleasePackageValidator.NormalizeRoot(targetRoot);
         string staging = ReleasePackageValidator.NormalizeRoot(stagingRoot);
@@ -78,14 +82,18 @@ public sealed class TransactionalInstaller
             UpdatedAtUtc = DateTime.UtcNow
         };
         WriteJournal(journal);
+        ReportProgressSafely(progress, UpdateInstallPhase.Prepared);
 
         try
         {
             Directory.Move(target, backup);
             UpdatePhase(journal, "backup-created");
+            ReportProgressSafely(progress, UpdateInstallPhase.BackupCreated);
             Directory.Move(staging, target);
             UpdatePhase(journal, "installed");
+            ReportProgressSafely(progress, UpdateInstallPhase.Installed);
             _validator.Validate(target, expectedVersion, validateTargetSafety: true);
+            ReportProgressSafely(progress, UpdateInstallPhase.Validated);
             UpdatePhase(journal, "complete");
             DeleteJournal();
             return backup;
@@ -129,6 +137,18 @@ public sealed class TransactionalInstaller
             }
 
             throw new IOException(message, applyError);
+        }
+    }
+
+    private static void ReportProgressSafely(Action<UpdateInstallPhase>? progress, UpdateInstallPhase phase)
+    {
+        try
+        {
+            progress?.Invoke(phase);
+        }
+        catch
+        {
+            // Progress display is non-authoritative and must never interrupt the update transaction.
         }
     }
 
