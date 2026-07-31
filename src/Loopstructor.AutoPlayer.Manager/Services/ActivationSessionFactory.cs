@@ -19,7 +19,7 @@ public sealed class ActivationSessionFactory
         ArgumentNullException.ThrowIfNull(game);
         if (!game.IsValid || game.AssemblySha256.Length != 64)
         {
-            throw new InvalidOperationException("A validated Skyspine build fingerprint is required.");
+            throw new InvalidOperationException("需要经过验证的 Skyspine 构建指纹。");
         }
 
         string gameId = Protocol.HashGameRoot(game.GameRoot)[..16];

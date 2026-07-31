@@ -16,7 +16,7 @@ public sealed class BepInExConfigWriter
     {
         if (expectedAssemblySha256.Length != 64 || expectedAssemblySha256.Any(character => !Uri.IsHexDigit(character)))
         {
-            throw new ArgumentException("ExpectedAssemblySha256 must be a 64-character SHA-256 value.", nameof(expectedAssemblySha256));
+            throw new ArgumentException("ExpectedAssemblySha256 必须是由 64 个十六进制字符组成的 SHA-256 值。", nameof(expectedAssemblySha256));
         }
 
         string path = Path.Combine(
@@ -25,8 +25,8 @@ public sealed class BepInExConfigWriter
             "config",
             PluginConfigFileName);
         StringBuilder content = new();
-        content.AppendLine("# Managed by Loopstructor AutoPlayer Manager.");
-        content.AppendLine("# Automation still requires a valid one-time launch activation.");
+        content.AppendLine("# 由 Loopstructor AutoPlayer Manager 管理。");
+        content.AppendLine("# 自动化运行仍需有效的一次性启动授权。");
         content.AppendLine();
         content.AppendLine("[Runtime]");
         content.Append("TickIntervalSeconds = ").AppendLine(tickIntervalSeconds.ToString("0.###", CultureInfo.InvariantCulture));

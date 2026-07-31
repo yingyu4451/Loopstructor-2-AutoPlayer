@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Verification" />
+    <InternalsVisibleTo Include="Loopstructor.AutoPlayer.Tests" />
   </ItemGroup>
 </Project>

@@ -27,19 +27,19 @@ public sealed class SecureZipExtractor
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!File.Exists(archive))
         {
-            throw new FileNotFoundException("Update package archive was not found.", archive);
+            throw new FileNotFoundException("找不到更新安装包。", archive);
         }
 
         if (Directory.Exists(destination) && Directory.EnumerateFileSystemEntries(destination).Any())
         {
-            throw new IOException("ZIP destination must be empty: " + destination);
+            throw new IOException("ZIP 解压目标目录必须为空：" + destination);
         }
 
         Directory.CreateDirectory(destination);
         using ZipArchive zip = ZipFile.OpenRead(archive);
         if (zip.Entries.Count == 0 || zip.Entries.Count > MaximumEntryCount)
         {
-            throw new InvalidDataException("ZIP entry count is outside the accepted range.");
+            throw new InvalidDataException("ZIP 条目数量超出允许范围。");
         }
 
         string destinationPrefix = destination + Path.DirectorySeparatorChar;
@@ -59,34 +59,34 @@ public sealed class SecureZipExtractor
 
             if (!entries.TryAdd(validated.RelativePath, validated))
             {
-                throw new InvalidDataException("ZIP contains duplicate path: " + validated.RelativePath);
+                throw new InvalidDataException("ZIP 包含重复路径：" + validated.RelativePath);
             }
 
             if (!validated.IsDirectory)
             {
                 if (entry.Length < 0 || entry.Length > MaximumSingleFileBytes)
                 {
-                    throw new InvalidDataException("ZIP entry is too large: " + entry.FullName);
+                    throw new InvalidDataException("ZIP 条目过大：" + entry.FullName);
                 }
 
                 expandedTotal = checked(expandedTotal + entry.Length);
                 if (expandedTotal > MaximumExpandedBytes)
                 {
-                    throw new InvalidDataException("ZIP expanded size exceeds the safety limit.");
+                    throw new InvalidDataException("ZIP 解压后的总大小超过安全限制。");
                 }
 
                 if (entry.Length > 1024 * 1024
                     && entry.CompressedLength > 0
                     && entry.Length / entry.CompressedLength > MaximumCompressionRatio)
                 {
-                    throw new InvalidDataException("ZIP entry has an unsafe compression ratio: " + entry.FullName);
+                    throw new InvalidDataException("ZIP 条目的压缩比不安全：" + entry.FullName);
                 }
             }
         }
 
         if (entries.Count == 0)
         {
-            throw new InvalidDataException("ZIP does not contain any package files.");
+            throw new InvalidDataException("ZIP 中没有任何安装包文件。");
         }
 
         foreach (ValidatedEntry entry in entries.Values)
@@ -96,7 +96,7 @@ public sealed class SecureZipExtractor
             {
                 if (entries.TryGetValue(parent, out ValidatedEntry? ancestor) && !ancestor.IsDirectory)
                 {
-                    throw new InvalidDataException("ZIP file conflicts with a child path: " + ancestor.RelativePath);
+                    throw new InvalidDataException("ZIP 文件与其子路径冲突：" + ancestor.RelativePath);
                 }
 
                 parent = Path.GetDirectoryName(parent);
@@ -129,7 +129,7 @@ public sealed class SecureZipExtractor
                 written += read;
                 if (written > validated.Entry.Length || written > MaximumSingleFileBytes)
                 {
-                    throw new InvalidDataException("ZIP entry expanded beyond its declared length: " + validated.Entry.FullName);
+                    throw new InvalidDataException("ZIP 条目的解压大小超过声明长度：" + validated.Entry.FullName);
                 }
 
                 output.Write(buffer, 0, read);
@@ -137,7 +137,7 @@ public sealed class SecureZipExtractor
 
             if (written != validated.Entry.Length)
             {
-                throw new InvalidDataException("ZIP entry length changed while extracting: " + validated.Entry.FullName);
+                throw new InvalidDataException("ZIP 条目在解压时长度发生变化：" + validated.Entry.FullName);
             }
 
             try
@@ -164,7 +164,7 @@ public sealed class SecureZipExtractor
             || normalized.StartsWith("/", StringComparison.Ordinal)
             || normalized.Contains('\0'))
         {
-            throw new InvalidDataException("ZIP contains an invalid path: " + entry.FullName);
+            throw new InvalidDataException("ZIP 包含无效路径：" + entry.FullName);
         }
 
         string[] segments = normalized.Split('/');
@@ -175,7 +175,7 @@ public sealed class SecureZipExtractor
                 || segment == ".."
                 || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             {
-                throw new InvalidDataException("ZIP contains an unsafe path segment: " + entry.FullName);
+                throw new InvalidDataException("ZIP 包含不安全的路径段：" + entry.FullName);
             }
         }
 
@@ -183,7 +183,7 @@ public sealed class SecureZipExtractor
         FileAttributes windowsAttributes = (FileAttributes)(entry.ExternalAttributes & 0xFFFF);
         if (unixType == 0xA000 || windowsAttributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidDataException("ZIP symbolic links and reparse points are not accepted: " + entry.FullName);
+            throw new InvalidDataException("ZIP 不允许包含符号链接或重解析点：" + entry.FullName);
         }
 
         if (requiredRootDirectory is not null)
@@ -191,14 +191,14 @@ public sealed class SecureZipExtractor
             if (!string.Equals(segments[0], requiredRootDirectory, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
-                    $"ZIP entries must be inside the exact '{requiredRootDirectory}' directory: {entry.FullName}");
+                    $"ZIP 条目必须位于名称完全匹配的“{requiredRootDirectory}”目录内：{entry.FullName}");
             }
 
             if (segments.Length == 1)
             {
                 if (!isDirectory)
                 {
-                    throw new InvalidDataException("The release archive root must be a directory: " + entry.FullName);
+                    throw new InvalidDataException("发布压缩包的根条目必须是目录：" + entry.FullName);
                 }
 
                 return null;
@@ -211,7 +211,7 @@ public sealed class SecureZipExtractor
         string fullPath = Path.GetFullPath(Path.Combine(root, relative));
         if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException("ZIP path escapes the staging directory: " + entry.FullName);
+            throw new InvalidDataException("ZIP 路径超出暂存目录：" + entry.FullName);
         }
 
         return new ValidatedEntry(entry, relative, fullPath, isDirectory);

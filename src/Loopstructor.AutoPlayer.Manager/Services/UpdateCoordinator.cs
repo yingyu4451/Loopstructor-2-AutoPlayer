@@ -32,7 +32,7 @@ public sealed class UpdateCoordinator
             return new ManagerUpdateStatus
             {
                 CurrentVersion = CurrentVersion,
-                Message = "Update source is not configured. Set the GitHub owner and repository in Manager settings or environment variables."
+                Message = "更新源未配置。请在 Manager 设置或环境变量中配置 GitHub 所有者与仓库名称。"
             };
         }
 
@@ -41,7 +41,7 @@ public sealed class UpdateCoordinator
             return new ManagerUpdateStatus
             {
                 CurrentVersion = CurrentVersion,
-                Message = "The independent Updater executable is missing from the release layout."
+                Message = "发布目录中缺少独立的 Updater 可执行文件。"
             };
         }
 
@@ -57,7 +57,7 @@ public sealed class UpdateCoordinator
         try
         {
             using Process process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Windows did not create the updater process.");
+                ?? throw new InvalidOperationException("Windows 未能创建 Updater 进程。");
             Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
@@ -70,7 +70,7 @@ public sealed class UpdateCoordinator
             return new ManagerUpdateStatus
             {
                 CurrentVersion = CurrentVersion,
-                Message = "Update check failed: " + exception.Message
+                Message = "检查更新失败。详细信息：" + exception.Message
             };
         }
     }
@@ -107,8 +107,8 @@ public sealed class UpdateCoordinator
                 CurrentVersion = currentVersion,
                 LatestVersion = status?.LatestVersion ?? string.Empty,
                 Message = string.IsNullOrWhiteSpace(detail)
-                    ? $"Updater exited with code {exitCode} without a valid response."
-                    : $"Updater exited with code {exitCode}: {detail}"
+                    ? $"Updater 已退出，退出代码为 {exitCode}，但未返回有效响应。"
+                    : $"Updater 已退出，退出代码为 {exitCode}。详细信息：{detail}"
             };
         }
 
@@ -122,8 +122,8 @@ public sealed class UpdateCoordinator
         {
             CurrentVersion = currentVersion,
             Message = string.IsNullOrWhiteSpace(invalidResponse)
-                ? "Updater exited successfully without a valid response."
-                : invalidResponse
+                ? "Updater 已正常退出，但未返回有效响应。"
+                : "Updater 返回的响应无效。详细信息：" + invalidResponse
         };
     }
 
@@ -133,12 +133,12 @@ public sealed class UpdateCoordinator
     {
         if (!TryResolveCoordinates(settings, out string owner, out string repository))
         {
-            return (false, "Update source is not configured.");
+            return (false, "更新源未配置。");
         }
 
         if (!TryCreateInvocation(out ProcessStartInfo startInfo, "apply"))
         {
-            return (false, "The independent Updater executable is missing from the release layout.");
+            return (false, "发布目录中缺少独立的 Updater 可执行文件。");
         }
 
         startInfo.ArgumentList.Add("--target");
@@ -161,12 +161,12 @@ public sealed class UpdateCoordinator
         {
             Process? process = Process.Start(startInfo);
             return process == null
-                ? (false, "Windows did not create the updater process.")
-                : (true, $"Updater started (PID {process.Id}). Manager will now close.");
+                ? (false, "Windows 未能创建 Updater 进程。")
+                : (true, $"Updater 已启动（PID {process.Id}），Manager 现在将关闭。");
         }
         catch (Exception exception)
         {
-            return (false, "Updater could not be started: " + exception.Message);
+            return (false, "无法启动 Updater。详细信息：" + exception.Message);
         }
     }
 

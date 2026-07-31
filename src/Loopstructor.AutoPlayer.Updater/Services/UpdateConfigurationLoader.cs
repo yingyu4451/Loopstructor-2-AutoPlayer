@@ -38,25 +38,25 @@ public sealed class UpdateConfigurationLoader
         if (!CoordinatePattern.IsMatch(source.GitHubOwner))
         {
             throw new InvalidOperationException(
-                $"GitHub owner is not configured. Set {GitHubOwnerEnvironmentVariable} or autoplayer-update.json.");
+                $"GitHub 仓库所有者配置无效。请设置 {GitHubOwnerEnvironmentVariable} 或检查 autoplayer-update.json。");
         }
 
         if (!CoordinatePattern.IsMatch(source.GitHubRepository))
         {
             throw new InvalidOperationException(
-                $"GitHub repository is not configured. Set {GitHubRepositoryEnvironmentVariable} or autoplayer-update.json.");
+                $"GitHub 仓库名称配置无效。请设置 {GitHubRepositoryEnvironmentVariable} 或检查 autoplayer-update.json。");
         }
 
         if (!string.Equals(source.RuntimeIdentifier, "win-x64", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("This updater accepts only the win-x64 release channel.");
+            throw new InvalidOperationException("此更新器仅支持 win-x64 发布通道。");
         }
 
         if (string.IsNullOrWhiteSpace(source.ManifestAssetName)
             || !string.Equals(Path.GetFileName(source.ManifestAssetName), source.ManifestAssetName, StringComparison.Ordinal)
             || !source.ManifestAssetName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("ManifestAssetName must be a plain JSON file name.");
+            throw new InvalidOperationException("ManifestAssetName 必须是不含目录的 JSON 文件名。");
         }
 
         return new LoadedUpdateConfiguration
@@ -75,7 +75,7 @@ public sealed class UpdateConfigurationLoader
         {
             if (!File.Exists(options.ConfigPath))
             {
-                throw new FileNotFoundException("Updater configuration file not found.", options.ConfigPath);
+                throw new FileNotFoundException("找不到更新器配置文件。", options.ConfigPath);
             }
 
             return options.ConfigPath;

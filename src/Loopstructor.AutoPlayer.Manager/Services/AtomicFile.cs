@@ -11,7 +11,7 @@ public static class AtomicFile
         string? directory = Path.GetDirectoryName(fullPath);
         if (string.IsNullOrWhiteSpace(directory))
         {
-            throw new InvalidOperationException("The destination has no parent directory.");
+            throw new InvalidOperationException("目标文件没有父目录。");
         }
 
         Directory.CreateDirectory(directory);

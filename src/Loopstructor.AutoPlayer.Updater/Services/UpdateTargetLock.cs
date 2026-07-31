@@ -20,7 +20,7 @@ public sealed class UpdateTargetLock : IDisposable
     {
         string target = ReleasePackageValidator.NormalizeRoot(targetRoot);
         string parent = Directory.GetParent(target)?.FullName
-                        ?? throw new InvalidOperationException("Update target has no parent directory.");
+                        ?? throw new InvalidOperationException("更新目标没有父目录。");
         string identity = Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(target.ToUpperInvariant()))).ToLowerInvariant()[..24];
         string lockPath = System.IO.Path.Combine(parent, ".LoopstructorAutoPlayer-update-" + identity + ".lock");

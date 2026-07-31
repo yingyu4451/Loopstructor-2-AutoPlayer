@@ -57,7 +57,7 @@ internal sealed class PipeControlServer : IDisposable
                         break;
                     default:
                         request.Success = false;
-                        message = "Unknown control command: " + request.Command;
+                        message = "未知的控制命令：" + request.Command;
                         break;
                 }
 
@@ -67,7 +67,7 @@ internal sealed class PipeControlServer : IDisposable
             catch (Exception exception)
             {
                 request.Success = false;
-                request.Message = exception.Message;
+                request.Message = "处理控制命令时发生异常：" + exception.Message;
             }
             finally
             {
@@ -129,7 +129,7 @@ internal sealed class PipeControlServer : IDisposable
             ControlResponse response;
             if (line.Length > MaxRequestCharacters)
             {
-                response = Error(string.Empty, "Control request is too large.");
+                response = Error(string.Empty, "控制请求过大。");
             }
             else
             {
@@ -149,12 +149,12 @@ internal sealed class PipeControlServer : IDisposable
         }
         catch (Exception exception)
         {
-            return Error(string.Empty, "Invalid control JSON: " + exception.Message);
+            return Error(string.Empty, "控制请求 JSON 无效：" + exception.Message);
         }
 
-        if (input == null) return Error(string.Empty, "Control request is empty.");
+        if (input == null) return Error(string.Empty, "控制请求为空。");
         string id = string.IsNullOrWhiteSpace(input.Id) ? Guid.NewGuid().ToString("N") : input.Id;
-        if (!TokensEqual(input.Token, _activation.Token)) return Error(id, "Control token is invalid.");
+        if (!TokensEqual(input.Token, _activation.Token)) return Error(id, "控制令牌无效。");
 
         string command = string.IsNullOrWhiteSpace(input.Command) ? "status" : input.Command.Trim();
         if (string.Equals(command, "hello", StringComparison.OrdinalIgnoreCase))
@@ -193,7 +193,7 @@ internal sealed class PipeControlServer : IDisposable
         {
             Id = id,
             Success = completed && request.Success,
-            Message = completed ? request.Message : "The game main thread did not process the command in time.",
+            Message = completed ? request.Message : "游戏主线程未能及时处理控制命令。",
             Status = request.Status
         };
     }

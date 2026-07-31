@@ -35,6 +35,7 @@ public sealed class DecisionEngineInGameTests
 
         Assert.Equal("wait", action.Command);
         Assert.Equal(AutomationStage.Battle, action.Stage);
+        Assert.Equal("战斗中：首领节点，剩余 12 个敌人。", action.Reason);
     }
 
     [Fact]
@@ -75,6 +76,21 @@ public sealed class DecisionEngineInGameTests
 
         Assert.Equal(expectedCommand, action.Command);
         Assert.Equal(expectedStage, action.Stage);
+    }
+
+    [Theory]
+    [InlineData("EventUI", "事件界面")]
+    [InlineData("RepairUI", "修理界面")]
+    public void EventAction_LocalizesDisplayTextWithoutChangingPanelProtocol(
+        string panel,
+        string expectedDisplayName)
+    {
+        AutomationAction action = new DecisionEngine().DecideEvent(EnabledEvent(), panel);
+
+        Assert.Equal("chooseWaveFunctionOption", action.Command);
+        Assert.Equal(panel, action.Arguments.Value<string>("panel"));
+        Assert.Contains(expectedDisplayName, action.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(panel, action.Reason, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -38,8 +38,8 @@ internal static class GameArtifactIsolationPatch
             nameof(RedirectObjectPoolAutoSave));
         Applied = patched == RequiredPatchCount;
         log(Applied
-            ? "Game diagnostic artifacts are redirected to: " + s_artifactRoot
-            : $"Game artifact redirection is incomplete ({patched}/{RequiredPatchCount}).");
+            ? "游戏诊断产物已重定向到：" + s_artifactRoot
+            : $"游戏诊断产物重定向不完整（{patched}/{RequiredPatchCount}）。");
     }
 
     private static int PatchPrefix(Harmony harmony, string typeName, string methodName, string prefixName)
@@ -71,7 +71,7 @@ internal static class GameArtifactIsolationPatch
         }
         catch (Exception exception)
         {
-            s_log?.Invoke("Could not redirect a game debug logger: " + exception.Message);
+            s_log?.Invoke("无法重定向游戏调试日志：" + exception.Message);
         }
     }
 
@@ -108,7 +108,7 @@ internal static class GameArtifactIsolationPatch
         }
         catch (Exception exception)
         {
-            s_log?.Invoke("Could not redirect object-pool diagnostics: " + exception.Message);
+            s_log?.Invoke("无法重定向对象池诊断数据：" + exception.Message);
         }
 
         return false;

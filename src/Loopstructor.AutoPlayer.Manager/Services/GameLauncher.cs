@@ -21,7 +21,7 @@ public sealed class GameLauncher
     {
         if (!game.IsValid)
         {
-            return new GameLaunchResult { Message = "The selected Skyspine build is not valid." };
+            return new GameLaunchResult { Message = "所选 Skyspine 构建无效。" };
         }
 
         ActivationSession? session = null;
@@ -35,7 +35,7 @@ public sealed class GameLauncher
             if (process == null)
             {
                 session.DeleteTicket();
-                return new GameLaunchResult { Message = "Windows did not create the game process." };
+                return new GameLaunchResult { Message = "Windows 未能创建游戏进程。" };
             }
 
             session.ProcessId = process.Id;
@@ -43,14 +43,14 @@ public sealed class GameLauncher
             return new GameLaunchResult
             {
                 Success = true,
-                Message = $"Skyspine started (PID {process.Id}).",
+                Message = $"Skyspine 已启动（PID {process.Id}）。",
                 Session = session
             };
         }
         catch (Exception exception)
         {
             session?.DeleteTicket();
-            return new GameLaunchResult { Message = "The game could not be started: " + exception.Message };
+            return new GameLaunchResult { Message = "无法启动游戏。详细信息：" + exception.Message };
         }
     }
 

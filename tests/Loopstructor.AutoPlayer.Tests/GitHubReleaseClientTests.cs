@@ -61,7 +61,118 @@ public sealed class GitHubReleaseClientTests
 
         InvalidDataException exception = await Assert.ThrowsAsync<InvalidDataException>(() => client.ResolveLatestAsync());
 
-        Assert.Contains("does not match manifest version", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("与清单版本", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PublicReleaseResolution_ReportsForbiddenRateLimitInChinese()
+    {
+        RecordingHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+
+        HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ResolveLatestAsync());
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.Contains("HTTP 403", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("频率限制", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "HTTP 401", "身份验证失败")]
+    [InlineData(HttpStatusCode.TooManyRequests, "HTTP 429", "频率限制")]
+    public async Task PublicReleaseResolution_ReportsOtherHttpFailuresInChinese(
+        HttpStatusCode statusCode,
+        string expectedStatus,
+        string expectedReason)
+    {
+        RecordingHandler handler = new(_ => new HttpResponseMessage(statusCode));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+
+        HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ResolveLatestAsync());
+
+        Assert.Equal(statusCode, exception.StatusCode);
+        Assert.Contains(expectedStatus, exception.Message, StringComparison.Ordinal);
+        Assert.Contains(expectedReason, exception.Message, StringComparison.Ordinal);
+        if (statusCode == HttpStatusCode.Unauthorized)
+        {
+            Assert.DoesNotContain("Token", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task TokenReleaseResolution_ReportsForbiddenRateLimitInChinese()
+    {
+        RecordingHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings(), "test-token-not-a-secret");
+
+        HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ResolveLatestAsync());
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.Contains("HTTP 403", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("GitHub Token", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TokenReleaseResolution_ReportsUnauthorizedTokenInChinese()
+    {
+        RecordingHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings(), "test-token-not-a-secret");
+
+        HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ResolveLatestAsync());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        Assert.Contains("HTTP 401", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("GitHub Token", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageDownload_ReportsRateLimitInChinese()
+    {
+        byte[] packageBytes = Encoding.UTF8.GetBytes("package");
+        UpdateManifest manifest = CreateManifest("0.1.7", packageBytes);
+        ResolvedUpdate update = new()
+        {
+            Manifest = manifest,
+            PackageAsset = new GitHubReleaseAsset
+            {
+                Name = manifest.AssetName,
+                DownloadUri = new Uri(
+                    "https://github.com/yingyu4451/gui2/releases/download/v0.1.7/" + manifest.AssetName),
+                Size = manifest.Size
+            },
+            ReleaseTag = "v0.1.7",
+            ReleasePageUrl = "https://github.com/yingyu4451/gui2/releases/tag/v0.1.7"
+        };
+        RecordingHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+        string destination = Path.Combine(
+            Path.GetTempPath(),
+            "autoplayer-rate-limit-" + Guid.NewGuid().ToString("N"),
+            "package.zip");
+
+        try
+        {
+            HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.DownloadVerifiedPackageAsync(update, destination));
+
+            Assert.Equal(HttpStatusCode.TooManyRequests, exception.StatusCode);
+            Assert.Contains("HTTP 429", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("频率限制", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            string? parent = Path.GetDirectoryName(destination);
+            if (parent != null && Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+        }
     }
 
     [Theory]

@@ -9,7 +9,7 @@ public sealed class ManagerRestarter
     {
         ProcessStartInfo startInfo = CreateStartInfo(releaseRoot);
         return Process.Start(startInfo)
-               ?? throw new InvalidOperationException("Windows did not restart Manager.");
+               ?? throw new InvalidOperationException("Windows 未能重新启动 Manager。");
     }
 
     internal static ProcessStartInfo CreateStartInfo(string releaseRoot)
@@ -21,9 +21,9 @@ public sealed class ManagerRestarter
             marker.ManagerPath,
             "manager/Loopstructor.AutoPlayer.Manager.exe",
             "Loopstructor.AutoPlayer.Manager",
-            "Manager entry point");
+            "Manager 入口");
         string managerDirectory = Path.GetDirectoryName(managerEntryPoint)
-                                  ?? throw new InvalidDataException("Manager entry point has no parent directory.");
+                                  ?? throw new InvalidDataException("Manager 入口没有父目录。");
         ProcessStartInfo startInfo;
         if (managerEntryPoint.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {

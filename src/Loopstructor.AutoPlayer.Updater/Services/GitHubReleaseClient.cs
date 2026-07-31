@@ -41,15 +41,17 @@ public sealed class GitHubReleaseClient
         ValidateResolvedPackage(update);
         if (File.Exists(destinationPath))
         {
-            throw new IOException("Package destination already exists: " + destinationPath);
+            throw new IOException("安装包目标文件已存在：" + destinationPath);
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destinationPath))!);
-        using HttpResponseMessage response = await SendDownloadWithRedirectsAsync(update.PackageAsset.DownloadUri, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using HttpResponseMessage response = await SendDownloadWithRedirectsAsync(
+            update.PackageAsset.DownloadUri,
+            "下载安装包",
+            cancellationToken);
         if (response.Content.Headers.ContentLength is long contentLength && contentLength != update.Manifest.Size)
         {
-            throw new InvalidDataException($"Downloaded content length {contentLength} does not match manifest size {update.Manifest.Size}.");
+            throw new InvalidDataException($"下载内容长度 {contentLength} 与清单大小 {update.Manifest.Size} 不一致。");
         }
 
         await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -72,7 +74,7 @@ public sealed class GitHubReleaseClient
                 total += read;
                 if (total > update.Manifest.Size || total > MaximumPackageBytes)
                 {
-                    throw new InvalidDataException("Downloaded package exceeded the declared size.");
+                    throw new InvalidDataException("下载的安装包超过清单声明的大小。");
                 }
 
                 hash.AppendData(buffer, 0, read);
@@ -82,14 +84,14 @@ public sealed class GitHubReleaseClient
             await output.FlushAsync(cancellationToken);
             if (total != update.Manifest.Size)
             {
-                throw new InvalidDataException($"Downloaded {total} bytes; expected {update.Manifest.Size}.");
+                throw new InvalidDataException($"实际下载 {total} 字节，预期为 {update.Manifest.Size} 字节。");
             }
 
             byte[] actual = hash.GetHashAndReset();
             byte[] expected = Convert.FromHexString(update.Manifest.Sha256);
             if (!CryptographicOperations.FixedTimeEquals(actual, expected))
             {
-                throw new InvalidDataException("Downloaded package SHA-256 does not match the release manifest value.");
+                throw new InvalidDataException("下载的安装包 SHA-256 与发布清单不一致。");
             }
         }
         catch
@@ -110,13 +112,13 @@ public sealed class GitHubReleaseClient
             cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new InvalidOperationException("GitHub latest release was not found for the configured repository.");
+            throw new InvalidOperationException("配置的 GitHub 仓库中没有找到最新 Release。");
         }
 
         if (!IsRedirect(response.StatusCode) || response.Headers.Location is null)
         {
-            response.EnsureSuccessStatusCode();
-            throw new InvalidDataException("GitHub latest release did not redirect to a tagged release.");
+            EnsureGitHubSuccess(response, "查询最新版本", credentialsSent: false);
+            throw new InvalidDataException("GitHub 最新 Release 未跳转到带版本标签的 Release。");
         }
 
         Uri releasePageUri = response.Headers.Location.IsAbsoluteUri
@@ -155,10 +157,10 @@ public sealed class GitHubReleaseClient
             cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new InvalidOperationException("GitHub latest release was not found for the configured repository.");
+            throw new InvalidOperationException("配置的 GitHub 仓库中没有找到最新 Release。");
         }
 
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response, "查询最新版本", credentialsSent: true);
         await using Stream responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         GitHubReleaseResponse? release = await JsonSerializer.DeserializeAsync<GitHubReleaseResponse>(
             responseStream,
@@ -166,15 +168,15 @@ public sealed class GitHubReleaseClient
             cancellationToken);
         if (release == null)
         {
-            throw new InvalidDataException("GitHub returned an empty release response.");
+            throw new InvalidDataException("GitHub 返回的 Release 响应为空。");
         }
 
         GitHubAssetResponse manifestAsset = release.Assets.SingleOrDefault(asset =>
             string.Equals(asset.Name, _settings.ManifestAssetName, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidDataException("Release is missing " + _settings.ManifestAssetName + ".");
+            ?? throw new InvalidDataException("Release 缺少 " + _settings.ManifestAssetName + "。");
         if (manifestAsset.Size is <= 0 or > MaximumManifestBytes)
         {
-            throw new InvalidDataException("GitHub manifest asset size is outside the accepted range.");
+            throw new InvalidDataException("GitHub 清单资源的大小超出允许范围。");
         }
 
         Uri manifestUri = ValidateApiAssetUri(manifestAsset.ApiUrl);
@@ -182,17 +184,17 @@ public sealed class GitHubReleaseClient
         if (manifestBytes.LongLength != manifestAsset.Size)
         {
             throw new InvalidDataException(
-                $"GitHub manifest asset size {manifestAsset.Size} does not match downloaded size {manifestBytes.LongLength}.");
+                $"GitHub 清单资源大小 {manifestAsset.Size} 与实际下载大小 {manifestBytes.LongLength} 不一致。");
         }
 
         UpdateManifest manifest = DeserializeAndValidateManifest(manifestBytes);
         ValidateReleaseTag(release.TagName, manifest.Version);
         GitHubAssetResponse package = release.Assets.SingleOrDefault(asset =>
             string.Equals(asset.Name, manifest.AssetName, StringComparison.Ordinal))
-            ?? throw new InvalidDataException("Release does not contain manifest package asset " + manifest.AssetName + ".");
+            ?? throw new InvalidDataException("Release 不包含清单指定的安装包资源 " + manifest.AssetName + "。");
         if (package.Size != manifest.Size)
         {
-            throw new InvalidDataException($"GitHub asset size {package.Size} does not match manifest size {manifest.Size}.");
+            throw new InvalidDataException($"GitHub 资源大小 {package.Size} 与清单大小 {manifest.Size} 不一致。");
         }
 
         return new ResolvedUpdate
@@ -222,7 +224,7 @@ public sealed class GitHubReleaseClient
         UpdateManifest? manifest = JsonSerializer.Deserialize<UpdateManifest>(manifestBytes, JsonOptions);
         if (manifest == null)
         {
-            throw new InvalidDataException("Update manifest is empty.");
+            throw new InvalidDataException("更新清单为空。");
         }
 
         ValidateManifest(manifest);
@@ -231,11 +233,13 @@ public sealed class GitHubReleaseClient
 
     private async Task<byte[]> DownloadSmallAssetAsync(Uri uri, CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await SendDownloadWithRedirectsAsync(uri, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using HttpResponseMessage response = await SendDownloadWithRedirectsAsync(
+            uri,
+            "下载更新清单",
+            cancellationToken);
         if (response.Content.Headers.ContentLength is > MaximumManifestBytes)
         {
-            throw new InvalidDataException("Update manifest is unexpectedly large.");
+            throw new InvalidDataException("更新清单大小异常。");
         }
 
         await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -247,7 +251,7 @@ public sealed class GitHubReleaseClient
             if (read == 0) break;
             if (output.Length + read > MaximumManifestBytes)
             {
-                throw new InvalidDataException("Update manifest exceeded the size limit.");
+                throw new InvalidDataException("更新清单超过大小限制。");
             }
 
             output.Write(buffer, 0, read);
@@ -258,6 +262,7 @@ public sealed class GitHubReleaseClient
 
     private async Task<HttpResponseMessage> SendDownloadWithRedirectsAsync(
         Uri initialUri,
+        string operation,
         CancellationToken cancellationToken)
     {
         Uri current = ValidateDownloadUri(initialUri.ToString());
@@ -279,10 +284,52 @@ public sealed class GitHubReleaseClient
                 continue;
             }
 
+            if (!response.IsSuccessStatusCode)
+            {
+                try
+                {
+                    EnsureGitHubSuccess(
+                        response,
+                        operation,
+                        credentialsSent: includeToken && !string.IsNullOrWhiteSpace(_token));
+                }
+                finally
+                {
+                    response.Dispose();
+                }
+            }
+
             return response;
         }
 
-        throw new HttpRequestException("GitHub download exceeded the redirect limit.");
+        throw new HttpRequestException("GitHub 下载超过允许的重定向次数。");
+    }
+
+    private static void EnsureGitHubSuccess(
+        HttpResponseMessage response,
+        string operation,
+        bool credentialsSent)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        int statusCode = (int)response.StatusCode;
+        string message = response.StatusCode switch
+        {
+            HttpStatusCode.Forbidden =>
+                $"{operation}失败：GitHub 返回 HTTP 403，访问被拒绝或已触发频率限制。" +
+                "请稍后重试；如果配置了 GitHub Token，请确认其有效且拥有仓库访问权限。",
+            HttpStatusCode.TooManyRequests =>
+                $"{operation}失败：GitHub 返回 HTTP 429，已触发访问频率限制，请稍后重试。",
+            HttpStatusCode.Unauthorized when credentialsSent =>
+                $"{operation}失败：GitHub 返回 HTTP 401，请检查 GitHub Token 是否有效。",
+            HttpStatusCode.Unauthorized =>
+                $"{operation}失败：GitHub 返回 HTTP 401，身份验证失败。请确认仓库公开且当前链接可以访问。",
+            _ => $"{operation}失败：GitHub 返回 HTTP {statusCode}。"
+        };
+        throw new HttpRequestException(message, null, response.StatusCode);
     }
 
     private HttpRequestMessage CreateRequest(Uri uri, string accept, bool includeToken)
@@ -299,7 +346,7 @@ public sealed class GitHubReleaseClient
         {
             if (!IsGitHubApiHost(uri.Host))
             {
-                throw new InvalidOperationException("GitHub credentials may only be sent to api.github.com.");
+                throw new InvalidOperationException("GitHub 凭据只能发送到 api.github.com。");
             }
 
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -312,7 +359,7 @@ public sealed class GitHubReleaseClient
     {
         if (manifest.SchemaVersion != 2)
         {
-            throw new InvalidDataException("Unsupported update manifest schema: " + manifest.SchemaVersion);
+            throw new InvalidDataException("不支持的更新清单协议版本：" + manifest.SchemaVersion);
         }
 
         if (string.IsNullOrWhiteSpace(manifest.Version)
@@ -320,12 +367,12 @@ public sealed class GitHubReleaseClient
             || !CanonicalSemanticVersionPattern.IsMatch(manifest.Version)
             || !SemanticVersion.TryParse(manifest.Version, out _))
         {
-            throw new InvalidDataException("Manifest version is not canonical SemVer.");
+            throw new InvalidDataException("清单版本不是规范的 SemVer。");
         }
 
         if (!string.Equals(manifest.RuntimeIdentifier, "win-x64", StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Manifest runtime identifier does not match this updater.");
+            throw new InvalidDataException("清单中的运行时标识与此更新器不匹配。");
         }
 
         string expectedAssetName = $"Loopstructor.AutoPlayer-{manifest.Version}-win-x64.zip";
@@ -333,19 +380,19 @@ public sealed class GitHubReleaseClient
             || !string.Equals(Path.GetFileName(manifest.AssetName), manifest.AssetName, StringComparison.Ordinal)
             || !string.Equals(manifest.AssetName, expectedAssetName, StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Manifest package asset name does not match its version and runtime.");
+            throw new InvalidDataException("清单中的安装包资源名称与其版本和运行时不匹配。");
         }
 
         if (string.IsNullOrWhiteSpace(manifest.Sha256)
             || manifest.Sha256.Length != 64
             || manifest.Sha256.Any(character => !Uri.IsHexDigit(character)))
         {
-            throw new InvalidDataException("Manifest SHA-256 must contain exactly 64 hexadecimal characters.");
+            throw new InvalidDataException("清单中的 SHA-256 必须正好包含 64 个十六进制字符。");
         }
 
         if (manifest.Size <= 0 || manifest.Size > MaximumPackageBytes)
         {
-            throw new InvalidDataException("Manifest package size is outside the accepted range.");
+            throw new InvalidDataException("清单中的安装包大小超出允许范围。");
         }
 
         manifest.Sha256 = manifest.Sha256.ToLowerInvariant();
@@ -358,7 +405,7 @@ public sealed class GitHubReleaseClient
         if (!string.Equals(update.PackageAsset.Name, update.Manifest.AssetName, StringComparison.Ordinal)
             || update.PackageAsset.Size != update.Manifest.Size)
         {
-            throw new InvalidDataException("Resolved package metadata does not match the release manifest.");
+            throw new InvalidDataException("解析出的安装包元数据与发布清单不匹配。");
         }
 
         if (IsGitHubWebHost(update.PackageAsset.DownloadUri.Host))
@@ -371,7 +418,7 @@ public sealed class GitHubReleaseClient
         }
         else
         {
-            throw new InvalidDataException("Resolved package URL must start at GitHub, not a release CDN.");
+            throw new InvalidDataException("解析出的安装包 URL 必须指向 GitHub，不能直接指向 Release CDN。");
         }
     }
 
@@ -380,7 +427,7 @@ public sealed class GitHubReleaseClient
         ValidateBaseUri(uri);
         if (!IsGitHubWebHost(uri.Host) || !string.IsNullOrEmpty(uri.Query))
         {
-            throw new InvalidDataException("Latest release redirected outside the configured GitHub repository.");
+            throw new InvalidDataException("最新 Release 跳转到了配置的 GitHub 仓库之外。");
         }
 
         string[] segments = GetDecodedPathSegments(uri);
@@ -391,7 +438,7 @@ public sealed class GitHubReleaseClient
             || !string.Equals(segments[3], "tag", StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(segments[4]))
         {
-            throw new InvalidDataException("Latest release redirected outside the configured GitHub repository.");
+            throw new InvalidDataException("最新 Release 跳转到了配置的 GitHub 仓库之外。");
         }
 
         return segments[4];
@@ -411,7 +458,7 @@ public sealed class GitHubReleaseClient
             || !string.Equals(segments[4], releaseTag, StringComparison.Ordinal)
             || !string.Equals(segments[5], assetName, StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Release asset URL is outside the configured release and repository.");
+            throw new InvalidDataException("Release 资源 URL 不属于配置的仓库和 Release。");
         }
     }
 
@@ -430,7 +477,7 @@ public sealed class GitHubReleaseClient
             || !long.TryParse(segments[5], out long assetId)
             || assetId <= 0)
         {
-            throw new InvalidDataException("GitHub API asset URL is outside the configured repository.");
+            throw new InvalidDataException("GitHub API 资源 URL 不属于配置的仓库。");
         }
 
         return uri;
@@ -440,13 +487,13 @@ public sealed class GitHubReleaseClient
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri))
         {
-            throw new InvalidDataException("Release asset URL is not an absolute URI.");
+            throw new InvalidDataException("Release 资源 URL 不是绝对 URI。");
         }
 
         ValidateBaseUri(uri);
         if (!IsTrustedGitHubHost(uri.Host))
         {
-            throw new InvalidDataException("Release asset URL is not a trusted GitHub host.");
+            throw new InvalidDataException("Release 资源 URL 不属于受信任的 GitHub 主机。");
         }
 
         return uri;
@@ -457,7 +504,7 @@ public sealed class GitHubReleaseClient
         Uri validated = ValidateDownloadUri(uri.ToString());
         if (!IsReleaseAssetCdnHost(validated.Host))
         {
-            throw new InvalidDataException("GitHub asset redirects must go directly to a trusted release CDN.");
+            throw new InvalidDataException("GitHub 资源必须直接跳转到受信任的 Release CDN。");
         }
 
         return validated;
@@ -470,7 +517,7 @@ public sealed class GitHubReleaseClient
             || !string.IsNullOrEmpty(uri.UserInfo)
             || !string.IsNullOrEmpty(uri.Fragment))
         {
-            throw new InvalidDataException("GitHub URLs must use default-port HTTPS without user information or fragments.");
+            throw new InvalidDataException("GitHub URL 必须使用默认端口的 HTTPS，且不能包含用户信息或片段。");
         }
     }
 
@@ -480,7 +527,7 @@ public sealed class GitHubReleaseClient
         if (!string.Equals(releaseTag, expectedTag, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                $"Release tag {releaseTag} does not match manifest version {manifestVersion}.");
+                $"Release 标签 {releaseTag} 与清单版本 {manifestVersion} 不一致。");
         }
     }
 

@@ -8,6 +8,7 @@ Loopstructor 2 AutoPlayer 是一个面向 Windows x64 测试包的自动游玩�
 
 - Windows x64、Unity `2022.3.62f3c1`、Mono 后端的 Loopstructor 2 测试包。
 - 游戏包必须包含与当前源码一致的 `GuiGameAutomation.Runtime` 公共自动化契约。
+- 当前 BepInEx 与该 Unity Mono 构建组合要求完整游戏路径只含 ASCII 字符；可包含英文字母、数字和空格。该限制来自注入后的运行时兼容性，未安装 BepInEx 的游戏本体不受影响。
 - 用于 QA 回归、长时间游玩和异常证据采集，不用于玩家账号、正式存档或线上作弊。
 - 当前固定运行时为 BepInEx `5.4.23.5` Windows x64。
 
@@ -23,22 +24,22 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.1.6 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.7 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.6
+.\scripts\package.ps1 -Version 0.1.7
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.1.6-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.1.7-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带所需运行时，无需安装系统 .NET；根启动器和 `manager\` 内的 Manager 均为自包含单文件，用户不需要进入内部目录查找或启动程序。`updater\` 也保留自己的自包含运行时文件。
-3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。
+3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
 5. 新建或选择独立 QA profile；不要把正常玩家存档目录配置为测试 profile。
 6. 必须从管理器启动本次测试。管理器会为每次启动创建新的 pipe 名称、随机 token、profile 路径、证据路径及期望的 `Assembly-CSharp.dll` SHA-256，并只在该子进程中设置 Skyspine 的 Steam AppID，确保运行的是所选 QA 包而不是 Steam 库中的另一份安装。
@@ -115,7 +116,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.1.6-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.1.7-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
 
 由于更新清单协议和归档结构已经改变，`v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载并解压新 ZIP；完成这次迁移后，后续新版可以继续自动更新。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
 
@@ -124,5 +125,7 @@ push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一
 从 `v0.1.4` 起，公开仓库且未提供 token 时，更新器会先访问 GitHub 网页端的 `releases/latest`，核对它跳转到同一仓库的精确版本 tag，再从该 tag 的 Release 资产地址下载清单和 ZIP。此路径不调用匿名 GitHub REST API，因此不受匿名 API 每个出口 IP 每小时 60 次的配额影响。
 
 提供 token（包括访问私有仓库）时，更新器才通过 GitHub REST API 查询 Release，并使用 API 返回的资产 URL。token 只发送给 `api.github.com`，跟随下载重定向到 GitHub Release CDN 时不会转发。不要把 token 写入源码、Manager 设置、发布包或日志。
+
+从 `v0.1.7` 起，AutoPlayer 插件、Manager、Launcher 和 Updater 自己生成的运行消息与错误说明均使用中文；GitHub 的 401、403 和 429 会显示对应状态码及中文处理建议。BepInEx、Unity、游戏本体和系统组件直接输出的原始日志仍保持原文，以免丢失第三方诊断信息。
 
 `v0.1.3` 在未提供 token 时仍使用匿名 REST API；如果它正显示 `403 (rate limit exceeded)`，可以等待 GitHub 配额恢复、仅在当前 Manager 进程环境中临时提供只读 token，或手动下载并安装 `v0.1.4` 一次。进入 `v0.1.4` 后，公开仓库的无 token 更新会改用上述网页 Release 路径。

@@ -22,8 +22,8 @@ internal static class PlatformWriteIsolationPatch
         PatchedEntries = patched;
         Applied = patched.Count == RequiredPatchCount;
         log(Applied
-            ? "Blocked external achievement and settlement uploads: " + string.Join(", ", patched)
-            : $"External write isolation is incomplete ({patched.Count}/{RequiredPatchCount}): " + string.Join(", ", patched));
+            ? "已阻止向外部平台上传成就和结算数据：" + string.Join(", ", patched)
+            : $"外部写入隔离不完整（{patched.Count}/{RequiredPatchCount}）：" + string.Join(", ", patched));
     }
 
     private static void TryPatch(Harmony harmony, string typeName, string methodName, ICollection<string> patched)

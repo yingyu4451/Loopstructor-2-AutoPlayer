@@ -83,7 +83,7 @@ internal sealed class RuntimeBridge
     {
         if (!_commands.TryGetValue(command, out MethodInfo method))
         {
-            return Error("Automation command is unavailable: " + command);
+            return Error("自动游玩命令不可用：" + command);
         }
 
         try
@@ -94,11 +94,11 @@ internal sealed class RuntimeBridge
         catch (TargetInvocationException exception)
         {
             Exception inner = exception.InnerException ?? exception;
-            return Error(inner.GetType().Name + ": " + inner.Message);
+            return Error("调用自动游玩运行时失败（" + inner.GetType().Name + "）：" + inner.Message);
         }
         catch (Exception exception)
         {
-            return Error(exception.GetType().Name + ": " + exception.Message);
+            return Error("调用自动游玩运行时失败（" + exception.GetType().Name + "）：" + exception.Message);
         }
     }
 
@@ -117,7 +117,7 @@ internal sealed class RuntimeBridge
             BindingFlags.Public | BindingFlags.Instance);
         if (globalInstanceProperty == null || sceneInstanceProperty == null || isLoadingProperty == null)
         {
-            message = "Waiting for the game's front-end readiness contract.";
+            message = "正在等待游戏前端就绪契约。";
             return false;
         }
 
@@ -126,13 +126,13 @@ internal sealed class RuntimeBridge
             object? globalInstance = globalInstanceProperty.GetValue(null, null);
             if (globalInstance == null)
             {
-                message = "Waiting for the game's global module instance.";
+                message = "正在等待游戏全局模块实例。";
                 return false;
             }
 
             if (isLoadingProperty.GetValue(globalInstance, null) is not bool isLoading || isLoading)
             {
-                message = "Waiting for the game's global modules to finish initialization.";
+                message = "正在等待游戏全局模块完成初始化。";
                 return false;
             }
 
@@ -144,16 +144,16 @@ internal sealed class RuntimeBridge
                 sceneLoadingProperty?.GetValue(sceneInstance, null) is not bool sceneIsLoading ||
                 sceneIsLoading)
             {
-                message = "Waiting for the current game scene to finish initialization.";
+                message = "正在等待当前游戏场景完成初始化。";
                 return false;
             }
 
-            message = "Game front-end modules are initialized.";
+            message = "游戏前端模块已完成初始化。";
             return true;
         }
         catch (Exception exception)
         {
-            message = "Waiting for a readable game front-end state: " +
+            message = "正在等待可读取的游戏前端状态：" +
                       (exception is TargetInvocationException target && target.InnerException != null
                           ? target.InnerException.Message
                           : exception.Message);
@@ -179,7 +179,7 @@ internal sealed class RuntimeBridge
     {
         success = false,
         message,
-        suggestion = "Confirm that this game build contains the current GuiGameAutomation.Runtime contract.",
+        suggestion = "请确认当前游戏版本包含所需的 GuiGameAutomation.Runtime 契约。",
         data = new { state = new { } }
     });
 }

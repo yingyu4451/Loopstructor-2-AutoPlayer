@@ -40,7 +40,7 @@ internal static class Program
             if (!SemanticVersion.TryParse(options.CurrentVersion, out SemanticVersion? current)
                 || !SemanticVersion.TryParse(update.Manifest.Version, out SemanticVersion? latest))
             {
-                throw new InvalidDataException("Current or latest release version is invalid.");
+                throw new InvalidDataException("当前版本或最新发布版本无效。");
             }
 
             bool updateAvailable = latest!.CompareTo(current) > 0;
@@ -53,8 +53,8 @@ internal static class Program
                     CurrentVersion = options.CurrentVersion,
                     LatestVersion = update.Manifest.Version,
                     Message = updateAvailable
-                        ? $"AutoPlayer {update.Manifest.Version} is available."
-                        : "AutoPlayer is already up to date."
+                        ? $"发现 AutoPlayer {update.Manifest.Version} 新版本。"
+                        : "AutoPlayer 已是最新版本。"
                 };
                 WriteResult(checkResult, options.JsonOutput);
                 return 0;
@@ -67,7 +67,7 @@ internal static class Program
                     Success = true,
                     CurrentVersion = options.CurrentVersion,
                     LatestVersion = update.Manifest.Version,
-                    Message = "No update is required."
+                    Message = "无需更新。"
                 }, options.JsonOutput);
                 return 0;
             }
@@ -79,7 +79,7 @@ internal static class Program
             UpdaterResult failure = new()
             {
                 CurrentVersion = options?.CurrentVersion ?? string.Empty,
-                Message = exception.Message
+                Message = GetUserFacingFailureMessage(exception)
             };
             WriteResult(failure, options?.JsonOutput ?? wantsJson);
             return 1;
@@ -106,9 +106,9 @@ internal static class Program
         bool replacementStarted = false;
         try
         {
-            WriteProgress(options, $"Downloading {update.PackageAsset.Name}...");
+            WriteProgress(options, $"正在下载 {update.PackageAsset.Name}...");
             await releaseClient.DownloadVerifiedPackageAsync(update, packagePath);
-            WriteProgress(options, "Package SHA-256 verified. Extracting to staging...");
+            WriteProgress(options, "安装包 SHA-256 校验通过，正在解压到暂存目录...");
             SecureZipExtractor extractor = new();
             extractor.ExtractReleasePackage(packagePath, stagingRoot);
             packageValidator.Validate(stagingRoot, update.Manifest.Version);
@@ -132,7 +132,7 @@ internal static class Program
                 UpdateAvailable = false,
                 CurrentVersion = options.CurrentVersion,
                 LatestVersion = update.Manifest.Version,
-                Message = $"AutoPlayer updated to {update.Manifest.Version}.",
+                Message = $"AutoPlayer 已更新到 {update.Manifest.Version}。",
                 BackupDirectory = backup
             };
             if (options.RestartManager)
@@ -144,7 +144,7 @@ internal static class Program
                 }
                 catch (Exception exception)
                 {
-                    result.Message += " Manager restart failed: " + exception.Message;
+                    result.Message += " 但 Manager 重启失败：" + GetUserFacingFailureMessage(exception);
                 }
             }
 
@@ -170,10 +170,10 @@ internal static class Program
             return;
         }
 
-        Console.WriteLine(result.Success ? result.Message : "Update failed: " + result.Message);
+        Console.WriteLine(result.Success ? result.Message : "更新失败：" + result.Message);
         if (!string.IsNullOrWhiteSpace(result.BackupDirectory))
         {
-            Console.WriteLine("Previous release backup: " + result.BackupDirectory);
+            Console.WriteLine("上一版本备份：" + result.BackupDirectory);
         }
     }
 
@@ -181,6 +181,33 @@ internal static class Program
     {
         if (!options.JsonOutput) Console.WriteLine(message);
     }
+
+    internal static string GetUserFacingFailureMessage(Exception exception)
+    {
+        string message = exception.Message?.Trim() ?? string.Empty;
+        if (IsUpdaterAuthored(exception) && ContainsChineseText(message))
+        {
+            return message;
+        }
+
+        return exception switch
+        {
+            OperationCanceledException => "更新请求已取消或等待超时。",
+            HttpRequestException httpException when httpException.StatusCode.HasValue =>
+                $"无法访问 GitHub（HTTP {(int)httpException.StatusCode.Value}），请稍后重试并检查网络、代理或防火墙设置。",
+            HttpRequestException => "无法连接 GitHub，请检查网络、代理或防火墙设置后重试。",
+            UnauthorizedAccessException => "更新器没有访问目标文件或目录的权限，请检查目录权限后重试。",
+            JsonException => "更新数据格式无效，无法继续更新。",
+            IOException => "更新文件读写失败，请关闭正在占用文件的程序后重试。",
+            _ => "更新器遇到未预期错误，请重新下载完整发布包后重试。"
+        };
+    }
+
+    private static bool IsUpdaterAuthored(Exception exception) =>
+        exception.TargetSite?.DeclaringType?.Assembly == typeof(Program).Assembly;
+
+    private static bool ContainsChineseText(string value) =>
+        value.Any(character => character is >= '\u3400' and <= '\u9fff');
 
     private static void DeleteTemporaryDirectory(string path, string allowedParent, string? requiredPrefix = null)
     {

@@ -43,7 +43,7 @@ public sealed class TransactionalInstaller
     {
         string target = ReleasePackageValidator.NormalizeRoot(targetRoot);
         string parent = Directory.GetParent(target)?.FullName
-                        ?? throw new InvalidOperationException("Update target has no parent directory.");
+                        ?? throw new InvalidOperationException("更新目标没有父目录。");
         return Path.Combine(parent, ".LoopstructorAutoPlayer-staging-" + Guid.NewGuid().ToString("N"));
     }
 
@@ -54,12 +54,12 @@ public sealed class TransactionalInstaller
         _validator.Validate(target, validateTargetSafety: true);
         _validator.Validate(staging, expectedVersion);
         string targetParent = Directory.GetParent(target)?.FullName
-                              ?? throw new InvalidOperationException("Update target has no parent directory.");
+                              ?? throw new InvalidOperationException("更新目标没有父目录。");
         string stagingParent = Directory.GetParent(staging)?.FullName
-                               ?? throw new InvalidOperationException("Staging root has no parent directory.");
+                               ?? throw new InvalidOperationException("暂存目录没有父目录。");
         if (!string.Equals(targetParent, stagingParent, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Staging and target must share a parent directory for transactional replacement.");
+            throw new InvalidOperationException("暂存目录与更新目标必须具有同一个父目录，才能执行事务替换。");
         }
 
         PreserveConfiguration(target, staging);
@@ -116,39 +116,49 @@ public sealed class TransactionalInstaller
                 UpdatePhase(journal, "rollback-failed");
             }
 
-            string message = "Update replacement failed: " + applyError.Message;
+            string message = "替换更新文件失败（" + DescribeFileOperationFailure(applyError) + "）。";
             if (rollbackError != null)
             {
-                message += " Rollback also failed: " + rollbackError.Message + ". Recovery journal: " + JournalPath;
+                message += " 回滚也失败（" + DescribeFileOperationFailure(rollbackError) + "）。恢复日志：" + JournalPath;
             }
             else
             {
                 message += previousReleaseUnchanged
-                    ? " The previous release was unchanged."
-                    : " The previous release was restored.";
+                    ? " 上一版本未发生变化。"
+                    : " 已恢复上一版本。";
             }
 
             throw new IOException(message, applyError);
         }
     }
 
+    private static string DescribeFileOperationFailure(Exception exception) => exception switch
+    {
+        UnauthorizedAccessException => "没有文件访问权限",
+        FileNotFoundException => "所需文件不存在",
+        DirectoryNotFoundException => "所需目录不存在",
+        InvalidDataException => "安装文件校验失败",
+        IOException => "文件被占用或无法移动",
+        _ => "发生未预期错误，类型为 " + exception.GetType().Name
+    };
+
     public string RecoverIncomplete(string targetRoot)
     {
         if (!File.Exists(JournalPath)) return string.Empty;
         UpdateTransactionJournal journal = JsonSerializer.Deserialize<UpdateTransactionJournal>(
             File.ReadAllText(JournalPath),
-            JsonOptions) ?? throw new InvalidDataException("Updater transaction journal is empty.");
+            JsonOptions) ?? throw new InvalidDataException("更新事务日志为空。");
         string target = ReleasePackageValidator.NormalizeRoot(targetRoot);
         if (!string.Equals(target, ReleasePackageValidator.NormalizeRoot(journal.TargetRoot), StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Recovery journal belongs to a different release root.");
+            throw new InvalidOperationException("恢复日志属于另一个发布目录。");
         }
 
         ValidateJournalPaths(journal);
         if (TryValidate(target, journal.Version))
         {
             DeleteJournal();
-            return "Recovered an update that completed before its journal was finalized.";
+            return "已恢复一项在事务日志完成前已经安装成功的更新。";
         }
 
         if (Directory.Exists(journal.BackupRoot))
@@ -156,17 +166,17 @@ public sealed class TransactionalInstaller
             RestoreBackup(journal);
             _validator.Validate(target, validateTargetSafety: true);
             DeleteJournal();
-            return "Restored the previous release from an interrupted update.";
+            return "已从中断的更新中恢复上一版本。";
         }
 
         if (Directory.Exists(target))
         {
             _validator.Validate(target, validateTargetSafety: true);
             DeleteJournal();
-            return "Cleared an interrupted update before replacement began or after rollback completed.";
+            return "已清理在替换开始前或回滚完成后中断的更新。";
         }
 
-        throw new IOException("Recovery journal exists, but neither a valid target nor backup is available: " + JournalPath);
+        throw new IOException("存在恢复日志，但找不到有效的更新目标或备份：" + JournalPath);
     }
 
     private static void PreserveConfiguration(string target, string staging)
@@ -183,7 +193,7 @@ public sealed class TransactionalInstaller
     {
         if (!Directory.Exists(journal.BackupRoot))
         {
-            throw new DirectoryNotFoundException("Update backup is missing: " + journal.BackupRoot);
+            throw new DirectoryNotFoundException("更新备份不存在：" + journal.BackupRoot);
         }
 
         if (Directory.Exists(journal.TargetRoot))
@@ -205,7 +215,7 @@ public sealed class TransactionalInstaller
     {
         string target = ReleasePackageValidator.NormalizeRoot(journal.TargetRoot);
         string parent = Directory.GetParent(target)?.FullName
-                        ?? throw new InvalidDataException("Journal target has no parent.");
+                        ?? throw new InvalidDataException("事务日志中的目标没有父目录。");
         string backup = ReleasePackageValidator.NormalizeRoot(journal.BackupRoot);
         string staging = ReleasePackageValidator.NormalizeRoot(journal.StagingRoot);
         if (!string.Equals(Directory.GetParent(backup)?.FullName, parent, StringComparison.OrdinalIgnoreCase)
@@ -213,7 +223,7 @@ public sealed class TransactionalInstaller
             || !Path.GetFileName(backup).StartsWith(".LoopstructorAutoPlayer-backup-", StringComparison.Ordinal)
             || !Path.GetFileName(staging).StartsWith(".LoopstructorAutoPlayer-staging-", StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Updater transaction journal contains unsafe paths.");
+            throw new InvalidDataException("更新事务日志包含不安全的路径。");
         }
     }
 
@@ -250,7 +260,7 @@ public sealed class TransactionalInstaller
         }
         catch (Exception exception)
         {
-            throw new IOException("Updater transaction journal could not be finalized.", exception);
+            throw new IOException("无法完成更新事务日志。", exception);
         }
     }
 }

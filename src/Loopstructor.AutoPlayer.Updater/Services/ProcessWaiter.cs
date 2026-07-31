@@ -34,7 +34,7 @@ public sealed class ProcessWaiter
                     }
 
                     processes.Add(process);
-                    progress?.Invoke($"Waiting for process {processId} to exit...");
+                    progress?.Invoke($"正在等待进程 {processId} 退出...");
                     waits.Add(process.WaitForExitAsync(timeoutSource.Token));
                 }
                 catch (ArgumentException)
@@ -47,7 +47,7 @@ public sealed class ProcessWaiter
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Timed out waiting for Manager or game processes to exit.");
+            throw new TimeoutException("等待 Manager 或游戏进程退出时超时。");
         }
         finally
         {

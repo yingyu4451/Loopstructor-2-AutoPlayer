@@ -15,16 +15,16 @@ internal static class RootLauncher
             ProcessStartInfo startInfo = CreateStartInfo(AppContext.BaseDirectory, arguments);
             if (!File.Exists(startInfo.FileName))
             {
-                throw new FileNotFoundException("The bundled Manager executable is missing.", startInfo.FileName);
+                throw new FileNotFoundException("发布包内的 Manager 程序缺失。", startInfo.FileName);
             }
 
             return Process.Start(startInfo) == null
-                ? ShowError("Windows did not start the bundled Manager.")
+                ? ShowError("Windows 未能启动发布包内的 Manager。")
                 : 0;
         }
         catch (Exception exception)
         {
-            return ShowError("Loopstructor AutoPlayer could not start.\n\n" + exception.Message);
+            return ShowError("Loopstructor AutoPlayer 无法启动。\n\n详细信息：" + exception.Message);
         }
     }
 

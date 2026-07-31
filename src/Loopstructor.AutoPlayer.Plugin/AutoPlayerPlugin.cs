@@ -22,7 +22,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
     {
         if (!ActivationContext.TryLoad(Paths.GameRootPath, out ActivationContext? activation, out string activationReason) || activation == null)
         {
-            Logger.LogInfo("Auto Player is inert for this launch: " + activationReason);
+            Logger.LogInfo("本次启动未激活 AutoPlayer：" + activationReason);
             return;
         }
 
@@ -33,7 +33,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         bridge.Initialize();
         if (!bridge.IsAvailable)
         {
-            Logger.LogWarning("Automation runtime contract is incomplete: " + string.Join(", ", bridge.MissingMembers));
+            Logger.LogWarning("自动游玩运行时契约不完整：" + string.Join(", ", bridge.MissingMembers));
         }
 
         BuildFingerprint fingerprint = BuildFingerprint.Capture();
@@ -49,7 +49,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         }
         else
         {
-            Logger.LogWarning("Compatibility gate failed before patch installation; the game process remains unmodified.");
+            Logger.LogWarning("兼容性检查未通过，补丁尚未安装；游戏进程保持未修改状态。");
         }
 
         _evidence = new EvidenceRecorder(activation.ArtifactRoot);
@@ -58,14 +58,14 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _controlServer.Start();
         _statusPath = Path.Combine(activation.ArtifactRoot, "status.json");
         WriteStatus();
-        Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} activated from {activation.Source} in standby mode.");
+        Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} 已通过{ActivationSourceLabel(activation.Source)}激活，当前处于待命模式。");
     }
 
     private void ProtectActivatedManagerObject()
     {
         UnityEngine.Object.DontDestroyOnLoad(gameObject);
         gameObject.hideFlags |= UnityEngine.HideFlags.HideAndDontSave;
-        Logger.LogInfo("Protected the activated BepInEx manager object from scene cleanup.");
+        Logger.LogInfo("已保护激活的 BepInEx 管理器对象，避免其被场景清理。");
     }
 
     private void Update()
@@ -98,7 +98,14 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         }
         catch (Exception exception)
         {
-            Logger.LogWarning("Could not write automation status: " + exception.Message);
+            Logger.LogWarning("无法写入自动游玩状态：" + exception.Message);
         }
     }
+
+    private static string ActivationSourceLabel(string source) =>
+        string.Equals(source, "environment", StringComparison.OrdinalIgnoreCase)
+            ? "环境变量"
+            : string.Equals(source, "ticket", StringComparison.OrdinalIgnoreCase)
+                ? "启动票据"
+                : source;
 }

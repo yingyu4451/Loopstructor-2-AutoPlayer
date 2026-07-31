@@ -71,7 +71,7 @@ internal sealed class AutoPlayController
             ? AutoPlayerRunState.Standby
             : AutoPlayerRunState.Incompatible;
         _stageDetail = string.IsNullOrEmpty(_compatibilityError)
-            ? "Activated and waiting for a start command."
+            ? "已激活，正在等待开始命令。"
             : _compatibilityError;
         if (!string.IsNullOrEmpty(_compatibilityError)) AddTimeline("error", _compatibilityError);
     }
@@ -84,7 +84,7 @@ internal sealed class AutoPlayController
             {
                 _runState = AutoPlayerRunState.Faulted;
                 _stage = AutomationStage.Recovery;
-                _lastMessage = "The game process must be restarted after the previous automation fault.";
+                _lastMessage = "上一次自动游玩发生故障，必须重新启动游戏进程。";
                 _stageDetail = _lastMessage;
                 message = _lastMessage;
                 return false;
@@ -100,14 +100,14 @@ internal sealed class AutoPlayController
 
             if (_runState == AutoPlayerRunState.Running)
             {
-                message = "Automation is already running.";
+                message = "自动游玩已在运行。";
                 return false;
             }
 
             _options = Normalize(options ?? new AutomationRunOptions());
             _runState = AutoPlayerRunState.Running;
             _stage = AutomationStage.WaitingForGame;
-            _stageDetail = "Waiting for verified save isolation and a supported scene.";
+            _stageDetail = "正在等待存档隔离验证和受支持的场景。";
             _consecutiveFailures = 0;
             _wavesStarted = 0;
             _wavesCompleted = 0;
@@ -128,8 +128,8 @@ internal sealed class AutoPlayController
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
             _evidenceDirectory = _evidence.CreateRunDirectory();
-            AddTimeline("start", $"Automation started in {_options.Mode} mode.");
-            message = "Automation started.";
+            AddTimeline("start", $"已使用{ModeDisplayName(_options.Mode)}模式开始自动游玩。");
+            message = "自动游玩已开始。";
             return true;
         }
     }
@@ -140,14 +140,14 @@ internal sealed class AutoPlayController
         {
             if (_runState != AutoPlayerRunState.Running)
             {
-                message = "Automation is not running.";
+                message = "自动游玩当前未运行。";
                 return false;
             }
 
             _runState = AutoPlayerRunState.Paused;
-            _stageDetail = "Automation commands are paused; the game itself is not paused.";
+            _stageDetail = "自动游玩命令已暂停；游戏本身并未暂停。";
             AddTimeline("pause", _stageDetail);
-            message = "Automation paused.";
+            message = "自动游玩已暂停。";
             return true;
         }
     }
@@ -158,12 +158,12 @@ internal sealed class AutoPlayController
         {
             if (_runState != AutoPlayerRunState.Paused)
             {
-                message = "Automation is not paused.";
+                message = "自动游玩当前未暂停。";
                 return false;
             }
 
             _runState = AutoPlayerRunState.Running;
-            _stageDetail = "Automation resumed.";
+            _stageDetail = "自动游玩已继续。";
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
             AddTimeline("resume", _stageDetail);
@@ -178,16 +178,16 @@ internal sealed class AutoPlayController
         {
             if (_runState == AutoPlayerRunState.Standby)
             {
-                message = "Automation is already stopped.";
+                message = "自动游玩已经停止。";
                 return false;
             }
 
             _runState = AutoPlayerRunState.Standby;
             _stage = AutomationStage.WaitingForGame;
-            _stageDetail = "Stopped; no further game commands will be issued.";
+            _stageDetail = "已停止，不会再向游戏发送命令。";
             AddTimeline("stop", _stageDetail);
             _evidence.WriteStatus(EnsureEvidenceDirectory(), Snapshot());
-            message = "Automation stopped.";
+            message = "自动游玩已停止。";
             return true;
         }
     }
@@ -202,7 +202,7 @@ internal sealed class AutoPlayController
 
         if (DateTime.UtcNow - _startedAtUtc >= TimeSpan.FromMinutes(_options.MaxRunMinutes))
         {
-            Complete("The configured run time limit was reached.");
+            Complete("已达到配置的运行时间上限。");
             return;
         }
 
@@ -219,7 +219,7 @@ internal sealed class AutoPlayController
             _frontEndReadinessObserved = false;
             _pendingActionKey = string.Empty;
             _gameOverDetectedAt = -1f;
-            AddTimeline("scene", "Entered scene " + activeScene + ".");
+            AddTimeline("scene", "已进入场景 " + activeScene + "。");
             MarkProgress();
         }
 
@@ -231,10 +231,10 @@ internal sealed class AutoPlayController
 
         if (!SaveIsolationPatch.Verified)
         {
-            SetStage(AutomationStage.WaitingForGame, "Waiting for SaveManager to confirm the isolated QA profile.");
+            SetStage(AutomationStage.WaitingForGame, "正在等待 SaveManager 确认隔离的测试存档。");
             if (Time.realtimeSinceStartup - _lastProgressAt >= SaveVerificationTimeoutSeconds)
             {
-                Fault("Save isolation was not verified; no game command was issued.");
+                Fault("存档隔离未通过验证，因此尚未向游戏发送命令。");
             }
 
             return;
@@ -253,15 +253,15 @@ internal sealed class AutoPlayController
             }
             else
             {
-                SetStage(AutomationStage.WaitingForGame, "Waiting for a supported scene; current scene is " + activeScene + ".");
+                SetStage(AutomationStage.WaitingForGame, "正在等待受支持的场景；当前场景为 " + activeScene + "。");
             }
 
             CheckForStall();
         }
         catch (Exception exception)
         {
-            RegisterFailure("Controller exception: " + exception.Message);
-            _log.LogError(exception);
+            RegisterFailure("自动游玩控制器发生异常：" + exception.Message);
+            _log.LogError("自动游玩控制器发生未处理异常：" + exception);
         }
     }
 
@@ -347,7 +347,7 @@ internal sealed class AutoPlayController
         switch (RuntimeResultInspector.Classify(result))
         {
             case RuntimeResultDisposition.Unsafe:
-                Fault(query + " reported a polluted state that requires a fresh process: " + RuntimeResultInspector.Message(result));
+                Fault("命令 " + query + " 报告状态已被污染，需要启动新的游戏进程：" + RuntimeResultInspector.Message(result));
                 return;
             case RuntimeResultDisposition.Pending:
                 SetStage(AutomationStage.FrontEnd, Message(result));
@@ -363,14 +363,14 @@ internal sealed class AutoPlayController
             if (!_bridge.IsFrontEndInitializationComplete(out string readinessMessage))
             {
                 _frontEndReadinessObserved = false;
-                SetStage(action.Stage, readinessMessage + " No front-end command has been issued.");
+                SetStage(action.Stage, readinessMessage + " 尚未发送前端命令。");
                 return;
             }
 
             if (!_frontEndReadinessObserved)
             {
                 _frontEndReadinessObserved = true;
-                SetStage(action.Stage, "Front-end readiness was observed; waiting for one stable polling interval.");
+                SetStage(action.Stage, "已确认前端就绪，正在等待一个稳定的轮询周期。");
                 return;
             }
         }
@@ -384,13 +384,13 @@ internal sealed class AutoPlayController
         switch (RuntimeResultInspector.Classify(initialization))
         {
             case RuntimeResultDisposition.Unsafe:
-                Fault("queryState reported a polluted state that requires a fresh process: " + Message(initialization));
+                Fault("命令 queryState 报告状态已被污染，需要启动新的游戏进程：" + Message(initialization));
                 return;
             case RuntimeResultDisposition.Pending:
                 SetStage(AutomationStage.InitializingRun, Message(initialization));
                 return;
             case RuntimeResultDisposition.Failure:
-                RegisterFailure("queryState: " + Message(initialization));
+                RegisterFailure("命令 queryState 失败：" + Message(initialization));
                 return;
         }
 
@@ -398,13 +398,13 @@ internal sealed class AutoPlayController
         switch (RuntimeResultInspector.Classify(affordances))
         {
             case RuntimeResultDisposition.Unsafe:
-                Fault("queryAffordances reported a polluted state that requires a fresh process: " + Message(affordances));
+                Fault("命令 queryAffordances 报告状态已被污染，需要启动新的游戏进程：" + Message(affordances));
                 return;
             case RuntimeResultDisposition.Pending:
                 SetStage(AutomationStage.InitializingRun, Message(affordances));
                 return;
             case RuntimeResultDisposition.Failure:
-                RegisterFailure("queryAffordances: " + Message(affordances));
+                RegisterFailure("命令 queryAffordances 失败：" + Message(affordances));
                 return;
         }
 
@@ -421,7 +421,7 @@ internal sealed class AutoPlayController
 
         if (_options.MaxWaves > 0 && _wavesCompleted >= _options.MaxWaves)
         {
-            Complete("The configured wave limit was reached.");
+            Complete("已达到配置的波次上限。");
             return;
         }
 
@@ -439,7 +439,7 @@ internal sealed class AutoPlayController
                 "prepareDefaultDefense",
                 JObject.FromObject(new { includeDebug = false }),
                 AutomationStage.PreparingDefense,
-                "Prepare the default closed rail and initial vehicle through player-equivalent APIs."));
+                "正在通过等同玩家操作的接口准备默认闭合轨道和初始载具。"));
             if (prepared && _runState == AutoPlayerRunState.Running)
             {
                 _defensePrepared = true;
@@ -454,7 +454,7 @@ internal sealed class AutoPlayController
                 "setTimeSpeed",
                 JObject.FromObject(new { speedState = _options.SpeedState }),
                 AutomationStage.InitializingRun,
-                "Set the configured in-game speed."));
+                "设置配置的游戏内速度。"));
             if (configured && _runState == AutoPlayerRunState.Running) _speedConfigured = true;
             return;
         }
@@ -465,7 +465,7 @@ internal sealed class AutoPlayController
                 "selectSublevel",
                 JObject.FromObject(new { index = 0 }),
                 AutomationStage.SelectingRoute,
-                "Select the first available sublevel."));
+                "选择第一个可用的子关卡。"));
             if (selected && _runState == AutoPlayerRunState.Running) _pendingSublevel = false;
             return;
         }
@@ -485,7 +485,7 @@ internal sealed class AutoPlayController
         if (_gameOverDetectedAt < 0f)
         {
             _gameOverDetectedAt = Time.realtimeSinceStartup;
-            SetStage(AutomationStage.Completed, "Game-over observed; verifying the settlement UI.");
+            SetStage(AutomationStage.Completed, "已检测到本局结束，正在验证结算界面。");
             AddTimeline("settlement", _stageDetail);
             MarkProgress();
         }
@@ -494,20 +494,20 @@ internal sealed class AutoPlayController
         switch (RuntimeResultInspector.Classify(interactables))
         {
             case RuntimeResultDisposition.Unsafe:
-                Fault("queryUiInteractables reported a polluted state that requires a fresh process: " + Message(interactables));
+                Fault("命令 queryUiInteractables 报告状态已被污染，需要启动新的游戏进程：" + Message(interactables));
                 return;
             case RuntimeResultDisposition.Pending:
                 SetStage(AutomationStage.Completed, Message(interactables));
                 return;
             case RuntimeResultDisposition.Failure:
-                RegisterFailure("queryUiInteractables: " + Message(interactables));
+                RegisterFailure("命令 queryUiInteractables 失败：" + Message(interactables));
                 return;
         }
 
         _consecutiveFailures = 0;
         if (RuntimeResultInspector.HasActiveSettlementInteractable(interactables))
         {
-            Complete("Game-over confirmed by an active settlement-panel interaction.");
+            Complete("已通过可交互的结算界面确认本局结束。");
             return;
         }
 
@@ -518,11 +518,11 @@ internal sealed class AutoPlayController
                 "uiClick",
                 JObject.FromObject(new { instanceId = returnButtonInstanceId }),
                 AutomationStage.Completed,
-                "Dismiss the wish-list prompt through its Return button."));
+                "通过返回按钮关闭愿望清单提示。"));
             if (clicked && _runState == AutoPlayerRunState.Running)
             {
                 _wishReturnClicked = true;
-                SetStage(AutomationStage.Completed, "Wish-list prompt dismissed; waiting for the settlement panel.");
+                SetStage(AutomationStage.Completed, "愿望清单提示已关闭，正在等待结算界面。");
             }
 
             return;
@@ -531,8 +531,8 @@ internal sealed class AutoPlayController
         SetStage(
             AutomationStage.Completed,
             _wishReturnClicked
-                ? "Waiting for an active settlement-panel interaction."
-                : "Waiting for the wish-list prompt or settlement panel.");
+                ? "正在等待可交互的结算界面。"
+                : "正在等待愿望清单提示或结算界面。");
     }
 
     private bool Execute(AutomationAction action)
@@ -547,7 +547,7 @@ internal sealed class AutoPlayController
         string actionKey = action.Command + ":" + action.Arguments.ToString(Newtonsoft.Json.Formatting.None);
         if (string.Equals(actionKey, _pendingActionKey, StringComparison.Ordinal))
         {
-            SetStage(action.Stage, "Waiting for the previously issued " + action.Command + " action to change game state.");
+            SetStage(action.Stage, "正在等待先前发送的 " + action.Command + " 操作改变游戏状态。");
             return false;
         }
 
@@ -560,7 +560,7 @@ internal sealed class AutoPlayController
         RuntimeResultDisposition disposition = RuntimeResultInspector.Classify(result);
         if (disposition == RuntimeResultDisposition.Unsafe)
         {
-            Fault(action.Command + " reported a polluted state that requires a fresh process: " + _lastMessage);
+            Fault("命令 " + action.Command + " 报告状态已被污染，需要启动新的游戏进程：" + _lastMessage);
             return false;
         }
 
@@ -582,18 +582,18 @@ internal sealed class AutoPlayController
             if (string.Equals(action.Command, "prepareDefaultDefense", StringComparison.OrdinalIgnoreCase) &&
                 RuntimeResultInspector.IsRetryableDefaultDefenseFailure(result))
             {
-                SetStage(action.Stage, _lastMessage + " The clean opening state will be checked again.");
+                SetStage(action.Stage, _lastMessage + " 将再次检查干净的开局状态。");
                 return false;
             }
 
-            RegisterFailure(action.Command + ": " + _lastMessage);
+            RegisterFailure("命令 " + action.Command + " 失败：" + _lastMessage);
             return false;
         }
 
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase) &&
             !RuntimeResultInspector.HasCommittedMapNode(result))
         {
-            RegisterFailure("selectMapNode returned success without committing a selected or pending sublevel node.");
+            RegisterFailure("命令 selectMapNode 返回成功，但未提交已选择或待处理的子关卡节点。");
             return false;
         }
 
@@ -629,14 +629,14 @@ internal sealed class AutoPlayController
         {
             _wasInWave = true;
             _wavesStarted++;
-            AddTimeline("wave-start", "Observed wave start " + _wavesStarted + ".");
+            AddTimeline("wave-start", "已观察到第 " + _wavesStarted + " 个波次开始。");
             MarkProgress();
         }
         else if (!inWave && _wasInWave)
         {
             _wasInWave = false;
             _wavesCompleted++;
-            AddTimeline("wave-complete", "Observed wave completion " + _wavesCompleted + ".");
+            AddTimeline("wave-complete", "已观察到第 " + _wavesCompleted + " 个波次完成。");
             MarkProgress();
         }
     }
@@ -648,7 +648,7 @@ internal sealed class AutoPlayController
         AddTimeline("error", message);
         if (_consecutiveFailures >= Math.Max(1, _settings.MaxConsecutiveFailures.Value))
         {
-            Fault("Consecutive command failures reached the configured limit: " + message);
+            Fault("命令连续失败次数已达到配置上限：" + message);
         }
     }
 
@@ -659,7 +659,7 @@ internal sealed class AutoPlayController
         float timeout = _stage == AutomationStage.Battle ? Math.Max(300f, configured) : configured;
         if (Time.realtimeSinceStartup - _lastProgressAt >= timeout)
         {
-            Fault("No verifiable automation progress was observed: " + _stageDetail);
+            Fault("未观察到可验证的自动游玩进展：" + _stageDetail);
         }
     }
 
@@ -699,7 +699,7 @@ internal sealed class AutoPlayController
             bool changed = _stage != stage || !string.Equals(_stageDetail, detail, StringComparison.Ordinal);
             _stage = stage;
             _stageDetail = detail;
-            if (changed) _log.LogDebug(stage + ": " + detail);
+            if (changed) _log.LogDebug(StageDisplayName(stage) + "：" + detail);
         }
     }
 
@@ -729,19 +729,40 @@ internal sealed class AutoPlayController
     private string BuildCompatibilityError()
     {
         if (!_fingerprint.ProductIdentityValid)
-            return "The selected process is not Loopstructor 2: Skyspine by PoneGames.";
+            return "所选进程不是 PoneGames 的 Loopstructor 2: Skyspine。";
         if (!_fingerprint.MatchesExpectedAssembly(_activation.ExpectedAssemblySha256))
-            return "Assembly-CSharp.dll changed after validation; update or reinstall the automation adapter.";
+            return "Assembly-CSharp.dll 在验证后发生变化；请更新或重新安装自动游玩适配器。";
         if (!_bridge.IsAvailable)
-            return "The game build is missing required automation runtime members: " + string.Join(", ", _bridge.MissingMembers);
+            return "当前游戏版本缺少必需的自动游玩运行时成员：" + string.Join(", ", _bridge.MissingMembers);
         if (!SaveIsolationPatch.Installed)
-            return "Save isolation hooks could not be installed.";
+            return "无法安装存档隔离挂钩。";
         if (!PlatformWriteIsolationPatch.Applied)
-            return "External platform write isolation is incomplete.";
+            return "外部平台写入隔离不完整。";
         if (!GameArtifactIsolationPatch.Applied)
-            return "Game diagnostic artifact isolation is incomplete.";
+            return "游戏诊断产物隔离不完整。";
         return string.Empty;
     }
+
+    private static string StageDisplayName(AutomationStage stage) => stage switch
+    {
+        AutomationStage.WaitingForGame => "等待游戏",
+        AutomationStage.FrontEnd => "游戏前端",
+        AutomationStage.RandomSelection => "随机模式选择",
+        AutomationStage.InitializingRun => "初始化本局",
+        AutomationStage.PreparingDefense => "准备防线",
+        AutomationStage.ManagingRewards => "处理奖励",
+        AutomationStage.ManagingEvent => "处理事件",
+        AutomationStage.ManagingShop => "处理商店",
+        AutomationStage.SelectingRoute => "选择路线",
+        AutomationStage.StartingWave => "开始波次",
+        AutomationStage.Battle => "战斗",
+        AutomationStage.Completed => "已完成",
+        AutomationStage.Recovery => "故障恢复",
+        _ => stage.ToString()
+    };
+
+    private static string ModeDisplayName(AutomationGameMode mode) =>
+        mode == AutomationGameMode.Random ? "随机" : "普通";
 
     private static AutomationRunOptions Normalize(AutomationRunOptions options)
     {

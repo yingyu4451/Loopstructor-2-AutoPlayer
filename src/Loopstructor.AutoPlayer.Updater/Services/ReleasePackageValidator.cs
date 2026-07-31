@@ -13,7 +13,7 @@ public sealed class ReleasePackageValidator
         string root = NormalizeRoot(rootPath);
         if (!Directory.Exists(root))
         {
-            throw new DirectoryNotFoundException("Release root does not exist: " + root);
+            throw new DirectoryNotFoundException("发布目录不存在：" + root);
         }
 
         if (validateTargetSafety)
@@ -24,19 +24,19 @@ public sealed class ReleasePackageValidator
         ReleaseMarker marker = ReadMarker(root);
         if (!SemanticVersion.TryParse(marker.Version, out _))
         {
-            throw new InvalidDataException("Release marker version is invalid.");
+            throw new InvalidDataException("发布标记中的版本无效。");
         }
 
         if (!Version.TryParse(marker.BepInExVersion, out Version? bepinexVersion)
             || bepinexVersion.Major != 5)
         {
-            throw new InvalidDataException("Release marker must identify a BepInEx 5 runtime.");
+            throw new InvalidDataException("发布标记必须指定 BepInEx 5 运行时。");
         }
 
         if (!string.IsNullOrWhiteSpace(expectedVersion)
             && !VersionsEqual(marker.Version, expectedVersion))
         {
-            throw new InvalidDataException($"Release marker version {marker.Version} does not match manifest {expectedVersion}.");
+            throw new InvalidDataException($"发布标记版本 {marker.Version} 与清单版本 {expectedVersion} 不一致。");
         }
 
         RequireDirectory(root, "manager");
@@ -49,13 +49,13 @@ public sealed class ReleasePackageValidator
             marker.ManagerPath,
             "manager/Loopstructor.AutoPlayer.Manager.exe",
             "Loopstructor.AutoPlayer.Manager",
-            "Manager entry point");
+            "Manager 入口");
         ResolveEntryPoint(
             root,
             marker.UpdaterPath,
             "updater/Loopstructor.AutoPlayer.Updater.exe",
             "Loopstructor.AutoPlayer.Updater",
-            "Updater entry point");
+            "Updater 入口");
 
         string bepinexPayload = string.IsNullOrWhiteSpace(marker.BepInExPayloadPath)
             ? Path.Combine("payload", "bepinex")
@@ -63,8 +63,8 @@ public sealed class ReleasePackageValidator
         string pluginPayload = string.IsNullOrWhiteSpace(marker.PluginPayloadPath)
             ? Path.Combine("payload", "plugin")
             : marker.PluginPayloadPath;
-        string bepinexRoot = RequireSafeRelativeDirectory(root, bepinexPayload, "BepInEx payload");
-        string pluginRoot = RequireSafeRelativeDirectory(root, pluginPayload, "plugin payload");
+        string bepinexRoot = RequireSafeRelativeDirectory(root, bepinexPayload, "BepInEx 载荷");
+        string pluginRoot = RequireSafeRelativeDirectory(root, pluginPayload, "插件载荷");
         RequireFile(bepinexRoot, "winhttp.dll");
         RequireFile(bepinexRoot, "doorstop_config.ini");
         RequireFile(bepinexRoot, Path.Combine("BepInEx", "core", "BepInEx.dll"));
@@ -84,11 +84,11 @@ public sealed class ReleasePackageValidator
         string markerPath = Path.Combine(root, "autoplayer-release.json");
         if (!File.Exists(markerPath))
         {
-            throw new InvalidDataException("Release root is missing autoplayer-release.json.");
+            throw new InvalidDataException("发布目录缺少 autoplayer-release.json。");
         }
 
         return JsonSerializer.Deserialize<ReleaseMarker>(File.ReadAllText(markerPath), JsonOptions)
-               ?? throw new InvalidDataException("Release marker is empty.");
+               ?? throw new InvalidDataException("发布标记为空。");
     }
 
     internal static string ResolveEntryPoint(
@@ -104,7 +104,7 @@ public sealed class ReleasePackageValidator
         if (!string.Equals(fileName, expectedStem + ".exe", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(fileName, expectedStem + ".dll", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException(label + " has an unexpected file name.");
+            throw new InvalidDataException(label + "的文件名不符合预期。");
         }
 
         return RequireSafeRelativeFile(root, relative, label);
@@ -115,7 +115,7 @@ public sealed class ReleasePackageValidator
         string pathRoot = Path.GetPathRoot(root) ?? string.Empty;
         if (string.Equals(root, pathRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("A drive root cannot be an update target.");
+            throw new InvalidOperationException("磁盘根目录不能作为更新目标。");
         }
 
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
@@ -125,13 +125,13 @@ public sealed class ReleasePackageValidator
         if (string.Equals(root, userProfile, StringComparison.OrdinalIgnoreCase)
             || string.Equals(root, windows, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("The selected update target is too broad.");
+            throw new InvalidOperationException("选择的更新目标范围过大。");
         }
 
         DirectoryInfo info = new(root);
         if (info.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidOperationException("Release roots implemented as reparse points are not updated in place.");
+            throw new InvalidOperationException("不支持就地更新作为重解析点的发布目录。");
         }
     }
 
@@ -139,7 +139,7 @@ public sealed class ReleasePackageValidator
     {
         if (!Directory.Exists(Path.Combine(root, relative)))
         {
-            throw new InvalidDataException("Release root is missing directory: " + relative);
+            throw new InvalidDataException("发布目录缺少子目录：" + relative);
         }
     }
 
@@ -148,7 +148,7 @@ public sealed class ReleasePackageValidator
         if (!File.Exists(Path.Combine(root, directory, stem + ".exe"))
             && !File.Exists(Path.Combine(root, directory, stem + ".dll")))
         {
-            throw new InvalidDataException($"Release root is missing {directory}/{stem}.exe or .dll.");
+            throw new InvalidDataException($"发布目录缺少 {directory}/{stem}.exe 或 .dll。");
         }
     }
 
@@ -156,14 +156,14 @@ public sealed class ReleasePackageValidator
     {
         if (Path.IsPathRooted(relative))
         {
-            throw new InvalidDataException(label + " path must be relative.");
+            throw new InvalidDataException(label + "路径必须是相对路径。");
         }
 
         string full = Path.GetFullPath(Path.Combine(root, relative));
         string prefix = root + Path.DirectorySeparatorChar;
         if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(full))
         {
-            throw new InvalidDataException(label + " directory is missing or outside the release root.");
+            throw new InvalidDataException(label + "目录不存在或超出发布目录。");
         }
 
         return full;
@@ -173,14 +173,14 @@ public sealed class ReleasePackageValidator
     {
         if (Path.IsPathRooted(relative))
         {
-            throw new InvalidDataException(label + " path must be relative.");
+            throw new InvalidDataException(label + "路径必须是相对路径。");
         }
 
         string full = Path.GetFullPath(Path.Combine(root, relative));
         string prefix = root + Path.DirectorySeparatorChar;
         if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
         {
-            throw new InvalidDataException(label + " is missing or outside the release root.");
+            throw new InvalidDataException(label + "不存在或超出发布目录。");
         }
 
         return full;
@@ -190,7 +190,7 @@ public sealed class ReleasePackageValidator
     {
         if (!File.Exists(Path.Combine(root, relative)))
         {
-            throw new InvalidDataException("Release payload is missing required file: " + relative.Replace('\\', '/'));
+            throw new InvalidDataException("发布载荷缺少必要文件：" + relative.Replace('\\', '/'));
         }
     }
 
@@ -199,7 +199,7 @@ public sealed class ReleasePackageValidator
         string checksumPath = Path.Combine(root, "checksums.sha256");
         if (!File.Exists(checksumPath) || new FileInfo(checksumPath).Length > 2 * 1024 * 1024)
         {
-            throw new InvalidDataException("Release root is missing a reasonably sized checksums.sha256 file.");
+            throw new InvalidDataException("发布目录缺少大小合理的 checksums.sha256 文件。");
         }
 
         Dictionary<string, string> expected = new(StringComparer.OrdinalIgnoreCase);
@@ -209,7 +209,7 @@ public sealed class ReleasePackageValidator
             string line = rawLine.TrimEnd();
             if (line.Length < 67 || line[64] != ' ' || line[65] != ' ')
             {
-                throw new InvalidDataException("checksums.sha256 contains an invalid line.");
+                throw new InvalidDataException("checksums.sha256 包含无效行。");
             }
 
             string hash = line[..64];
@@ -218,7 +218,7 @@ public sealed class ReleasePackageValidator
                 || Path.IsPathRooted(relative)
                 || string.IsNullOrWhiteSpace(relative))
             {
-                throw new InvalidDataException("checksums.sha256 contains an unsafe entry.");
+                throw new InvalidDataException("checksums.sha256 包含不安全的条目。");
             }
 
             string fullPath = Path.GetFullPath(Path.Combine(root, relative));
@@ -226,7 +226,7 @@ public sealed class ReleasePackageValidator
                 || !File.Exists(fullPath)
                 || !expected.TryAdd(Path.GetRelativePath(root, fullPath), hash.ToLowerInvariant()))
             {
-                throw new InvalidDataException("checksums.sha256 references a missing, duplicate, or outside file: " + relative);
+                throw new InvalidDataException("checksums.sha256 引用了缺失、重复或超出发布目录的文件：" + relative);
             }
         }
 
@@ -238,7 +238,7 @@ public sealed class ReleasePackageValidator
             string actual = Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
             if (!string.Equals(actual, expectedHash, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("Release checksum mismatch: " + relative.Replace('\\', '/'));
+                throw new InvalidDataException("发布文件校验和不匹配：" + relative.Replace('\\', '/'));
             }
         }
 
@@ -253,7 +253,7 @@ public sealed class ReleasePackageValidator
 
             if (!expected.ContainsKey(relative))
             {
-                throw new InvalidDataException("Release contains an unlisted file: " + relative.Replace('\\', '/'));
+                throw new InvalidDataException("发布目录包含未列入校验清单的文件：" + relative.Replace('\\', '/'));
             }
         }
     }

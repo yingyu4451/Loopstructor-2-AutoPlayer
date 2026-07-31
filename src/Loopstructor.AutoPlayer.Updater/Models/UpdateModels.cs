@@ -24,7 +24,7 @@ public sealed class UpdateCommandOptions
     {
         if (args.Count == 0)
         {
-            throw new ArgumentException("Expected command: check or apply.");
+            throw new ArgumentException("缺少更新器命令，应使用 check 或 apply。");
         }
 
         UpdateCommandOptions result = new()
@@ -33,7 +33,7 @@ public sealed class UpdateCommandOptions
             {
                 "check" => UpdateCommand.Check,
                 "apply" => UpdateCommand.Apply,
-                _ => throw new ArgumentException("Unknown updater command: " + args[0])
+                _ => throw new ArgumentException("未知的更新器命令：" + args[0])
             }
         };
 
@@ -64,7 +64,7 @@ public sealed class UpdateCommandOptions
                     string processValue = NextValue(args, ref index, current);
                     if (!int.TryParse(processValue, out int processId) || processId <= 0)
                     {
-                        throw new ArgumentException("Invalid process identifier: " + processValue);
+                        throw new ArgumentException("进程 ID 无效：" + processValue);
                     }
 
                     if (processId != Environment.ProcessId && !result.WaitProcessIds.Contains(processId))
@@ -77,24 +77,24 @@ public sealed class UpdateCommandOptions
                     string timeoutValue = NextValue(args, ref index, current);
                     if (!int.TryParse(timeoutValue, out int timeoutSeconds) || timeoutSeconds is < 10 or > 3600)
                     {
-                        throw new ArgumentException("Wait timeout must be between 10 and 3600 seconds.");
+                        throw new ArgumentException("等待超时必须介于 10 到 3600 秒之间。");
                     }
 
                     result.WaitTimeoutSeconds = timeoutSeconds;
                     break;
                 default:
-                    throw new ArgumentException("Unknown updater option: " + current);
+                    throw new ArgumentException("未知的更新器选项：" + current);
             }
         }
 
         if (!SemanticVersion.TryParse(result.CurrentVersion, out _))
         {
-            throw new ArgumentException("Current version is not valid SemVer: " + result.CurrentVersion);
+            throw new ArgumentException("当前版本不是有效的 SemVer：" + result.CurrentVersion);
         }
 
         if (result.Command == UpdateCommand.Apply && string.IsNullOrWhiteSpace(result.TargetRoot))
         {
-            throw new ArgumentException("apply requires --target <release-root>.");
+            throw new ArgumentException("apply 命令必须提供 --target <release-root>。");
         }
 
         return result;
@@ -104,7 +104,7 @@ public sealed class UpdateCommandOptions
     {
         if (index + 1 >= args.Count)
         {
-            throw new ArgumentException(option + " requires a value.");
+            throw new ArgumentException(option + " 需要提供参数值。");
         }
 
         return args[++index];

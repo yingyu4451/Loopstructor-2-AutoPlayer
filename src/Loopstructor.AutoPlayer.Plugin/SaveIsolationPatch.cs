@@ -34,7 +34,7 @@ internal static class SaveIsolationPatch
         if (wrapper == null || handler == null || prefix == null)
         {
             VerificationFailed = true;
-            VerificationError = "The save path hook contract is incomplete.";
+            VerificationError = "存档路径挂钩契约不完整。";
             log(VerificationError);
             return false;
         }
@@ -46,7 +46,7 @@ internal static class SaveIsolationPatch
         }
 
         Installed = true;
-        log("Save isolation hooks are installed for this activated process: " + s_profileRoot);
+        log("已为当前激活进程安装存档隔离挂钩：" + s_profileRoot);
         return true;
     }
 
@@ -64,7 +64,7 @@ internal static class SaveIsolationPatch
                 if (getter == null || getPath == null)
                 {
                     VerificationFailed = true;
-                    VerificationError = "The SaveManager verification contract is unavailable.";
+                    VerificationError = "SaveManager 验证契约不可用。";
                     return;
                 }
 
@@ -77,7 +77,7 @@ internal static class SaveIsolationPatch
                 if (!IsInside(fullPath, s_profileRoot))
                 {
                     VerificationFailed = true;
-                    VerificationError = "SaveManager resolved outside the isolated profile: " + fullPath;
+                    VerificationError = "SaveManager 解析到隔离存档之外的路径：" + fullPath;
                     return;
                 }
 
@@ -98,7 +98,7 @@ internal static class SaveIsolationPatch
             catch (Exception exception)
             {
                 VerificationFailed = true;
-                VerificationError = "Could not verify the isolated save folder: " + exception.Message;
+                VerificationError = "无法验证隔离存档目录：" + exception.Message;
             }
         }
     }

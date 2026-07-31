@@ -101,18 +101,18 @@ public sealed class PipeControlClient
                 string? responseLine = await reader.ReadLineAsync(timeout.Token);
                 if (string.IsNullOrWhiteSpace(responseLine))
                 {
-                    return Failure(pipeName, usedLegacyEndpoint, "The plugin closed the pipe without a response.");
+                    return Failure(pipeName, usedLegacyEndpoint, "插件已关闭管道，但未返回响应。");
                 }
 
                 ControlResponse? response = JsonConvert.DeserializeObject<ControlResponse>(responseLine);
                 if (response == null)
                 {
-                    return Failure(pipeName, usedLegacyEndpoint, "The plugin response was empty or invalid.");
+                    return Failure(pipeName, usedLegacyEndpoint, "插件响应为空或格式无效。");
                 }
 
                 if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
                 {
-                    return Failure(pipeName, usedLegacyEndpoint, "The plugin response identifier did not match the request.");
+                    return Failure(pipeName, usedLegacyEndpoint, "插件响应标识与请求不匹配。");
                 }
 
                 return new PipeCallResult
@@ -125,11 +125,11 @@ public sealed class PipeControlClient
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return Failure(pipeName, usedLegacyEndpoint, "Timed out waiting for the AutoPlayer plugin.");
+                return Failure(pipeName, usedLegacyEndpoint, "等待 AutoPlayer 插件响应超时。");
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
             {
-                return Failure(pipeName, usedLegacyEndpoint, exception.Message);
+                return Failure(pipeName, usedLegacyEndpoint, "插件管道通信失败。详细信息：" + exception.Message);
             }
         }
         finally

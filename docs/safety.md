@@ -8,6 +8,8 @@ AutoPlayer 是进程内灰盒 QA 工具，不是完全黑盒输入测试。它�
 
 Manager 在启动游戏子进程前完成测试包校验、创建一次性激活上下文，并以进程级环境变量传入 QA profile、artifact、pipe、token 和预期程序集哈希。BepInEx 会先创建共享的 Manager GameObject；AutoPlayer 只有在 `ActivationContext` 验证成功后，才对该对象调用 `DontDestroyOnLoad` 并设置 `HideAndDontSave`，使激活适配器隐藏且跨场景存活。普通启动会在这一步之前返回，不安装自动化补丁，也不改变共享 Manager 对象。这项保护只存在于本次已激活 QA 进程，不写入游戏配置或程序集。
 
+当前 BepInEx 与该 Unity Mono 构建组合在完整游戏路径包含非 ASCII 字符时会触发程序集 `CodeBase` 转换错误；这不是未注入游戏本体的路径限制。Manager 必须在安装和启动前拒绝该路径，并要求把测试包移到只含 ASCII 字符的目录。路径可以包含英文字母、数字和空格。
+
 ## 失效即关闭门禁
 
 自动游玩只有在以下条件同时成立时才允许进入 Running：

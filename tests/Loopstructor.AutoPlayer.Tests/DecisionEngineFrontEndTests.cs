@@ -20,6 +20,7 @@ public sealed class DecisionEngineFrontEndTests
 
         Assert.Equal("continueGame", action.Command);
         Assert.Equal(AutomationStage.FrontEnd, action.Stage);
+        Assert.Equal("继续使用隔离的测试存档。", action.Reason);
     }
 
     [Fact]

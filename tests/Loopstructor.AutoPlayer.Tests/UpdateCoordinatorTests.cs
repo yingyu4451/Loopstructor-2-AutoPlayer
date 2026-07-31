@@ -102,7 +102,7 @@ public sealed class UpdateCoordinatorTests
             UpdateAvailable = true,
             CurrentVersion = "1.0.0",
             LatestVersion = "2.0.0",
-            Message = "AutoPlayer 2.0.0 is available."
+            Message = "AutoPlayer 2.0.0 可用。"
         });
 
         ManagerUpdateStatus result = UpdateCoordinator.InterpretCheckResult(
@@ -115,7 +115,7 @@ public sealed class UpdateCoordinatorTests
         Assert.False(result.UpdateAvailable);
         Assert.Equal("1.0.0", result.CurrentVersion);
         Assert.Equal("2.0.0", result.LatestVersion);
-        Assert.Contains("exited with code 23", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("退出代码为 23", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class UpdateCoordinatorTests
             UpdateAvailable = true,
             CurrentVersion = "1.0.0",
             LatestVersion = "2.0.0",
-            Message = "AutoPlayer 2.0.0 is available."
+            Message = "AutoPlayer 2.0.0 可用。"
         });
 
         ManagerUpdateStatus result = UpdateCoordinator.InterpretCheckResult(

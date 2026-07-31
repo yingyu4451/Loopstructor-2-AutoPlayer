@@ -8,7 +8,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class ManagerDemoTests
 {
     [Theory]
-    [InlineData("0.1.6", "AutoPlayer 版本 v0.1.6")]
+    [InlineData("0.1.7", "AutoPlayer 版本 v0.1.7")]
     [InlineData("0.2.0-beta.1", "AutoPlayer 版本 v0.2.0-beta.1")]
     [InlineData(" 1.0.0 ", "AutoPlayer 版本 v1.0.0")]
     [InlineData("", "AutoPlayer 版本 v0.0.0")]
@@ -114,5 +114,42 @@ public sealed class ManagerDemoTests
         Assert.False(availability.CanPause);
         Assert.False(availability.CanResume);
         Assert.False(availability.CanStop);
+    }
+
+    [Theory]
+    [InlineData("INFO", "信息")]
+    [InlineData("WARN", "警告")]
+    [InlineData("ERROR", "错误")]
+    [InlineData("SAFE", "安全")]
+    [InlineData("ACT", "操作")]
+    [InlineData("STATE", "状态")]
+    [InlineData("GAME", "游戏")]
+    public void LogCategoryName_MapsConsoleCategoriesToChinese(string category, string expected)
+    {
+        Assert.Equal(expected, MainForm.LogCategoryName(category));
+    }
+
+    [Theory]
+    [InlineData("start", "开始命令")]
+    [InlineData("pause", "暂停命令")]
+    [InlineData("resume", "继续命令")]
+    [InlineData("stop", "停止命令")]
+    public void ControlCommandName_MapsProtocolCommandsForDisplayOnly(string command, string expected)
+    {
+        Assert.Equal(expected, MainForm.ControlCommandName(command));
+    }
+
+    [Fact]
+    public void DemoLogLines_UseChineseConsoleCategories()
+    {
+        IReadOnlyList<string> lines = DemoData.LogLines();
+
+        Assert.Contains(lines, line => line.Contains("信息", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("安全", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("操作", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line =>
+            line.Contains(" INFO ", StringComparison.Ordinal)
+            || line.Contains(" SAFE ", StringComparison.Ordinal)
+            || line.Contains(" ACT ", StringComparison.Ordinal));
     }
 }

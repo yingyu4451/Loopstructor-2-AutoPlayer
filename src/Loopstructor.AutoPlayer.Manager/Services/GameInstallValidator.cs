@@ -21,14 +21,23 @@ public sealed class GameInstallValidator
         catch (Exception exception)
         {
             GameInstallValidation invalidPath = new() { GameRoot = candidateRoot ?? string.Empty };
-            invalidPath.Errors.Add("The selected path is invalid: " + exception.Message);
+            invalidPath.Errors.Add("所选路径无效。详细信息：" + exception.Message);
             return invalidPath;
         }
 
         GameInstallValidation result = new() { GameRoot = root };
+        if (root.Any(character => character > 0x7f))
+        {
+            result.Errors.Add(
+                "当前 BepInEx 与此 Unity Mono 构建不兼容包含中文或其他非 ASCII 字符的完整游戏路径。" +
+                "游戏本体本身不受此限制；请仅将测试包移动到仅含 ASCII 字符的路径后重新选择（可包含英文字母、数字和空格）。" +
+                "当前路径：" + root);
+            return result;
+        }
+
         if (!Directory.Exists(root))
         {
-            result.Errors.Add("The selected game directory does not exist.");
+            result.Errors.Add("所选游戏目录不存在。");
             return result;
         }
 
@@ -42,13 +51,13 @@ public sealed class GameInstallValidator
         }
         catch (Exception exception)
         {
-            result.Errors.Add("The game directory could not be inspected: " + exception.Message);
+            result.Errors.Add("无法检查游戏目录。详细信息：" + exception.Message);
             return result;
         }
 
         if (managedAssemblies.Length != 1)
         {
-            result.Errors.Add($"Expected exactly one *_Data/Managed/Assembly-CSharp.dll, found {managedAssemblies.Length}.");
+            result.Errors.Add($"应当只存在一个 *_Data/Managed/Assembly-CSharp.dll，实际找到 {managedAssemblies.Length} 个。");
             return result;
         }
 
@@ -62,17 +71,17 @@ public sealed class GameInstallValidator
 
         if (!File.Exists(result.ExecutablePath))
         {
-            result.Errors.Add("The executable matching the Unity data directory is missing.");
+            result.Errors.Add("缺少与 Unity 数据目录对应的游戏可执行文件。");
         }
 
         if (!File.Exists(Path.Combine(root, "UnityPlayer.dll")))
         {
-            result.Errors.Add("UnityPlayer.dll is missing from the build root.");
+            result.Errors.Add("游戏构建根目录中缺少 UnityPlayer.dll。");
         }
 
         if (!File.Exists(Path.Combine(result.DataDirectory, "globalgamemanagers")))
         {
-            result.Errors.Add("The Unity globalgamemanagers file is missing.");
+            result.Errors.Add("缺少 Unity globalgamemanagers 文件。");
         }
 
         string steamAppIdPath = Path.Combine(root, "steam_appid.txt");
@@ -83,18 +92,18 @@ public sealed class GameInstallValidator
                 result.SteamAppId = (await File.ReadAllTextAsync(steamAppIdPath, cancellationToken)).Trim();
                 if (!string.Equals(result.SteamAppId, ExpectedSteamAppId, StringComparison.Ordinal))
                 {
-                    result.Errors.Add($"steam_appid.txt identifies {result.SteamAppId}, not Skyspine app {ExpectedSteamAppId}.");
+                    result.Errors.Add($"steam_appid.txt 标识的应用为 {result.SteamAppId}，不是 Skyspine 应用 {ExpectedSteamAppId}。");
                 }
             }
             catch (Exception exception)
             {
-                result.Errors.Add("steam_appid.txt could not be read: " + exception.Message);
+                result.Errors.Add("无法读取 steam_appid.txt。详细信息：" + exception.Message);
             }
         }
         else
         {
             result.Warnings.Add(
-                "steam_appid.txt is absent; Manager will use a process-scoped Skyspine AppID after executable and assembly validation.");
+                "未找到 steam_appid.txt；完成可执行文件和程序集校验后，Manager 将仅为本次进程设置 Skyspine AppID。");
         }
 
         if (File.Exists(result.ExecutablePath))
@@ -107,7 +116,7 @@ public sealed class GameInstallValidator
             }
             catch (Exception exception)
             {
-                result.Warnings.Add("Executable version metadata could not be read: " + exception.Message);
+                result.Warnings.Add("无法读取可执行文件的版本元数据。详细信息：" + exception.Message);
             }
         }
 
@@ -115,7 +124,7 @@ public sealed class GameInstallValidator
                                 || result.ProductName.Contains("Skyspine", StringComparison.OrdinalIgnoreCase);
         if (!skyspineIdentity)
         {
-            result.Errors.Add("The build does not identify itself as Loopstructor 2: Skyspine; legacy Loopstructor builds are rejected.");
+            result.Errors.Add("该构建未标识为 Loopstructor 2: Skyspine；不接受旧版 Loopstructor 构建。");
         }
 
         if (result.Errors.Count > 0)
@@ -129,7 +138,7 @@ public sealed class GameInstallValidator
             result.AssemblyMvid = mvid;
             if (!contractPresent)
             {
-                result.Errors.Add("Assembly-CSharp.dll does not contain the Skyspine GuiGameAutomation runtime contract.");
+                result.Errors.Add("Assembly-CSharp.dll 不包含 Skyspine GuiGameAutomation 运行时合同。");
                 return result;
             }
 
@@ -137,7 +146,7 @@ public sealed class GameInstallValidator
         }
         catch (Exception exception)
         {
-            result.Errors.Add("Assembly-CSharp.dll could not be verified: " + exception.Message);
+            result.Errors.Add("无法验证 Assembly-CSharp.dll。详细信息：" + exception.Message);
         }
 
         return result;

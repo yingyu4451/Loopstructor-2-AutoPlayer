@@ -49,7 +49,7 @@ public sealed class BepInExInstaller
                 BepInExPresent = runtime.Present,
                 BepInExCompatible = runtime.Compatible,
                 PluginVersion = ReadVersion(enabledAssembly),
-                Detail = complete ? "Plugin enabled with the pinned BepInEx runtime" : runtime.Detail
+                Detail = complete ? "插件已启用，固定版本的 BepInEx 运行时已验证" : runtime.Detail
             };
         }
 
@@ -61,7 +61,7 @@ public sealed class BepInExInstaller
                 BepInExPresent = runtime.Present,
                 BepInExCompatible = runtime.Compatible,
                 PluginVersion = ReadVersion(disabledAssembly),
-                Detail = runtime.Compatible ? "Plugin disabled" : runtime.Detail
+                Detail = runtime.Compatible ? "插件已停用" : runtime.Detail
             };
         }
 
@@ -72,9 +72,9 @@ public sealed class BepInExInstaller
             BepInExCompatible = runtime.Compatible,
             Detail = runtime.Present
                 ? runtime.Compatible
-                    ? "Pinned BepInEx runtime present; AutoPlayer plugin not installed"
+                    ? "已安装固定版本的 BepInEx 运行时，但未安装 AutoPlayer 插件"
                     : runtime.Detail
-                : "BepInEx and plugin not installed"
+                : "尚未安装 BepInEx 和 AutoPlayer 插件"
         };
     }
 
@@ -84,14 +84,14 @@ public sealed class BepInExInstaller
     {
         if (!game.IsValid)
         {
-            return PluginOperationResult.Fail("A strictly validated Skyspine build is required before installation.");
+            return PluginOperationResult.Fail("安装前必须严格验证 Skyspine 构建。");
         }
 
         foreach (string required in RequiredPluginFiles)
         {
             if (!File.Exists(Path.Combine(_layout.PluginPayloadRoot, required)))
             {
-                return PluginOperationResult.Fail("Plugin payload is incomplete: missing " + required);
+                return PluginOperationResult.Fail("插件载荷不完整，缺少：" + required);
             }
         }
 
@@ -99,7 +99,7 @@ public sealed class BepInExInstaller
         {
             if (!File.Exists(Path.Combine(_layout.BepInExPayloadRoot, required)))
             {
-                return PluginOperationResult.Fail("BepInEx payload is incomplete: missing " + required.Replace('\\', '/'));
+                return PluginOperationResult.Fail("BepInEx 载荷不完整，缺少：" + required.Replace('\\', '/'));
             }
         }
 
@@ -123,13 +123,13 @@ public sealed class BepInExInstaller
             }
             catch (Exception exception)
             {
-                return PluginOperationResult.Fail("BepInEx runtime installation failed: " + exception.Message);
+                return PluginOperationResult.Fail("BepInEx 运行时安装失败。详细信息：" + exception.Message);
             }
 
             runtime = ValidateRuntime(targetRoot);
             if (!runtime.Compatible)
             {
-                return PluginOperationResult.Fail("BepInEx installation did not pass the pinned runtime check: " + runtime.Detail);
+                return PluginOperationResult.Fail("BepInEx 安装未通过固定版本运行时校验：" + runtime.Detail);
             }
         }
 
@@ -166,13 +166,13 @@ public sealed class BepInExInstaller
         catch (Exception exception)
         {
             TryDeleteDirectory(staging);
-            return PluginOperationResult.Fail("Plugin payload could not be staged: " + exception.Message);
+            return PluginOperationResult.Fail("无法暂存插件载荷。详细信息：" + exception.Message);
         }
 
         if (!RequiredPluginFiles.All(file => File.Exists(Path.Combine(staging, file))))
         {
             TryDeleteDirectory(staging);
-            return PluginOperationResult.Fail("The staged plugin payload is incomplete.");
+            return PluginOperationResult.Fail("暂存的插件载荷不完整。");
         }
 
         string configPath = Path.Combine(
@@ -223,8 +223,8 @@ public sealed class BepInExInstaller
             catch (Exception rollbackException)
             {
                 return PluginOperationResult.Fail(
-                    "Plugin installation failed and rollback was incomplete: " + exception.Message +
-                    " Rollback error: " + rollbackException.Message);
+                    "插件安装失败且回滚未完成。安装错误：" + exception.Message +
+                    "；回滚错误：" + rollbackException.Message);
             }
             finally
             {
@@ -232,7 +232,7 @@ public sealed class BepInExInstaller
                 TryDeleteDirectory(failed);
             }
 
-            return PluginOperationResult.Fail("Plugin installation failed; the previous plugin was restored: " + exception.Message);
+            return PluginOperationResult.Fail("插件安装失败，已恢复原插件。详细信息：" + exception.Message);
         }
 
         TryDeleteDirectory(backup);
@@ -242,8 +242,8 @@ public sealed class BepInExInstaller
         {
             Success = status.State == PluginState.Enabled,
             Message = status.State == PluginState.Enabled
-                ? "BepInEx AutoPlayer plugin installed and enabled."
-                : "Plugin files were installed, but validation remains incomplete.",
+                ? "BepInEx AutoPlayer 插件已安装并启用。"
+                : "插件文件已安装，但校验尚未完成。",
             Status = status
         };
     }
@@ -265,34 +265,34 @@ public sealed class BepInExInstaller
 
                 if (File.Exists(active))
                 {
-                    return Success("Plugin is already enabled.", gameRoot);
+                    return Success("插件已启用，无需重复操作。", gameRoot);
                 }
 
                 if (!File.Exists(disabled))
                 {
-                    return PluginOperationResult.Fail("No disabled plugin assembly was found.");
+                    return PluginOperationResult.Fail("未找到已停用的插件程序集。");
                 }
 
                 File.Move(disabled, active);
-                return Success("Plugin enabled. It will activate only with a valid launch ticket.", gameRoot);
+                return Success("插件已启用；仅会在启动授权有效时激活。", gameRoot);
             }
 
             if (File.Exists(disabled))
             {
-                return Success("Plugin is already disabled.", gameRoot);
+                return Success("插件已停用，无需重复操作。", gameRoot);
             }
 
             if (!File.Exists(active))
             {
-                return PluginOperationResult.Fail("No installed plugin assembly was found.");
+                return PluginOperationResult.Fail("未找到已安装的插件程序集。");
             }
 
             File.Move(active, disabled);
-            return Success("Plugin disabled. Restart the game to unload it.", gameRoot);
+            return Success("插件已停用，请重启游戏以卸载已加载的插件。", gameRoot);
         }
         catch (Exception exception)
         {
-            return PluginOperationResult.Fail("Plugin state could not be changed: " + exception.Message);
+            return PluginOperationResult.Fail("无法更改插件状态。详细信息：" + exception.Message);
         }
     }
 
@@ -321,7 +321,7 @@ public sealed class BepInExInstaller
                     string full = Path.GetFullPath(Path.Combine(root, relative));
                     if (!string.Equals(Path.GetDirectoryName(full), pluginDirectory, StringComparison.OrdinalIgnoreCase))
                     {
-                        return PluginOperationResult.Fail("Install manifest contains a path outside the AutoPlayer plugin directory.");
+                        return PluginOperationResult.Fail("安装清单包含 AutoPlayer 插件目录之外的路径。");
                     }
 
                     managedFiles.Add(full);
@@ -356,11 +356,11 @@ public sealed class BepInExInstaller
                 File.Delete(config);
             }
 
-            return Success("AutoPlayer plugin removed. The shared BepInEx runtime was retained.", root);
+            return Success("AutoPlayer 插件已删除；共享的 BepInEx 运行时已保留。", root);
         }
         catch (Exception exception)
         {
-            return PluginOperationResult.Fail("Plugin could not be removed completely: " + exception.Message);
+            return PluginOperationResult.Fail("无法完全删除插件。详细信息：" + exception.Message);
         }
     }
 
@@ -395,7 +395,7 @@ public sealed class BepInExInstaller
                 present,
                 Compatible: false,
                 Repairable: false,
-                "Packaged BepInEx runtime is incomplete: " + string.Join(", ", missingPayload.Select(path => path.Replace('\\', '/'))));
+                "发布包内的 BepInEx 运行时不完整，缺少：" + string.Join(", ", missingPayload.Select(path => path.Replace('\\', '/'))));
         }
 
         List<string> missing = new();
@@ -420,7 +420,7 @@ public sealed class BepInExInstaller
                 present,
                 Compatible: false,
                 Repairable: false,
-                "Existing BepInEx runtime is not the packaged Windows x64 build; conflicting files: " +
+                "现有 BepInEx 运行时不是发布包提供的 Windows x64 版本；冲突文件：" +
                 string.Join(", ", mismatched.Select(path => path.Replace('\\', '/'))));
         }
 
@@ -431,12 +431,12 @@ public sealed class BepInExInstaller
                 Compatible: false,
                 Repairable: true,
                 present
-                    ? "Existing BepInEx runtime is incomplete; missing: " +
+                    ? "现有 BepInEx 运行时不完整，缺少：" +
                       string.Join(", ", missing.Select(path => path.Replace('\\', '/')))
-                    : "Pinned BepInEx runtime is not installed.");
+                    : "尚未安装固定版本的 BepInEx 运行时。");
         }
 
-        return new RuntimeValidation(true, Compatible: true, Repairable: false, "Pinned BepInEx runtime verified.");
+        return new RuntimeValidation(true, Compatible: true, Repairable: false, "固定版本的 BepInEx 运行时已验证。");
     }
 
     private static bool HashesEqual(string first, string second)

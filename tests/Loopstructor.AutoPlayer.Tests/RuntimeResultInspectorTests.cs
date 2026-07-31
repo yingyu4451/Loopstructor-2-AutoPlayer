@@ -6,6 +6,12 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class RuntimeResultInspectorTests
 {
     [Fact]
+    public void Message_UsesChineseFallbackWhenRuntimeOmitsMessage()
+    {
+        Assert.Equal("未知结果。", RuntimeResultInspector.Message(new JObject()));
+    }
+
+    [Fact]
     public void Classify_SuccessfulPendingResultAsPending()
     {
         JObject result = JObject.FromObject(new

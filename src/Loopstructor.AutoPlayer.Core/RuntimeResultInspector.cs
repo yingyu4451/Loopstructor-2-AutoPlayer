@@ -43,7 +43,7 @@ public static class RuntimeResultInspector
         result.SelectToken("data.state.needsReset")?.Value<bool>() != true;
 
     public static string Message(JObject? result) =>
-        result?["message"]?.Value<string>() ?? "Unknown result.";
+        result?["message"]?.Value<string>() ?? "未知结果。";
 
     public static bool HasCommittedMapNode(JObject? result) =>
         IsPresent(result?.SelectToken("data.state.chooseNode")) ||

@@ -330,7 +330,7 @@ static void VerifyInterruptedRecovery(string root)
     File.WriteAllText(journalPath, JsonSerializer.Serialize(journal));
     TransactionalInstaller installer = new(journalPath: journalPath);
     string message = installer.RecoverIncomplete(target);
-    Require(message.Contains("Restored", StringComparison.OrdinalIgnoreCase), "interrupted transaction reports restore");
+    Require(message.Contains("已从中断的更新中恢复上一版本", StringComparison.Ordinal), "interrupted transaction reports restore");
     Require(ReadReleaseVersion(target) == "0.3.0", "interrupted transaction restored old target");
     Require(!File.Exists(journalPath), "recovery journal removed");
 }

@@ -132,7 +132,7 @@ public sealed class BepInExInstallerFileSystemTests
         PluginOperationResult result = await installer.InstallAsync(CreateGame(gameRoot, assemblyPath, assemblyHash));
 
         Assert.False(result.Success);
-        Assert.Contains("previous plugin was restored", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("已恢复原插件", result.Message, StringComparison.Ordinal);
         Assert.Equal(before, Snapshot(pluginDirectory));
         Assert.Equal(blockerContent, File.ReadAllBytes(configBlocker));
         Assert.Equal(assemblyHash, HashFile(assemblyPath));

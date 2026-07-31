@@ -26,7 +26,7 @@ internal static class DemoData
     {
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
-        PluginVersion = "0.1.6",
+        PluginVersion = "0.1.7",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -98,13 +98,13 @@ internal static class DemoData
 
     public static IReadOnlyList<string> LogLines() => new[]
     {
-        "14:28:10.044  INFO  已验证 Skyspine 构建 1.237",
-        "14:28:10.106  INFO  插件握手成功，协议 v1",
-        "14:28:10.108  SAFE  存档已隔离，平台写入已阻断",
-        "14:31:42.810  ACT   选择路线 readyIndex=2",
-        "14:36:19.214  ACT   收集奖励对象 index=0",
-        "14:43:01.705  ACT   启动第 7 波",
-        "14:46:07.391  INFO  Battle / remainingEnemies=18"
+            "14:28:10.044  信息  已验证 Skyspine 构建 1.237",
+            "14:28:10.106  信息  插件握手成功，协议 v1",
+            "14:28:10.108  安全  存档已隔离，平台写入已阻断",
+            "14:31:42.810  操作  选择路线，就绪序号=2",
+            "14:36:19.214  操作  收集奖励对象，序号=0",
+            "14:43:01.705  操作  启动第 7 波",
+            "14:46:07.391  信息  战斗中 / 剩余敌人=18"
     };
 
     private static TimelineEvent Event(DateTime time, AutomationStage stage, string kind, string message) => new()

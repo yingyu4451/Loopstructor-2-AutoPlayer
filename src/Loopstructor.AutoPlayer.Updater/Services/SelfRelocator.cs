@@ -18,7 +18,7 @@ public sealed class SelfRelocator
         CopyDirectory(sourceRoot, destinationRoot);
 
         string entryAssembly = Assembly.GetEntryAssembly()?.Location
-                               ?? throw new InvalidOperationException("Updater entry assembly could not be located.");
+                               ?? throw new InvalidOperationException("找不到更新器入口程序集。");
         string relativeAssembly = Path.GetRelativePath(sourceRoot, entryAssembly);
         string copiedAssembly = Path.Combine(destinationRoot, relativeAssembly);
         string copiedExecutable = Path.ChangeExtension(copiedAssembly, ".exe");
@@ -30,7 +30,7 @@ public sealed class SelfRelocator
         else
         {
             string processPath = Environment.ProcessPath
-                                 ?? throw new InvalidOperationException(".NET host path could not be determined.");
+                                 ?? throw new InvalidOperationException("无法确定 .NET 主机路径。");
             startInfo = new ProcessStartInfo(processPath);
             startInfo.ArgumentList.Add(copiedAssembly);
         }
@@ -46,7 +46,7 @@ public sealed class SelfRelocator
         Process? process = Process.Start(startInfo);
         if (process == null)
         {
-            throw new InvalidOperationException("Windows did not start the temporary updater copy.");
+            throw new InvalidOperationException("Windows 未能启动更新器临时副本。");
         }
 
         return true;
@@ -57,7 +57,7 @@ public sealed class SelfRelocator
         DirectoryInfo source = new(sourceRoot);
         if (source.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidOperationException("Updater source directory cannot be a reparse point.");
+            throw new InvalidOperationException("更新器源目录不能是重解析点。");
         }
 
         Directory.CreateDirectory(destinationRoot);
@@ -66,7 +66,7 @@ public sealed class SelfRelocator
             DirectoryInfo info = new(directory);
             if (info.Attributes.HasFlag(FileAttributes.ReparsePoint))
             {
-                throw new InvalidOperationException("Updater source contains a reparse point: " + directory);
+                throw new InvalidOperationException("更新器源目录包含重解析点：" + directory);
             }
 
             Directory.CreateDirectory(Path.Combine(destinationRoot, Path.GetRelativePath(sourceRoot, directory)));

@@ -135,7 +135,7 @@ internal sealed class MainForm : Form
         Panel identity = new() { Dock = DockStyle.Fill, BackColor = Color.Transparent };
         Label title = new()
         {
-            Text = "SKYSPINE  /  QA AUTOPLAYER",
+            Text = "SKYSPINE  /  QA 自动游玩",
             ForeColor = Color.White,
             Font = Theme.Display(16f, FontStyle.Bold),
             AutoSize = true,
@@ -477,9 +477,9 @@ internal sealed class MainForm : Form
         AddTelemetry(values, "pluginVersion", "插件版本");
         AddTelemetry(values, "protocol", "协议");
         AddTelemetry(values, "unity", "Unity");
-        AddTelemetry(values, "buildGuid", "Build GUID");
-        AddTelemetry(values, "assembly", "Assembly SHA-256");
-        AddTelemetry(values, "mvid", "Assembly MVID");
+        AddTelemetry(values, "buildGuid", "构建 GUID");
+        AddTelemetry(values, "assembly", "程序集 SHA-256");
+        AddTelemetry(values, "mvid", "程序集 MVID");
         AddTelemetry(values, "fingerprint", "指纹门禁");
         AddTelemetry(values, "runtime", "运行时合同");
         AddTelemetry(values, "isolation", "存档隔离");
@@ -815,7 +815,7 @@ internal sealed class MainForm : Form
                             $"已从启动进程 PID {launchProcessId} 切换为经路径验证的游戏 PID {_hello.GameProcessId}。",
                             Theme.Teal);
                     }
-                    AppendLog("SAFE", "一次性 fallback ticket 已在可信握手后清理。", Theme.Teal);
+                    AppendLog("SAFE", "一次性备用授权票据已在可信握手后清理。", Theme.Teal);
                 }
 
                 ApplyHello(_hello);
@@ -850,7 +850,7 @@ internal sealed class MainForm : Form
             ShowRestartRequired();
             AppendLog(
                 "WARN",
-                "当前游戏进程已标记为必须重启，Start 命令未发送。彻底关闭 Skyspine 后再由 Manager 重新启动。",
+                "当前游戏进程已标记为必须重启，开始命令未发送。彻底关闭 Skyspine 后再由 Manager 重新启动。",
                 Theme.Amber);
             return;
         }
@@ -874,7 +874,7 @@ internal sealed class MainForm : Form
             };
             if (!result.TransportSuccess)
             {
-                AppendLog("ERROR", $"{command} 发送失败：{result.Error}", Theme.Red);
+                AppendLog("ERROR", $"{ControlCommandName(command)}发送失败：{result.Error}", Theme.Red);
                 return;
             }
 
@@ -910,7 +910,7 @@ internal sealed class MainForm : Form
     {
         if (_game == null || _session == null)
         {
-            error = "Manager has no active validated build session.";
+            error = "Manager 当前没有经过验证的有效构建会话。";
             return false;
         }
 
@@ -1205,8 +1205,11 @@ internal sealed class MainForm : Form
             {
                 Color color = line.Contains("error", StringComparison.OrdinalIgnoreCase)
                               || line.Contains("exception", StringComparison.OrdinalIgnoreCase)
+                              || line.Contains("错误", StringComparison.Ordinal)
+                              || line.Contains("异常", StringComparison.Ordinal)
                     ? Theme.Red
                     : line.Contains("warning", StringComparison.OrdinalIgnoreCase)
+                      || line.Contains("警告", StringComparison.Ordinal)
                         ? Theme.Amber
                         : Theme.ConsoleText;
                 AppendLog("GAME", line, color);
@@ -1279,7 +1282,7 @@ internal sealed class MainForm : Form
         _updateState.Text = "演示数据";
         foreach (string line in DemoData.LogLines())
         {
-            AppendLog(string.Empty, line, line.Contains("SAFE") ? Theme.Teal : Theme.ConsoleText);
+            AppendLog(string.Empty, line, line.Contains("安全", StringComparison.Ordinal) ? Theme.Teal : Theme.ConsoleText);
         }
 
         _openEvidenceButton.Enabled = false;
@@ -1340,7 +1343,7 @@ internal sealed class MainForm : Form
         if (IsDisposed || string.IsNullOrWhiteSpace(message)) return;
         string prefix = string.IsNullOrWhiteSpace(category)
             ? string.Empty
-            : DateTime.Now.ToString("HH:mm:ss.fff") + "  " + category.PadRight(5) + " ";
+            : DateTime.Now.ToString("HH:mm:ss.fff") + "  " + LogCategoryName(category).PadRight(4) + " ";
         _logs.SelectionStart = _logs.TextLength;
         _logs.SelectionLength = 0;
         _logs.SelectionColor = color;
@@ -1355,6 +1358,27 @@ internal sealed class MainForm : Form
         _logs.SelectionStart = _logs.TextLength;
         _logs.ScrollToCaret();
     }
+
+    internal static string LogCategoryName(string category) => category.ToUpperInvariant() switch
+    {
+        "INFO" => "信息",
+        "WARN" => "警告",
+        "ERROR" => "错误",
+        "SAFE" => "安全",
+        "ACT" => "操作",
+        "STATE" => "状态",
+        "GAME" => "游戏",
+        _ => category
+    };
+
+    internal static string ControlCommandName(string command) => command.ToLowerInvariant() switch
+    {
+        "start" => "开始命令",
+        "pause" => "暂停命令",
+        "resume" => "继续命令",
+        "stop" => "停止命令",
+        _ => "控制命令"
+    };
 
     private void SaveSettings()
     {

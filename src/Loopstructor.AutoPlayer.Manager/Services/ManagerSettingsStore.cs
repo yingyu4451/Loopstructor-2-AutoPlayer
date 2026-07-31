@@ -30,7 +30,7 @@ public sealed class ManagerSettingsStore
         }
         catch (Exception exception)
         {
-            warning = "Manager settings could not be read: " + exception.Message;
+            warning = "无法读取 Manager 设置。详细信息：" + exception.Message;
             return new ManagerSettings();
         }
     }

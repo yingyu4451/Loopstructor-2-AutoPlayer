@@ -33,7 +33,7 @@ internal sealed class ActivationContext
     public static bool TryLoad(string gameRoot, out ActivationContext? context, out string reason)
     {
         context = null;
-        reason = "No one-time automation activation was supplied.";
+        reason = "未提供一次性自动游玩激活信息。";
         if (string.Equals(Environment.GetEnvironmentVariable(Protocol.EnabledEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             return TryCreate(
@@ -60,7 +60,7 @@ internal sealed class ActivationContext
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            reason = "The launch ticket was already consumed or could not be claimed: " + exception.Message;
+            reason = "启动票据已被使用或无法领取：" + exception.Message;
             return false;
         }
 
@@ -69,20 +69,20 @@ internal sealed class ActivationContext
             LaunchTicket? ticket = JsonConvert.DeserializeObject<LaunchTicket>(File.ReadAllText(claimedTicketPath));
             if (ticket == null || ticket.Protocol != Protocol.CurrentVersion)
             {
-                reason = "The launch ticket protocol is invalid.";
+                reason = "启动票据的协议无效。";
                 return false;
             }
 
             DateTime now = DateTime.UtcNow;
             if (ticket.ExpiresUtc <= now || ticket.ExpiresUtc > now.AddMinutes(10))
             {
-                reason = "The launch ticket is expired or has an unsafe lifetime.";
+                reason = "启动票据已过期或有效期不安全。";
                 return false;
             }
 
             if (!string.Equals(ticket.GameRootSha256, Protocol.HashGameRoot(gameRoot), StringComparison.OrdinalIgnoreCase))
             {
-                reason = "The launch ticket belongs to a different game installation.";
+                reason = "启动票据属于另一个游戏安装目录。";
                 return false;
             }
 
@@ -98,7 +98,7 @@ internal sealed class ActivationContext
         }
         catch (Exception exception)
         {
-            reason = "Could not consume the launch ticket: " + exception.Message;
+            reason = "无法读取启动票据：" + exception.Message;
             return false;
         }
         finally
@@ -120,32 +120,32 @@ internal sealed class ActivationContext
         context = null;
         if (string.IsNullOrWhiteSpace(pipeName) || pipeName.Length > 180 || pipeName.IndexOfAny(new[] { '\\', '/', ':', '\0' }) >= 0)
         {
-            reason = "The automation pipe name is invalid.";
+            reason = "自动游玩通信管道名称无效。";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(token) || token.Length < 32 || token.Length > 256)
         {
-            reason = "The automation session token is invalid.";
+            reason = "自动游玩会话令牌无效。";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(profileRoot) || !Path.IsPathRooted(profileRoot))
         {
-            reason = "The automation profile root is invalid.";
+            reason = "自动游玩存档根目录无效。";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(artifactRoot) || !Path.IsPathRooted(artifactRoot))
         {
-            reason = "The automation artifact root is invalid.";
+            reason = "自动游玩测试产物根目录无效。";
             return false;
         }
 
         string expectedHash = (expectedAssemblySha256 ?? string.Empty).Trim();
         if (expectedHash.Length != 64 || !IsHex(expectedHash))
         {
-            reason = "The expected Assembly-CSharp fingerprint is invalid.";
+            reason = "预期的 Assembly-CSharp 指纹无效。";
             return false;
         }
 
@@ -154,7 +154,7 @@ internal sealed class ActivationContext
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!fullProfile.StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase))
         {
-            reason = "The automation profile must be inside the tool's profile directory.";
+            reason = "自动游玩存档必须位于本工具的存档目录内。";
             return false;
         }
 
@@ -163,7 +163,7 @@ internal sealed class ActivationContext
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!fullArtifact.StartsWith(allowedArtifactRoot, StringComparison.OrdinalIgnoreCase))
         {
-            reason = "The automation artifact root must be inside the tool's artifact directory.";
+            reason = "自动游玩测试产物必须位于本工具的测试产物目录内。";
             return false;
         }
 
