@@ -8,7 +8,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class ManagerDemoTests
 {
     [Theory]
-    [InlineData("0.1.5", "AutoPlayer 版本 v0.1.5")]
+    [InlineData("0.1.6", "AutoPlayer 版本 v0.1.6")]
     [InlineData("0.2.0-beta.1", "AutoPlayer 版本 v0.2.0-beta.1")]
     [InlineData(" 1.0.0 ", "AutoPlayer 版本 v1.0.0")]
     [InlineData("", "AutoPlayer 版本 v0.0.0")]

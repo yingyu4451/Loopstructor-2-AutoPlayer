@@ -141,6 +141,32 @@ public sealed class UpdateCoordinatorTests
         Assert.Equal("2.0.0", result.LatestVersion);
     }
 
+    [Fact]
+    public void TryCreateInvocation_DllWithoutSelfContainedExecutableIsRejected()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "LoopstructorAutoPlayerTests",
+            Guid.NewGuid().ToString("N"));
+        string updaterDirectory = Path.Combine(root, "updater");
+        Directory.CreateDirectory(updaterDirectory);
+        try
+        {
+            File.WriteAllBytes(
+                Path.Combine(updaterDirectory, "Loopstructor.AutoPlayer.Updater.dll"),
+                Array.Empty<byte>());
+            UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
+
+            bool created = coordinator.TryCreateInvocation(out _, "check");
+
+            Assert.False(created);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static void WithGitHubEnvironment(string? owner, string? repository, Action assertion)
     {
         string? previousOwner = Environment.GetEnvironmentVariable(UpdateCoordinator.GitHubOwnerEnvironmentVariable);

@@ -285,10 +285,24 @@ foreach ($requiredFile in @(
     'checksums.sha256'
     'manager/Loopstructor.AutoPlayer.Manager.exe'
     'updater/Loopstructor.AutoPlayer.Updater.exe'
+    'updater/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
+    'updater/hostfxr.dll'
+    'updater/hostpolicy.dll'
+    'updater/coreclr.dll'
 )) {
     if (-not ($packagePaths -ccontains $requiredFile)) {
         throw "Release archive is missing required file: $requiredFile"
     }
+}
+
+$managerPackageFiles = @($packagePaths | Where-Object {
+    $_.StartsWith('manager/', [StringComparison]::Ordinal)
+})
+if ($managerPackageFiles.Count -ne 1 -or
+    -not [StringComparer]::Ordinal.Equals(
+        $managerPackageFiles[0],
+        'manager/Loopstructor.AutoPlayer.Manager.exe')) {
+    throw "Internal Manager must be exactly one self-contained EXE: $($managerPackageFiles -join ', ')"
 }
 foreach ($requiredDirectory in @('manager/', 'payload/', 'updater/')) {
     if (@($packagePaths | Where-Object { $_.StartsWith($requiredDirectory, [StringComparison]::Ordinal) }).Count -eq 0) {

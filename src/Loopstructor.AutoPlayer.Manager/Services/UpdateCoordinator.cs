@@ -170,7 +170,7 @@ public sealed class UpdateCoordinator
         }
     }
 
-    private bool TryCreateInvocation(out ProcessStartInfo startInfo, string command)
+    internal bool TryCreateInvocation(out ProcessStartInfo startInfo, string command)
     {
         if (File.Exists(_layout.UpdaterExecutable))
         {
@@ -179,19 +179,6 @@ public sealed class UpdateCoordinator
                 WorkingDirectory = Path.GetDirectoryName(_layout.UpdaterExecutable)!,
                 UseShellExecute = false
             };
-            startInfo.ArgumentList.Add(command);
-            return true;
-        }
-
-        string updaterDll = Path.ChangeExtension(_layout.UpdaterExecutable, ".dll");
-        if (File.Exists(updaterDll))
-        {
-            startInfo = new ProcessStartInfo("dotnet")
-            {
-                WorkingDirectory = Path.GetDirectoryName(updaterDll)!,
-                UseShellExecute = false
-            };
-            startInfo.ArgumentList.Add(updaterDll);
             startInfo.ArgumentList.Add(command);
             return true;
         }

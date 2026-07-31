@@ -107,6 +107,11 @@ jobs:
             }
           }
 
+          $managerFiles = @(Get-ChildItem -LiteralPath (Join-Path $artifactRoot 'manager') -Recurse -File)
+          if ($managerFiles.Count -ne 1 -or $managerFiles[0].Name -cne 'Loopstructor.AutoPlayer.Manager.exe') {
+            throw "Internal Manager must be one self-contained EXE, not a framework-dependent file set: $($managerFiles.Name -join ', ')"
+          }
+
           $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json
           if ($marker.managerPath -ne 'Loopstructor.AutoPlayer.Manager.exe') {
             throw "Workflow artifact Manager entry point is not at the root: $($marker.managerPath)"

@@ -134,7 +134,9 @@ function Publish-WindowsProject {
         [string]$Output,
 
         [Parameter(Mandatory = $true)]
-        [string]$PackageVersion
+        [string]$PackageVersion,
+
+        [switch]$SingleFile
     )
 
     Invoke-DotNet -Arguments @(
@@ -145,7 +147,7 @@ function Publish-WindowsProject {
         '--verbosity', 'minimal'
     )
 
-    Invoke-DotNet -Arguments @(
+    $publishArguments = @(
         'publish',
         $Project,
         '--configuration', 'Release',
@@ -155,9 +157,24 @@ function Publish-WindowsProject {
         '--output', $Output,
         '--nologo',
         "-p:Version=$PackageVersion",
-        '-p:PublishSingleFile=false',
         '-p:PublishReadyToRun=false'
     )
+
+    if ($SingleFile) {
+        $publishArguments += @(
+            '-p:PublishSingleFile=true',
+            '-p:PublishTrimmed=false',
+            '-p:IncludeNativeLibrariesForSelfExtract=true',
+            '-p:EnableCompressionInSingleFile=true',
+            '-p:DebugType=none',
+            '-p:DebugSymbols=false'
+        )
+    }
+    else {
+        $publishArguments += '-p:PublishSingleFile=false'
+    }
+
+    Invoke-DotNet -Arguments $publishArguments
 }
 
 function Publish-RootLauncher {
@@ -366,9 +383,16 @@ $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 
-Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion
+Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion -SingleFile
 Publish-WindowsProject -Project $updaterProject -Output $updaterOutput -PackageVersion $packageVersion
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
+
+$managerFiles = @(Get-ChildItem -LiteralPath $managerOutput -Recurse -File -Force)
+$bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'
+if ($managerFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $bundledManagerExecutable -PathType Leaf)) {
+    $managerNames = ($managerFiles | ForEach-Object { $_.FullName.Substring($managerOutput.Length + 1) }) -join ', '
+    throw "Manager must publish as exactly one self-contained executable. Found: $managerNames"
+}
 
 $launcherFiles = @(Get-ChildItem -LiteralPath $launcherOutput -Recurse -File -Force)
 $launcherExecutable = Join-Path $launcherOutput 'Loopstructor.AutoPlayer.Launcher.exe'
