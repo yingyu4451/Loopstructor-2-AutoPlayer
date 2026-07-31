@@ -214,7 +214,7 @@ public sealed class GitHubReleaseClient
 
     private void ValidateManifest(UpdateManifest manifest)
     {
-        if (manifest.SchemaVersion != 1)
+        if (manifest.SchemaVersion != 2)
         {
             throw new InvalidDataException("Unsupported update manifest schema: " + manifest.SchemaVersion);
         }

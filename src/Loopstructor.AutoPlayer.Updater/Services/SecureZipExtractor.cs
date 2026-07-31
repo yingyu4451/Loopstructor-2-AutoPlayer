@@ -4,12 +4,23 @@ namespace Loopstructor.AutoPlayer.Updater.Services;
 
 public sealed class SecureZipExtractor
 {
+    public const string ReleaseArchiveRootDirectory = "Loopstructor 2.AutoPlayer";
     public const int MaximumEntryCount = 10_000;
     public const long MaximumExpandedBytes = 2L * 1024 * 1024 * 1024;
     public const long MaximumSingleFileBytes = 512L * 1024 * 1024;
     public const int MaximumCompressionRatio = 500;
 
     public void Extract(string archivePath, string destinationRoot)
+    {
+        ExtractCore(archivePath, destinationRoot, requiredRootDirectory: null);
+    }
+
+    public void ExtractReleasePackage(string archivePath, string destinationRoot)
+    {
+        ExtractCore(archivePath, destinationRoot, ReleaseArchiveRootDirectory);
+    }
+
+    private static void ExtractCore(string archivePath, string destinationRoot, string? requiredRootDirectory)
     {
         string archive = Path.GetFullPath(archivePath);
         string destination = Path.GetFullPath(destinationRoot)
@@ -36,7 +47,16 @@ public sealed class SecureZipExtractor
         long expandedTotal = 0;
         foreach (ZipArchiveEntry entry in zip.Entries)
         {
-            ValidatedEntry validated = ValidateEntry(entry, destination, destinationPrefix);
+            ValidatedEntry? validated = ValidateEntry(
+                entry,
+                destination,
+                destinationPrefix,
+                requiredRootDirectory);
+            if (validated is null)
+            {
+                continue;
+            }
+
             if (!entries.TryAdd(validated.RelativePath, validated))
             {
                 throw new InvalidDataException("ZIP contains duplicate path: " + validated.RelativePath);
@@ -62,6 +82,11 @@ public sealed class SecureZipExtractor
                     throw new InvalidDataException("ZIP entry has an unsafe compression ratio: " + entry.FullName);
                 }
             }
+        }
+
+        if (entries.Count == 0)
+        {
+            throw new InvalidDataException("ZIP does not contain any package files.");
         }
 
         foreach (ValidatedEntry entry in entries.Values)
@@ -126,7 +151,11 @@ public sealed class SecureZipExtractor
         }
     }
 
-    private static ValidatedEntry ValidateEntry(ZipArchiveEntry entry, string root, string rootPrefix)
+    private static ValidatedEntry? ValidateEntry(
+        ZipArchiveEntry entry,
+        string root,
+        string rootPrefix,
+        string? requiredRootDirectory)
     {
         string normalized = entry.FullName.Replace('\\', '/');
         bool isDirectory = normalized.EndsWith("/", StringComparison.Ordinal);
@@ -155,6 +184,27 @@ public sealed class SecureZipExtractor
         if (unixType == 0xA000 || windowsAttributes.HasFlag(FileAttributes.ReparsePoint))
         {
             throw new InvalidDataException("ZIP symbolic links and reparse points are not accepted: " + entry.FullName);
+        }
+
+        if (requiredRootDirectory is not null)
+        {
+            if (!string.Equals(segments[0], requiredRootDirectory, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"ZIP entries must be inside the exact '{requiredRootDirectory}' directory: {entry.FullName}");
+            }
+
+            if (segments.Length == 1)
+            {
+                if (!isDirectory)
+                {
+                    throw new InvalidDataException("The release archive root must be a directory: " + entry.FullName);
+                }
+
+                return null;
+            }
+
+            segments = segments[1..];
         }
 
         string relative = Path.Combine(segments);

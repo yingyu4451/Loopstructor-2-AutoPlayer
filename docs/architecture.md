@@ -142,16 +142,21 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 同时用于手动下载和新版自动更新。它只有一个固定顶层目录，进入该目录后才是程序根目录：
+
 ```text
-Loopstructor.AutoPlayer.Manager.exe  用户启动的根目录单文件入口
-manager/                         管理器自包含运行时及旧版更新兼容入口
-updater/                         更新器自包含发布文件
-payload/
-  bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
-  plugin/                        AutoPlayer Plugin/Core 及运行依赖
-autoplayer-release.json          安装根安全标记
-version.json                     版本兼容信息
-checksums.sha256                 包内逐文件 SHA-256
+Loopstructor 2.AutoPlayer/
+  Loopstructor.AutoPlayer.Manager.exe  用户启动的根目录单文件入口
+  manager/                         管理器自包含运行时
+  updater/                         更新器自包含发布文件
+  payload/
+    bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
+    plugin/                        AutoPlayer Plugin/Core 及运行依赖
+  autoplayer-release.json          安装根安全标记
+  version.json                     版本兼容信息
+  checksums.sha256                 包内逐文件 SHA-256
 ```
 
-根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出。保留内部 `manager\` 入口是为了让已发布的 `v0.1.0` Updater 仍能验证、替换并重启新版；用户无需进入该目录。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+schema 2 更新清单指向同一个 Release ZIP。新版 Updater 验证压缩包只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。由于 schema 和归档结构都已改变，`v0.1.2` 不能自动升级到 `v0.1.3`，用户必须手动下载并解压一次；完成迁移后，后续新版可以使用同一结构自动更新。
+
+根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名，实际版本显示在 Manager GUI 中，并记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。

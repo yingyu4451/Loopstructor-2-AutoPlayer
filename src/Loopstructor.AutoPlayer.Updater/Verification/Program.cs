@@ -5,6 +5,21 @@ using System.Text.Json;
 using Loopstructor.AutoPlayer.Updater.Models;
 using Loopstructor.AutoPlayer.Updater.Services;
 
+if (args.Length > 0)
+{
+    if (args.Length != 4
+        || !string.Equals(args[0], "--verify-release-package", StringComparison.Ordinal)
+        || !string.Equals(args[2], "--expected-version", StringComparison.Ordinal))
+    {
+        throw new ArgumentException(
+            "Usage: --verify-release-package <zip-path> --expected-version <version>");
+    }
+
+    VerifyPackagedRelease(args[1], args[3]);
+    Console.WriteLine("Packaged release verification passed.");
+    return;
+}
+
 string verificationRoot = Path.Combine(Path.GetTempPath(), "LoopstructorUpdaterVerification-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(verificationRoot);
 try
@@ -15,6 +30,8 @@ try
     VerifyManagerRestartEntryPoint(verificationRoot);
     VerifyManagerEntryPointTraversalRejected(verificationRoot);
     VerifyZipExtraction(verificationRoot);
+    VerifyReleasePackageExtraction(verificationRoot);
+    VerifyWrappedReleaseTransaction(verificationRoot);
     VerifyTransactionalReplacement(verificationRoot);
     VerifyInterruptedRecovery(verificationRoot);
     VerifyPreparedWindowRecovery(verificationRoot);
@@ -32,6 +49,34 @@ static void VerifySemanticVersions()
     Require(SemanticVersion.TryParse("1.0.0-beta.1", out SemanticVersion? preview), "preview SemVer parse");
     Require(SemanticVersion.TryParse("1.0.0", out SemanticVersion? stable), "stable SemVer parse");
     Require(preview!.CompareTo(stable) < 0, "SemVer prerelease precedence");
+}
+
+static void VerifyPackagedRelease(string archivePath, string expectedVersion)
+{
+    string archive = Path.GetFullPath(archivePath);
+    if (!File.Exists(archive))
+    {
+        throw new FileNotFoundException("Packaged release ZIP was not found.", archive);
+    }
+
+    string extractionRoot = Path.Combine(
+        Path.GetTempPath(),
+        "LoopstructorPackagedReleaseVerification-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        new SecureZipExtractor().ExtractReleasePackage(archive, extractionRoot);
+        new ReleasePackageValidator().Validate(extractionRoot, expectedVersion);
+        Require(
+            !Directory.Exists(Path.Combine(extractionRoot, SecureZipExtractor.ReleaseArchiveRootDirectory)),
+            "production release extraction strips the fixed archive root");
+    }
+    finally
+    {
+        if (Directory.Exists(extractionRoot))
+        {
+            Directory.Delete(extractionRoot, recursive: true);
+        }
+    }
 }
 
 static void VerifyDefaultUpdateConfiguration(string root)
@@ -102,6 +147,111 @@ static void VerifyZipExtraction(string root)
     }
 
     ExpectInvalidData(() => extractor.Extract(linkZip, Path.Combine(root, "link-extracted")), "ZIP symlink rejection");
+}
+
+static void VerifyReleasePackageExtraction(string root)
+{
+    SecureZipExtractor extractor = new();
+    string archiveRoot = SecureZipExtractor.ReleaseArchiveRootDirectory;
+    string validZip = Path.Combine(root, "wrapped-valid.zip");
+    using (ZipArchive archive = ZipFile.Open(validZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry(archiveRoot + "/");
+        ZipArchiveEntry entry = archive.CreateEntry(archiveRoot + "/folder/file.txt");
+        using StreamWriter writer = new(entry.Open());
+        writer.Write("wrapped");
+    }
+
+    string validDestination = Path.Combine(root, "wrapped-valid-extracted");
+    extractor.ExtractReleasePackage(validZip, validDestination);
+    Require(
+        File.ReadAllText(Path.Combine(validDestination, "folder", "file.txt")) == "wrapped",
+        "wrapped release extraction strips the fixed root directory");
+    Require(
+        !Directory.Exists(Path.Combine(validDestination, archiveRoot)),
+        "wrapped release extraction does not retain a nested release directory");
+
+    string implicitRootZip = Path.Combine(root, "wrapped-implicit-root.zip");
+    using (ZipArchive archive = ZipFile.Open(implicitRootZip, ZipArchiveMode.Create))
+    {
+        ZipArchiveEntry entry = archive.CreateEntry(archiveRoot + "/file.txt");
+        using StreamWriter writer = new(entry.Open());
+        writer.Write("implicit");
+    }
+    extractor.ExtractReleasePackage(implicitRootZip, Path.Combine(root, "wrapped-implicit-root-extracted"));
+
+    string flatZip = Path.Combine(root, "wrapped-flat.zip");
+    using (ZipArchive archive = ZipFile.Open(flatZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry("file.txt");
+    }
+    ExpectInvalidData(
+        () => extractor.ExtractReleasePackage(flatZip, Path.Combine(root, "wrapped-flat-extracted")),
+        "flat release package rejection");
+
+    string extraRootZip = Path.Combine(root, "wrapped-extra-root.zip");
+    using (ZipArchive archive = ZipFile.Open(extraRootZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry(archiveRoot + "/file.txt");
+        archive.CreateEntry("unexpected/file.txt");
+    }
+    ExpectInvalidData(
+        () => extractor.ExtractReleasePackage(extraRootZip, Path.Combine(root, "wrapped-extra-root-extracted")),
+        "second release archive root rejection");
+
+    string wrongCaseZip = Path.Combine(root, "wrapped-wrong-case.zip");
+    using (ZipArchive archive = ZipFile.Open(wrongCaseZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry(archiveRoot.ToLowerInvariant() + "/file.txt");
+    }
+    ExpectInvalidData(
+        () => extractor.ExtractReleasePackage(wrongCaseZip, Path.Combine(root, "wrapped-wrong-case-extracted")),
+        "release archive root case mismatch rejection");
+
+    string rootFileZip = Path.Combine(root, "wrapped-root-file.zip");
+    using (ZipArchive archive = ZipFile.Open(rootFileZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry(archiveRoot);
+    }
+    ExpectInvalidData(
+        () => extractor.ExtractReleasePackage(rootFileZip, Path.Combine(root, "wrapped-root-file-extracted")),
+        "release archive root file rejection");
+
+    string duplicateZip = Path.Combine(root, "wrapped-duplicate.zip");
+    using (ZipArchive archive = ZipFile.Open(duplicateZip, ZipArchiveMode.Create))
+    {
+        archive.CreateEntry(archiveRoot + "/file.txt");
+        archive.CreateEntry(archiveRoot + "/FILE.txt");
+    }
+    ExpectInvalidData(
+        () => extractor.ExtractReleasePackage(duplicateZip, Path.Combine(root, "wrapped-duplicate-extracted")),
+        "release archive case-colliding path rejection");
+}
+
+static void VerifyWrappedReleaseTransaction(string root)
+{
+    string fixtureRoot = Path.Combine(root, "wrapped-transaction");
+    string target = Path.Combine(fixtureRoot, SecureZipExtractor.ReleaseArchiveRootDirectory);
+    CreateRelease(target, "0.1.0");
+    File.WriteAllText(Path.Combine(target, "autoplayer-update.json"), "{\"githubOwner\":\"configured\"}");
+
+    string archiveSource = Path.Combine(fixtureRoot, "archive-source");
+    string incomingRelease = Path.Combine(archiveSource, SecureZipExtractor.ReleaseArchiveRootDirectory);
+    CreateRelease(incomingRelease, "0.2.0");
+    string archivePath = Path.Combine(fixtureRoot, "release.zip");
+    ZipFile.CreateFromDirectory(archiveSource, archivePath, CompressionLevel.Fastest, includeBaseDirectory: false);
+
+    TransactionalInstaller installer = new(journalPath: Path.Combine(fixtureRoot, "wrapped-transaction.json"));
+    string staging = installer.CreateStagingRoot(target);
+    new SecureZipExtractor().ExtractReleasePackage(archivePath, staging);
+    new ReleasePackageValidator().Validate(staging, "0.2.0");
+    installer.Apply(staging, target, "0.2.0");
+
+    Require(ReadReleaseVersion(target) == "0.2.0", "wrapped release replaces the current installation root");
+    Require(File.Exists(Path.Combine(target, "autoplayer-update.json")), "wrapped release update preserves configuration");
+    Require(
+        !Directory.Exists(Path.Combine(target, SecureZipExtractor.ReleaseArchiveRootDirectory)),
+        "wrapped release update does not create a nested installation root");
 }
 
 static void VerifyLegacyManagerEntryPoint(string root)

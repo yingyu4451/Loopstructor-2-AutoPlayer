@@ -110,7 +110,7 @@ internal static class Program
             await releaseClient.DownloadVerifiedPackageAsync(update, packagePath);
             WriteProgress(options, "Package SHA-256 verified. Extracting to staging...");
             SecureZipExtractor extractor = new();
-            extractor.Extract(packagePath, stagingRoot);
+            extractor.ExtractReleasePackage(packagePath, stagingRoot);
             packageValidator.Validate(stagingRoot, update.Manifest.Version);
 
             ProcessWaiter processWaiter = new();

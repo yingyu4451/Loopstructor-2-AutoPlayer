@@ -60,66 +60,72 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.2
+.\scripts\package.ps1 -Version 0.1.3
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.2 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.3 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.2-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.2-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.3-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.3-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-zip 内部结构：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 同时用于手动下载和新版自动更新。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
-Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
-manager/                              内部 Manager 运行时及 v0.1.0 更新兼容入口
-updater/
-payload/
-  bepinex/
-  plugin/
-autoplayer-release.json
-version.json
-checksums.sha256
+Loopstructor 2.AutoPlayer/
+  Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
+  manager/                              内部 Manager 运行时
+  updater/
+  payload/
+    bepinex/
+    plugin/
+  autoplayer-release.json
+  version.json
+  checksums.sha256
 ```
+
+固定目录无需随版本升级而重命名。当前实际版本显示在 Manager GUI 中，并记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
 ## 更新清单
 
-GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1：
+GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2：
 
 ```json
 {
-  "schemaVersion": 1,
-  "version": "0.1.2",
+  "schemaVersion": 2,
+  "version": "0.1.3",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.2-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.3-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
 ```
 
-更新器必须从同一个 GitHub Release 的 assets 中按 `assetName` 获取 `browser_download_url`，不能信任清单中附带的任意下载 URL。下载后依次验证：
+更新器必须从同一个 GitHub Release 的 assets 中按 `assetName` 获取这唯一 ZIP 的 `browser_download_url`，不能信任清单中附带的任意下载 URL。下载后依次验证：
 
 1. `schemaVersion` 支持；
 2. `version` 是比当前版本新的 SemVer；
 3. `runtimeIdentifier` 为 `win-x64`；
 4. 下载字节数与 `size` 相同；
 5. zip SHA-256 与 `sha256` 相同；
-6. 解压根存在 `autoplayer-release.json`，其 version 与清单一致；
-7. 包内 `checksums.sha256` 全部通过。
+6. ZIP 中只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录；
+7. 安全移除该包装目录后，staging 根存在 `autoplayer-release.json`，其 version 与清单一致；
+8. 包内 `checksums.sha256` 全部通过。
 
-验证完成后在 staging 目录解压，退出管理器，再由独立 Updater 替换工具目录。任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。
+验证完成后在 staging 目录解压，退出管理器，再由独立 Updater 替换工具目录。任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
+
+清单协议从 schema 1 升级为 schema 2，归档也从扁平结构改为固定包装目录。因此 `v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载 `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 并解压；完成这次迁移后，后续新版可以按 schema 2 和同一归档结构自动更新。
 
 ## GitHub Actions
 
@@ -134,11 +140,11 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 1�
 
 1. 从 tag 提取 SemVer；
 2. 构建和测试；
-3. 生成 Windows x64 发布包、SHA-256 与更新清单；
+3. 生成带固定 `Loopstructor 2.AutoPlayer/` 顶层目录的唯一 Release ZIP、SHA-256 与 schema 2 更新清单；
 4. 上传未压缩目录作为 workflow artifact，并重新下载验证根部 EXE、marker、checksums 且不存在内嵌产品 ZIP；
 5. 创建 GitHub Release，重跑时覆盖同名 assets。
 
-手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；解开后应直接得到程序文件，不应再出现产品 ZIP。
+手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；与 Release ZIP 不同，解开 Actions artifact 后应直接得到扁平的程序文件和根部 Manager EXE，不应出现 `Loopstructor 2.AutoPlayer/` 包装目录或第二层产品 ZIP。
 
 ## 仓库与首次发布
 
@@ -160,8 +166,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -179,8 +185,10 @@ git push origin v0.1.2
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
-- 解压 zip，验证根启动器、`manager\` 兼容入口、Updater、marker 和逐文件 checksums；确认只需从根目录启动 Manager；
-- 用前一版本执行一次完整自更新与失败回滚测试；
+- 解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器、内部 Manager、Updater、marker 和逐文件 checksums；
+- 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；
+- 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
+- 发布后续版本时，用支持 schema 2 的前一版本执行一次完整自更新与失败回滚测试；`v0.1.2` 到 `v0.1.3` 只验证手动迁移；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；
 - GitHub 发布与更新坐标保持为 `yingyu4451/gui2`；若仓库私有，确认测试机通过安全环境提供只读 token，且发布包、日志和 Git 历史均不含 token。

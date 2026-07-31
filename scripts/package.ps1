@@ -17,6 +17,7 @@ $launcherProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Launch
 $managerProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj'
 $updaterProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj'
 $pluginProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj'
+$pluginInfoPath = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\PluginInfo.cs'
 $pluginOutput = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\bin\Release\netstandard2.1'
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $packageWorkRoot = Join-Path $artifactsRoot 'package'
@@ -200,7 +201,9 @@ function New-DeterministicZip {
         [string]$SourceDirectory,
 
         [Parameter(Mandatory = $true)]
-        [string]$Destination
+        [string]$Destination,
+
+        [string]$EntryPrefix = ''
     )
 
     Add-Type -AssemblyName System.IO.Compression
@@ -212,9 +215,16 @@ function New-DeterministicZip {
 
     $archive = [System.IO.Compression.ZipFile]::Open($Destination, [System.IO.Compression.ZipArchiveMode]::Create)
     try {
+        $normalizedPrefix = $EntryPrefix.Trim().Trim('/')
         $files = Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File -Force | Sort-Object FullName
         foreach ($file in $files) {
-            $entryName = $file.FullName.Substring($SourceDirectory.Length + 1).Replace('\', '/')
+            $relativeEntry = $file.FullName.Substring($SourceDirectory.Length + 1).Replace('\', '/')
+            $entryName = if ([string]::IsNullOrWhiteSpace($normalizedPrefix)) {
+                $relativeEntry
+            }
+            else {
+                "$normalizedPrefix/$relativeEntry"
+            }
             $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
             $entry.LastWriteTime = [DateTimeOffset]::Parse('1980-01-01T00:00:00Z')
 
@@ -234,6 +244,70 @@ function New-DeterministicZip {
     }
 }
 
+function Assert-ZipMatchesDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ZipPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDirectory,
+
+        [string]$EntryPrefix = ''
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $normalizedPrefix = $EntryPrefix.Trim().Trim('/')
+    $expectedEntries = @(
+        Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File -Force |
+            ForEach-Object {
+                $relativeEntry = $_.FullName.Substring($SourceDirectory.Length + 1).Replace('\', '/')
+                if ([string]::IsNullOrWhiteSpace($normalizedPrefix)) {
+                    $relativeEntry
+                }
+                else {
+                    "$normalizedPrefix/$relativeEntry"
+                }
+            }
+    ) | Sort-Object
+
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $actualEntries = @(
+            $archive.Entries |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_.Name) } |
+                ForEach-Object { $_.FullName.Replace('\', '/') }
+        ) | Sort-Object
+
+        $differences = @(Compare-Object -ReferenceObject $expectedEntries -DifferenceObject $actualEntries -CaseSensitive)
+        if ($differences.Count -ne 0) {
+            $summary = ($differences | Select-Object -First 10 | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }) -join ', '
+            throw "ZIP layout does not match the package directory: $ZipPath ($summary)"
+        }
+
+        $nestedArchives = @($actualEntries | Where-Object { $_.EndsWith('.zip', [StringComparison]::OrdinalIgnoreCase) })
+        if ($nestedArchives.Count -ne 0) {
+            throw "ZIP contains a nested archive: $($nestedArchives -join ', ')"
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($normalizedPrefix)) {
+            $topLevelNames = @(
+                $actualEntries |
+                    ForEach-Object { ($_ -split '/', 2)[0] } |
+                    Sort-Object -Unique
+            )
+            if ($topLevelNames.Count -ne 1 -or
+                -not [StringComparer]::Ordinal.Equals($topLevelNames[0], $normalizedPrefix)) {
+                throw "Download ZIP must contain exactly one top-level directory named $normalizedPrefix."
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 foreach ($requiredProject in @($launcherProject, $managerProject, $updaterProject, $pluginProject)) {
     if (-not (Test-Path -LiteralPath $requiredProject -PathType Leaf)) {
         throw "Required release project not found: $requiredProject"
@@ -241,6 +315,14 @@ foreach ($requiredProject in @($launcherProject, $managerProject, $updaterProjec
 }
 
 $packageVersion = Get-ReleaseVersion
+$pluginInfoSource = Get-Content -LiteralPath $pluginInfoPath -Raw
+$pluginVersionMatch = [regex]::Match(
+    $pluginInfoSource,
+    'public\s+const\s+string\s+Version\s*=\s*"(?<version>[^"]+)"\s*;')
+if (-not $pluginVersionMatch.Success -or
+    -not [StringComparer]::Ordinal.Equals($pluginVersionMatch.Groups['version'].Value, $packageVersion)) {
+    throw "PluginInfo.Version must exactly match package version $packageVersion."
+}
 $bepInEx = Get-BepInExRuntimeInfo
 
 if (-not $SkipBuild) {
@@ -324,17 +406,18 @@ $checksumLines = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force |
     }
 Write-Utf8NoBom -Path (Join-Path $packageRoot 'checksums.sha256') -Content (($checksumLines -join "`n") + "`n")
 
+$releaseDirectoryName = 'Loopstructor 2.AutoPlayer'
 $zipName = "Loopstructor.AutoPlayer-$packageVersion-$runtimeIdentifier.zip"
 $zipPath = Join-Path $releaseRoot $zipName
-New-DeterministicZip -SourceDirectory $packageRoot -Destination $zipPath
+New-DeterministicZip -SourceDirectory $packageRoot -Destination $zipPath -EntryPrefix $releaseDirectoryName
+Assert-ZipMatchesDirectory -ZipPath $zipPath -SourceDirectory $packageRoot -EntryPrefix $releaseDirectoryName
 
 $zipFile = Get-Item -LiteralPath $zipPath
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-$zipChecksumPath = "$zipPath.sha256"
-Write-Utf8NoBom -Path $zipChecksumPath -Content "$zipHash  $zipName`n"
+Write-Utf8NoBom -Path "$zipPath.sha256" -Content "$zipHash  $zipName`n"
 
 $updateManifest = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     version = $packageVersion
     runtimeIdentifier = $runtimeIdentifier
     assetName = $zipName
