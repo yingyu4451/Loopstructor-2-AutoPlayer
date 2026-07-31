@@ -64,6 +64,7 @@ internal sealed class MainForm : Form
     private ConnectionBadge _connection = null!;
     private Button _updateButton = null!;
     private Label _updateState = null!;
+    private Label _productVersion = null!;
     private RichTextBox _logs = null!;
     private Button _openEvidenceButton = null!;
     private Panel _captureSurface = null!;
@@ -89,7 +90,7 @@ internal sealed class MainForm : Form
 
     private void InitializeWindow()
     {
-        Text = "Skyspine AutoPlayer Manager";
+        Text = $"Loopstructor 2.AutoPlayer Manager — v{ManagerProductInfo.Version}";
         BackColor = Theme.Canvas;
         ForeColor = Theme.Ink;
         Font = Theme.Body(9f);
@@ -140,16 +141,38 @@ internal sealed class MainForm : Form
             AutoSize = true,
             Location = new Point(0, 1)
         };
+        FlowLayoutPanel productMeta = new()
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Location = new Point(2, 31),
+            Margin = Padding.Empty
+        };
+        _productVersion = new Label
+        {
+            Name = "ProductVersionLabel",
+            AccessibleName = "AutoPlayer 版本",
+            Text = ManagerProductInfo.DisplayText,
+            ForeColor = Color.White,
+            Font = Theme.Data(8.5f, FontStyle.Bold),
+            AutoSize = true,
+            Margin = new Padding(0, 0, 14, 0)
+        };
         Label subtitle = new()
         {
             Text = "构建验证、隔离运行与自动游玩控制",
             ForeColor = Color.FromArgb(177, 191, 199),
             Font = Theme.Body(8.5f),
             AutoSize = true,
-            Location = new Point(2, 32)
+            Margin = Padding.Empty
         };
+        productMeta.Controls.Add(_productVersion);
+        productMeta.Controls.Add(subtitle);
         identity.Controls.Add(title);
-        identity.Controls.Add(subtitle);
+        identity.Controls.Add(productMeta);
 
         FlowLayoutPanel actions = new()
         {
@@ -166,7 +189,7 @@ internal sealed class MainForm : Form
         _updateButton.Click += async (_, _) => await UpdateButtonOnClickAsync();
         _updateState = new Label
         {
-            Text = "v" + _updates.CurrentVersion,
+            Text = "尚未检查更新",
             ForeColor = Color.FromArgb(187, 199, 205),
             AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleRight,
@@ -1253,7 +1276,7 @@ internal sealed class MainForm : Form
         ApplyBuildTelemetry(_game);
         ApplyHello(_hello);
         ApplyStatus(_status);
-        _updateState.Text = "v" + _updates.CurrentVersion + " / 演示数据";
+        _updateState.Text = "演示数据";
         foreach (string line in DemoData.LogLines())
         {
             AppendLog(string.Empty, line, line.Contains("SAFE") ? Theme.Teal : Theme.ConsoleText);

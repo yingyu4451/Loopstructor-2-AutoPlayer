@@ -60,25 +60,25 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.4
+.\scripts\package.ps1 -Version 0.1.5
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.4 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.5 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.4-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.4-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.1.5-win-x64.zip
+  Loopstructor.AutoPlayer-0.1.5-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 同时用于手动下载和新版自动更新。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.5-win-x64.zip` 同时用于手动下载和新版自动更新。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -93,7 +93,7 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。当前实际版本显示在 Manager GUI 中，并记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
@@ -104,9 +104,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.4-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.1.5-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -171,8 +171,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

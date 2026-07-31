@@ -7,6 +7,29 @@ namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class ManagerDemoTests
 {
+    [Theory]
+    [InlineData("0.1.5", "AutoPlayer 版本 v0.1.5")]
+    [InlineData("0.2.0-beta.1", "AutoPlayer 版本 v0.2.0-beta.1")]
+    [InlineData(" 1.0.0 ", "AutoPlayer 版本 v1.0.0")]
+    [InlineData("", "AutoPlayer 版本 v0.0.0")]
+    public void ManagerProductInfo_FormatsPermanentVersionLabel(string version, string expected)
+    {
+        Assert.Equal(expected, ManagerProductInfo.FormatVersionLabel(version));
+    }
+
+    [Fact]
+    public void ManagerProductInfo_UsesManagerAssemblyInformationalVersion()
+    {
+        string expected = typeof(ManagerProductInfo).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), inherit: false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .Single()
+            .InformationalVersion;
+
+        Assert.Equal(expected, ManagerProductInfo.Version);
+        Assert.Equal(ManagerProductInfo.FormatVersionLabel(expected), ManagerProductInfo.DisplayText);
+    }
+
     [Fact]
     public void Parse_DemoRestartRequired_EnablesDemoAndRestartState()
     {

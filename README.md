@@ -23,20 +23,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.1.4 -SkipBuild
+.\scripts\package.ps1 -Version 0.1.5 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.4
+.\scripts\package.ps1 -Version 0.1.5
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 解压 `Loopstructor.AutoPlayer-0.1.4-win-x64.zip`；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。
+1. 解压 `Loopstructor.AutoPlayer-0.1.5-win-x64.zip`；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。`manager\` 是内部 Manager 运行时目录，不需要在其中查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -115,9 +115,9 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.1.5-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
 
-由于更新清单协议和归档结构已经改变，`v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载并解压新 ZIP；完成这次迁移后，后续新版可以继续自动更新。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名，实际版本显示在 Manager GUI 中，并记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
+由于更新清单协议和归档结构已经改变，`v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载并解压新 ZIP；完成这次迁移后，后续新版可以继续自动更新。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
 
 默认发布与更新源为 [`yingyu4451/gui2`](https://github.com/yingyu4451/gui2)，Manager 界面不再显示仓库地址输入框，也无需手工填写。旧版本遗留的空白更新源会自动迁移为该默认值；开发测试 fork 时仍可用环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 临时覆盖。
 

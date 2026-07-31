@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Newtonsoft.Json;
@@ -19,8 +18,7 @@ public sealed class UpdateCoordinator
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
     }
 
-    public string CurrentVersion =>
-        Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
+    public string CurrentVersion => ManagerProductInfo.Version;
 
     public bool IsConfigured(ManagerSettings settings) =>
         TryResolveCoordinates(settings, out _, out _);

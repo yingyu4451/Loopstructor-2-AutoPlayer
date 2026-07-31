@@ -308,6 +308,25 @@ function Assert-ZipMatchesDirectory {
     }
 }
 
+function Assert-ProductVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedVersion
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Versioned release binary is missing: $Path"
+    }
+
+    $actualVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path).ProductVersion
+    if (-not [StringComparer]::Ordinal.Equals($actualVersion, $ExpectedVersion)) {
+        throw "Release binary product version must be $ExpectedVersion but was $actualVersion`: $Path"
+    }
+}
+
 foreach ($requiredProject in @($launcherProject, $managerProject, $updaterProject, $pluginProject)) {
     if (-not (Test-Path -LiteralPath $requiredProject -PathType Leaf)) {
         throw "Required release project not found: $requiredProject"
@@ -381,6 +400,11 @@ Get-ChildItem -LiteralPath $pluginOutput -File | Where-Object {
 } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $pluginPayloadOutput
 }
+
+Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path (Join-Path $updaterOutput 'Loopstructor.AutoPlayer.Updater.exe') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path $rootManagerExecutable -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path (Join-Path $pluginPayloadOutput 'Loopstructor.AutoPlayer.Plugin.dll') -ExpectedVersion $packageVersion
 
 $marker = [ordered]@{
     schemaVersion = 1
