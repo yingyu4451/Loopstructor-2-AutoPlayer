@@ -55,30 +55,38 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 
 默认防线的干净初始化暂态会重试且不累计连续失败；任何深层包装中的 `statePolluted=true`、`needsReset=true`，以及已提交动力站点后发生的后续失败，都必须被识别为不安全并要求新进程。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
 
+## 0.2.0 作弊调试验收
+
+作弊模式是显式选择的一次性隔离 QA 会话。启动游戏前必须勾选作弊调试会话；安全握手后打开独立作弊工具并手动启用。发布验收应逐项覆盖：获取可选附魔和等级的指定战车、获取消耗品、基地无敌、结束当前波次、清除当前敌人、修改指定车辆属性、修改指定敌人属性、显示敌人 ID、获得遗物，以及在指定位置生成允许的怪物。
+
+作弊授权会话必须拒绝自动游玩 `start`。在已启用的作弊模式中，任何写操作尝试都要把运行完整性标记为不可信并要求重启，即使操作失败或响应结果不确定。场景切换必须关闭基地无敌与敌人 ID 显示；Manager 断连或心跳超时必须关闭整个作弊模式及瞬态功能。结束波次应拒绝模板锁定、无活动波次和 Boss 波；刷怪目录应拒绝 Boss、特殊波单位以及没有有效配置预制体的 ID。
+
 ## 本地打包
+
+发布 ZIP 使用 7-Zip 的标准 Deflate 极限参数，在保持 Windows 和内置更新器兼容的前提下减小下载体积。本地打包机需要安装 7-Zip；未加入 `PATH` 时可向 `package.ps1` 传入 `-SevenZipPath`。
 
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.9
+.\scripts\package.ps1 -Version 0.2.0
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.9 -SkipBuild
+.\scripts\package.ps1 -Version 0.2.0 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.1.9-win-x64.zip
-  Loopstructor.AutoPlayer-0.1.9-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.2.0-win-x64.zip
+  Loopstructor.AutoPlayer-0.2.0-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.9-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.2.0-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -108,9 +116,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.1.9-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.2.0-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -175,8 +183,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.1.9
-git push origin v0.1.9
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -193,6 +201,8 @@ git push origin v0.1.9
 - 确认四个强制平台写入补丁全部应用；使用 QA 账号或离线环境，不得把“无已知成就写入”等同于账号零痕迹；
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
+- 验证作弊授权会话拒绝自动游玩；一次性作弊 profile、手动启用、10 项功能、写尝试污染标记、场景切换复位和 Manager 租约失效关闭均符合预期；
+- 验证结束波次拒绝无活动波次、模板锁定和 Boss 波，指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
 - 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套运行时、`updater\` 不重复携带运行时、marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；

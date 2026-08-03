@@ -26,7 +26,7 @@ internal static class DemoData
     {
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
-        PluginVersion = "0.1.9",
+        PluginVersion = "0.2.0",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -43,6 +43,19 @@ internal static class DemoData
         ArtifactRoot = @"%LOCALAPPDATA%\LoopstructorAutoPlayer\artifacts\b13f9f3421ae61aa\20260729-142810-8fc17a2d",
         Commands = new[] { "hello", "status", "start", "pause", "resume", "stop" }
     };
+
+    public static BridgeHello CheatHello()
+    {
+        BridgeHello hello = Hello();
+        hello.CheatProtocolVersion = Protocol.CheatCurrentVersion;
+        hello.CheatSessionAuthorized = true;
+        hello.CheatAvailable = true;
+        hello.CheatModeEnabled = true;
+        hello.CheatAvailabilityReason = string.Empty;
+        hello.CheatCapabilities = CheatCommands.All;
+        hello.ProfileRoot = @"%LOCALAPPDATA%\LoopstructorAutoPlayer\profiles\b13f9f3421ae61aa\cheat\20260729-142810-8fc17a2d";
+        return hello;
+    }
 
     public static AutoPlayerStatus Status(bool needsProcessRestart = false)
     {
@@ -94,6 +107,23 @@ internal static class DemoData
                 Event(now.AddSeconds(-3), AutomationStage.Battle, "info", "第 7 波进行中，剩余敌人 18")
             }
         };
+    }
+
+    public static AutoPlayerStatus CheatStatus()
+    {
+        AutoPlayerStatus status = Status();
+        BridgeHello hello = CheatHello();
+        status.RunState = AutoPlayerRunState.Standby;
+        status.Stage = AutomationStage.FrontEnd;
+        status.StageDetail = "作弊调试会话已授权，等待手动操作";
+        status.IsolatedSaveRoot = hello.ProfileRoot;
+        status.CheatSessionAuthorized = true;
+        status.CheatAvailable = true;
+        status.CheatModeEnabled = true;
+        status.RunIntegrity = "cheat-session";
+        status.LastCommand = CheatCommands.QueryCatalog;
+        status.LastMessage = "作弊资源目录已就绪";
+        return status;
     }
 
     public static IReadOnlyList<string> LogLines() => new[]

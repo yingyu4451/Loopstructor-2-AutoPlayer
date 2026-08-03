@@ -17,7 +17,10 @@ public sealed class GameLauncher
         _configWriter = configWriter ?? new BepInExConfigWriter();
     }
 
-    public GameLaunchResult Launch(GameInstallValidation game, string profileName)
+    public GameLaunchResult Launch(
+        GameInstallValidation game,
+        string profileName,
+        bool cheatModeAllowed = false)
     {
         if (!game.IsValid)
         {
@@ -28,7 +31,7 @@ public sealed class GameLauncher
         try
         {
             _configWriter.Write(game.GameRoot, game.AssemblySha256);
-            session = _sessionFactory.Create(game, profileName);
+            session = _sessionFactory.Create(game, profileName, cheatModeAllowed);
             ProcessStartInfo startInfo = CreateStartInfo(game, session);
 
             Process? process = Process.Start(startInfo);
@@ -89,6 +92,7 @@ public sealed class GameLauncher
             pipeName = session.Ticket.PipeName,
             profileRoot = session.Ticket.ProfileRoot,
             artifactRoot = session.Ticket.ArtifactRoot,
+            cheatModeAllowed = session.Ticket.CheatModeAllowed,
             steamAppId = GameInstallValidator.ExpectedSteamAppId,
             processId = session.ProcessId
         };

@@ -1,5 +1,6 @@
 using Loopstructor.AutoPlayer.Core;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -18,6 +19,65 @@ public sealed class ProtocolTests
         Assert.Equal(1, Protocol.CurrentVersion);
         Assert.Equal(0, legacy.GameProcessId);
         Assert.Contains("\"GameProcessId\":4321", current, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CheatFields_AreOptionalForLegacyProtocolAndRoundTripStructuredData()
+    {
+        ControlRequest legacy = JsonConvert.DeserializeObject<ControlRequest>("{\"command\":\"status\"}")!;
+        ControlRequest current = new()
+        {
+            Command = CheatCommands.SpawnEnemy,
+            Arguments = new JObject
+            {
+                ["enemyId"] = "CommonMonster",
+                ["x"] = 12.5,
+                ["y"] = -3
+            }
+        };
+
+        string json = JsonConvert.SerializeObject(current);
+        ControlRequest roundTrip = JsonConvert.DeserializeObject<ControlRequest>(json)!;
+
+        Assert.Null(legacy.Arguments);
+        Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
+        Assert.Equal(1, Protocol.CheatCurrentVersion);
+        Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
+        Assert.Equal("CommonMonster", roundTrip.Arguments!.Value<string>("enemyId"));
+        Assert.Equal(12.5, roundTrip.Arguments.Value<double>("x"));
+    }
+
+    [Fact]
+    public void CheatSessionStatus_RoundTripsExplicitIntegrityState()
+    {
+        AutoPlayerStatus status = new()
+        {
+            CheatSessionAuthorized = true,
+            CheatAvailable = true,
+            RunIntegrity = "cheat-session",
+            BaseGodModeEnabled = true
+        };
+
+        AutoPlayerStatus roundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(
+            JsonConvert.SerializeObject(status))!;
+
+        Assert.True(roundTrip.CheatSessionAuthorized);
+        Assert.True(roundTrip.CheatAvailable);
+        Assert.True(roundTrip.BaseGodModeEnabled);
+        Assert.Equal("cheat-session", roundTrip.RunIntegrity);
+    }
+
+    [Fact]
+    public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
+    {
+        Assert.Equal(15, CheatCommands.All.Count);
+        Assert.Equal(10, CheatCommands.Mutations.Count);
+        Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
+        Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SpawnEnemy));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantVehicle.ToUpperInvariant()));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.QueryEnemies));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnabled));
     }
 
     [Fact]

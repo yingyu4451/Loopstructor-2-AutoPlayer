@@ -3,6 +3,7 @@ using System.Drawing.Imaging;
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
@@ -47,8 +48,10 @@ internal sealed class MainForm : Form
     private Button _togglePluginButton = null!;
     private Button _uninstallButton = null!;
     private Button _launchButton = null!;
+    private Button _cheatButton = null!;
     private TextBox _profileName = null!;
     private CheckBox _continueProfile = null!;
+    private CheckBox _cheatSessionCheck = null!;
     private CheckBox _autoUpdateCheck = null!;
     private ComboBox _mode = null!;
     private NumericUpDown _speed = null!;
@@ -68,6 +71,7 @@ internal sealed class MainForm : Form
     private RichTextBox _logs = null!;
     private Button _openEvidenceButton = null!;
     private Panel _captureSurface = null!;
+    private CheatForm? _cheatForm;
 
     public MainForm(ManagerLaunchOptions launchOptions)
     {
@@ -331,11 +335,39 @@ internal sealed class MainForm : Form
         };
         fields.Controls.Add(_continueProfile);
 
+        _cheatSessionCheck = new CheckBox
+        {
+            Text = "作弊调试会话（使用一次性隔离档）",
+            Width = 250,
+            Height = 30,
+            ForeColor = Color.FromArgb(130, 82, 10),
+            Font = Theme.Body(8.5f, FontStyle.Bold),
+            Margin = new Padding(0, 0, 0, 7)
+        };
+        _cheatSessionCheck.CheckedChanged += (_, _) =>
+        {
+            if (_cheatSessionCheck.Checked)
+            {
+                _continueProfile.Checked = false;
+            }
+
+            _continueProfile.Enabled = !_cheatSessionCheck.Checked;
+            _launchButton.Text = _cheatSessionCheck.Checked ? "启动作弊调试会话" : "启动所选测试包";
+        };
+        fields.Controls.Add(_cheatSessionCheck);
+
         _launchButton = Theme.CommandButton("启动所选测试包", Theme.TealDark, 250);
         _launchButton.Height = 37;
         _launchButton.Margin = new Padding(0, 0, 0, 10);
         _launchButton.Click += (_, _) => LaunchGame();
         fields.Controls.Add(_launchButton);
+
+        _cheatButton = Theme.CommandButton("作弊工具", Theme.Amber, 250);
+        _cheatButton.Height = 35;
+        _cheatButton.Margin = new Padding(0, 0, 0, 10);
+        _cheatButton.AccessibleName = "打开作弊工具";
+        _cheatButton.Click += (_, _) => OpenCheatForm();
+        fields.Controls.Add(_cheatButton);
         fields.Controls.Add(Divider());
 
         _autoUpdateCheck = new CheckBox
@@ -487,6 +519,8 @@ internal sealed class MainForm : Form
         AddTelemetry(values, "artifacts", "产物重定向");
         AddTelemetry(values, "profile", "隔离档目录");
         AddTelemetry(values, "evidence", "证据目录");
+        AddTelemetry(values, "integrity", "测试完整性");
+        AddTelemetry(values, "outcome", "本局结果");
         AddTelemetry(values, "waves", "波次");
         AddTelemetry(values, "process", "进程状态");
         scroll.Controls.Add(values);
@@ -567,6 +601,11 @@ internal sealed class MainForm : Form
         if (_launchOptions.DemoMode)
         {
             ApplyDemoMode();
+            if (_launchOptions.DemoCheatWindow)
+            {
+                OpenCheatForm();
+                _cheatForm?.SelectDemoTab(_launchOptions.DemoCheatTab);
+            }
             if (_launchOptions.ScreenshotMode)
             {
                 await CaptureScreenshotAsync();
@@ -710,7 +749,10 @@ internal sealed class MainForm : Form
         }
 
         SaveSettings();
-        GameLaunchResult result = _gameLauncher.Launch(_game, _settings.ProfileName);
+        GameLaunchResult result = _gameLauncher.Launch(
+            _game,
+            _settings.ProfileName,
+            _cheatSessionCheck.Checked);
         if (!result.Success || result.Session == null)
         {
             AppendLog("ERROR", result.Message, Theme.Red);
@@ -726,12 +768,17 @@ internal sealed class MainForm : Form
         _lastStatusSignature = string.Empty;
         _lastTrustError = string.Empty;
         _restartWarningReported = false;
+        _cheatForm?.UpdateSession(false, null, null);
         _logTail.Reset(_session.LogPath);
         _connection.SetState("等待插件", Theme.Amber);
         _runState.Text = "启动中 / 安全握手";
         _stageDetail.Text = "正在核对进程、程序集指纹、隔离目录与平台写入门禁";
         AppendLog("INFO", result.Message, Theme.Blue);
         AppendLog("SAFE", "只接受所选目录、当前 SHA-256 与本次随机管道对应的插件。", Theme.Teal);
+        if (_session.Ticket.CheatModeAllowed)
+        {
+            AppendLog("CHEAT", "本次为作弊调试会话，已分配一次性隔离存档；结果不会计为正常自动游玩测试。", Theme.Amber);
+        }
         _pollTimer.Start();
         SetOperationAvailability();
         _ = PollPluginAsync();
@@ -819,6 +866,7 @@ internal sealed class MainForm : Form
                 }
 
                 ApplyHello(_hello);
+                _cheatForm?.UpdateSession(_sessionTrusted, _hello, _status);
             }
 
             if (response.Status != null)
@@ -895,6 +943,73 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async Task<ControlResponse?> SendCheatCommandAsync(string command, JObject? arguments)
+    {
+        if (_launchOptions.DemoMode || !_sessionTrusted || _session == null)
+        {
+            return new ControlResponse
+            {
+                Success = false,
+                Message = "安全握手未通过，作弊命令未发送。"
+            };
+        }
+
+        try
+        {
+            PipeCallResult result = await _pipeClient.SendCheatAsync(_session, command, arguments, _lifetime.Token);
+            if (!result.TransportSuccess)
+            {
+                bool outcomeUnknown = result.RequestMayHaveExecuted && CheatCommands.IsMutationCommand(command);
+                string message = outcomeUnknown
+                    ? "作弊写命令已发送，但连续两次未能取回同一请求 ID 的结果。为避免重复执行，本窗口已冻结写操作；请关闭游戏并新建作弊调试会话。"
+                    : result.Error;
+                AppendLog("ERROR", "作弊命令发送失败：" + message, Theme.Red);
+                return new ControlResponse
+                {
+                    Success = false,
+                    Message = message,
+                    Data = new JObject { ["outcomeUnknown"] = outcomeUnknown }
+                };
+            }
+
+            ControlResponse response = result.Response!;
+            AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? Theme.Amber : Theme.Red);
+            if (response.Status != null)
+            {
+                ApplyStatus(response.Status);
+            }
+
+            return response;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            AppendLog("ERROR", "作弊命令执行失败：" + exception.Message, Theme.Red);
+            return new ControlResponse { Success = false, Message = exception.Message };
+        }
+    }
+
+    private void OpenCheatForm()
+    {
+        if (_cheatForm == null || _cheatForm.IsDisposed)
+        {
+            _cheatForm = new CheatForm(SendCheatCommandAsync);
+            _cheatForm.FormClosed += (_, _) => _cheatForm = null;
+        }
+
+        _cheatForm.UpdateSession(_sessionTrusted, _hello, _status);
+        if (!_cheatForm.Visible)
+        {
+            _cheatForm.Show(this);
+        }
+
+        _cheatForm.BringToFront();
+        _cheatForm.Activate();
+    }
+
     private AutomationRunOptions BuildRunOptions()
     {
         return new AutomationRunOptions
@@ -958,6 +1073,18 @@ internal sealed class MainForm : Form
             return false;
         }
 
+        if (hello.CheatSessionAuthorized != _session.Ticket.CheatModeAllowed)
+        {
+            error = "插件回报的作弊会话授权与本次 Manager 启动票据不一致。";
+            return false;
+        }
+
+        if (hello.CheatSessionAuthorized && hello.CheatProtocolVersion != Protocol.CheatCurrentVersion)
+        {
+            error = $"作弊协议不兼容：Manager v{Protocol.CheatCurrentVersion}，插件 v{hello.CheatProtocolVersion}。";
+            return false;
+        }
+
         error = string.Empty;
         return true;
     }
@@ -1002,12 +1129,18 @@ internal sealed class MainForm : Form
         SetTelemetry("artifacts", status.GameArtifactsRedirected ? "已重定向" : "未重定向");
         SetTelemetry("profile", status.IsolatedSaveRoot);
         SetTelemetry("evidence", string.IsNullOrWhiteSpace(status.EvidenceDirectory) ? status.ArtifactDirectory : status.EvidenceDirectory);
+        SetTelemetry(
+            "integrity",
+            status.CheatUsed
+                ? $"作弊已使用 / {status.CheatActionCount} 项"
+                : status.CheatSessionAuthorized ? "作弊调试会话" : "正常测试");
+        SetTelemetry("outcome", OutcomeName(status.Outcome));
         SetTelemetry("waves", $"{status.WavesCompleted} 完成 / {status.WavesStarted} 启动");
         int processId = _hello?.GameProcessId ?? _session?.ProcessId ?? 0;
         string processPrefix = processId > 0 ? $"PID {processId} / " : string.Empty;
         SetTelemetry("process", processPrefix + (status.NeedsProcessRestart ? "必须彻底重启" : "可继续测试"));
 
-        string signature = $"{status.RunState}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}";
+        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatActionCount}";
         if (!string.Equals(signature, _lastStatusSignature, StringComparison.Ordinal))
         {
             _lastStatusSignature = signature;
@@ -1042,7 +1175,29 @@ internal sealed class MainForm : Form
             _connection.SetState("等待门禁", Theme.Amber);
         }
 
-        if (status.NeedsProcessRestart)
+        if (status.CheatModeEnabled)
+        {
+            _stageBanner.BackColor = Color.FromArgb(252, 242, 218);
+            _runState.ForeColor = Color.FromArgb(130, 82, 10);
+            _runState.Text = "作弊模式 / 已启用";
+            _stageDetail.Text = status.CheatUsed
+                ? $"已执行 {status.CheatActionCount} 项作弊操作；本进程结果不计为正常自动游玩测试。"
+                : "作弊工具已就绪；尚未执行会改变对局的操作。";
+            _connection.SetState("作弊模式", Theme.Amber);
+            SetTelemetry("process", status.CheatUsed ? "作弊调试 / 退出后重启" : "作弊模式已启用");
+            _restartWarningReported = status.CheatUsed;
+        }
+        else if (status.CheatSessionAuthorized)
+        {
+            _stageBanner.BackColor = Color.FromArgb(252, 242, 218);
+            _runState.ForeColor = Color.FromArgb(130, 82, 10);
+            _runState.Text = "作弊调试会话 / 等待启用";
+            _stageDetail.Text = "打开作弊工具并显式启用；本进程不能运行普通自动游玩。";
+            _connection.SetState("作弊会话", Theme.Amber);
+            SetTelemetry("process", "作弊调试 / 独立进程");
+            _restartWarningReported = false;
+        }
+        else if (status.NeedsProcessRestart)
         {
             ShowRestartRequired();
             if (!_restartWarningReported)
@@ -1061,6 +1216,7 @@ internal sealed class MainForm : Form
             _runState.ForeColor = Theme.TealDark;
         }
 
+        _cheatForm?.UpdateSession(_sessionTrusted, _hello, status);
         SetOperationAvailability();
     }
 
@@ -1125,6 +1281,13 @@ internal sealed class MainForm : Form
         _togglePluginButton.Text = _pluginStatus?.State == PluginState.Disabled ? "启用" : "停用";
         _uninstallButton.Enabled = validGame && _pluginStatus?.State != PluginState.NotInstalled;
         _launchButton.Enabled = validGame && _pluginStatus?.State == PluginState.Enabled;
+        _cheatSessionCheck.Enabled = validGame;
+        _continueProfile.Enabled = !_cheatSessionCheck.Checked;
+        _cheatButton.Enabled = _sessionTrusted
+                               && (_status?.CheatSessionAuthorized == true
+                                   || _hello?.CheatSessionAuthorized == true
+                                   || _status?.CheatAvailable == true
+                                   || _hello?.CheatAvailable == true);
         _openEvidenceButton.Enabled = !string.IsNullOrWhiteSpace(EvidenceDirectory());
         SetControlButtons(_sessionTrusted);
     }
@@ -1153,6 +1316,8 @@ internal sealed class MainForm : Form
     {
         UseWaitCursor = busy;
         _browseButton.Enabled = !busy;
+        _cheatSessionCheck.Enabled = !busy;
+        _continueProfile.Enabled = !busy && !_cheatSessionCheck.Checked;
         if (busy)
         {
             _installButton.Enabled = false;
@@ -1167,7 +1332,7 @@ internal sealed class MainForm : Form
         foreach (Control control in new Control[]
                  {
                      _browseButton, _installButton, _togglePluginButton, _uninstallButton, _launchButton,
-                     _startButton, _pauseButton, _resumeButton, _stopButton, _updateButton
+                     _cheatSessionCheck, _cheatButton, _startButton, _pauseButton, _resumeButton, _stopButton, _updateButton
                  })
         {
             control.Enabled = enabled;
@@ -1267,8 +1432,10 @@ internal sealed class MainForm : Form
     private void ApplyDemoMode()
     {
         _game = DemoData.Game();
-        _hello = DemoData.Hello();
-        _status = DemoData.Status(_launchOptions.DemoRestartRequired);
+        _hello = _launchOptions.DemoCheatWindow ? DemoData.CheatHello() : DemoData.Hello();
+        _status = _launchOptions.DemoCheatWindow
+            ? DemoData.CheatStatus()
+            : DemoData.Status(_launchOptions.DemoRestartRequired);
         _gamePath.Text = _game.GameRoot;
         _validationState.Text = "已验证 Skyspine 1.237 / " + ShortHash(_game.AssemblySha256);
         _validationState.ForeColor = Theme.TealDark;
@@ -1295,9 +1462,14 @@ internal sealed class MainForm : Form
             ? Path.Combine(Protocol.DataRoot, "artifacts", "manager-screenshot.png")
             : _launchOptions.ScreenshotOutput;
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-        Size captureSize = _launchOptions.WindowSize ?? _captureSurface.ClientSize;
+        Control captureTarget = _launchOptions.DemoCheatWindow && _cheatForm is { IsDisposed: false }
+            ? _cheatForm
+            : _captureSurface;
+        Size captureSize = _launchOptions.DemoCheatWindow
+            ? captureTarget.Size
+            : _launchOptions.WindowSize ?? captureTarget.ClientSize;
         using Bitmap bitmap = new(captureSize.Width, captureSize.Height);
-        _captureSurface.DrawToBitmap(bitmap, new Rectangle(Point.Empty, captureSize));
+        captureTarget.DrawToBitmap(bitmap, new Rectangle(Point.Empty, captureSize));
         bitmap.Save(output, ImageFormat.Png);
         if (_launchOptions.ExitAfterScreenshot)
         {
@@ -1368,6 +1540,7 @@ internal sealed class MainForm : Form
         "ACT" => "操作",
         "STATE" => "状态",
         "GAME" => "游戏",
+        "CHEAT" => "作弊",
         _ => category
     };
 
@@ -1406,6 +1579,7 @@ internal sealed class MainForm : Form
         SaveSettings();
         _pollTimer.Stop();
         _lifetime.Cancel();
+        _cheatForm?.Close();
         _session?.DeleteTicket();
     }
 
@@ -1586,6 +1760,19 @@ internal sealed class MainForm : Form
         AutoPlayerRunState.Faulted => "故障",
         AutoPlayerRunState.Incompatible => "不兼容",
         _ => state.ToString()
+    };
+
+    private static string OutcomeName(AutomationOutcome outcome) => outcome switch
+    {
+        AutomationOutcome.Unknown => "尚未开始",
+        AutomationOutcome.InProgress => "进行中",
+        AutomationOutcome.Victory => "胜利",
+        AutomationOutcome.Defeat => "失败",
+        AutomationOutcome.Timeout => "超时未胜利",
+        AutomationOutcome.WaveLimit => "达到波次上限",
+        AutomationOutcome.Stopped => "已停止",
+        AutomationOutcome.Error => "运行错误",
+        _ => outcome.ToString()
     };
 
     private static string StatusBadgeText(AutoPlayerRunState state) => state switch

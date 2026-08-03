@@ -13,6 +13,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
 {
     private Harmony? _harmony;
     private AutoPlayController? _controller;
+    private CheatController? _cheatController;
     private PipeControlServer? _controlServer;
     private EvidenceRecorder? _evidence;
     private string _statusPath = string.Empty;
@@ -46,6 +47,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
             SaveIsolationPatch.Install(_harmony, activation.ProfileRoot, Logger.LogInfo);
             PlatformWriteIsolationPatch.Install(_harmony, Logger.LogInfo);
             GameArtifactIsolationPatch.Install(_harmony, activation.ArtifactRoot, Logger.LogInfo);
+            GameOutcomeObserver.Install(_harmony, Logger.LogInfo);
         }
         else
         {
@@ -54,7 +56,8 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
 
         _evidence = new EvidenceRecorder(activation.ArtifactRoot);
         _controller = new AutoPlayController(bridge, settings, fingerprint, activation, _evidence, Logger);
-        _controlServer = new PipeControlServer(_controller, activation);
+        _cheatController = new CheatController(_controller, activation, Logger, baseContractAccepted);
+        _controlServer = new PipeControlServer(_controller, _cheatController, activation);
         _controlServer.Start();
         _statusPath = Path.Combine(activation.ArtifactRoot, "status.json");
         WriteStatus();
@@ -71,6 +74,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
     private void Update()
     {
         _controlServer?.Pump();
+        _cheatController?.Tick();
         _controller?.Tick();
         if (_controller != null && UnityEngine.Time.realtimeSinceStartup >= _nextStatusWriteAt)
         {
@@ -79,11 +83,18 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         }
     }
 
+    private void OnGUI()
+    {
+        _cheatController?.DrawEnemyIds();
+    }
+
     private void OnDestroy()
     {
-        WriteStatus();
         _controlServer?.Dispose();
         _controlServer = null;
+        _cheatController?.Dispose();
+        _cheatController = null;
+        WriteStatus();
         _controller = null;
         _harmony?.UnpatchSelf();
         _harmony = null;

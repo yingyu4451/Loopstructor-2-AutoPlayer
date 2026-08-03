@@ -33,7 +33,7 @@ if (-not (Test-Path -LiteralPath $ReleaseDirectory -PathType Container)) {
     throw "Release directory not found: $ReleaseDirectory"
 }
 if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
-    $PackageDirectory = Join-Path $repositoryRoot 'artifacts\package\Loopstructor.AutoPlayer'
+    $PackageDirectory = Join-Path $repositoryRoot 'artifacts\package\Loopstructor 2.AutoPlayer'
 }
 $PackageDirectory = [System.IO.Path]::GetFullPath($PackageDirectory)
 if (-not (Test-Path -LiteralPath $PackageDirectory -PathType Container)) {

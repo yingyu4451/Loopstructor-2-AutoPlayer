@@ -7,6 +7,8 @@ public sealed class ManagerLaunchOptions
 {
     public bool DemoMode { get; private set; }
     public bool DemoRestartRequired { get; private set; }
+    public bool DemoCheatWindow { get; private set; }
+    public int DemoCheatTab { get; private set; }
     public bool ScreenshotMode { get; private set; }
     public bool ExitAfterScreenshot { get; private set; }
     public string ScreenshotOutput { get; private set; } = string.Empty;
@@ -27,6 +29,17 @@ public sealed class ManagerLaunchOptions
                 case "--demo-restart-required":
                     result.DemoMode = true;
                     result.DemoRestartRequired = true;
+                    break;
+                case "--demo-cheat-window":
+                    result.DemoMode = true;
+                    result.DemoCheatWindow = true;
+                    break;
+                case "--demo-cheat-tab" when index + 1 < args.Length:
+                    if (int.TryParse(args[++index], out int tabIndex) && tabIndex is >= 0 and <= 3)
+                    {
+                        result.DemoCheatTab = tabIndex;
+                    }
+
                     break;
                 case "--screenshot-mode":
                     result.DemoMode = true;
@@ -72,8 +85,12 @@ internal readonly record struct RunControlAvailability(
 
         AutoPlayerRunState state = status?.RunState ?? AutoPlayerRunState.Standby;
         bool needsProcessRestart = status?.NeedsProcessRestart == true;
+        bool cheatBlocksNormalRun = status?.CheatSessionAuthorized == true
+                                    || status?.CheatModeEnabled == true
+                                    || status?.CheatUsed == true;
         return new RunControlAvailability(
             CanStart: !needsProcessRestart
+                      && !cheatBlocksNormalRun
                       && state is AutoPlayerRunState.Standby
                           or AutoPlayerRunState.Completed
                           or AutoPlayerRunState.Faulted,
@@ -185,6 +202,7 @@ public sealed class GameLaunchResult
 public sealed class PipeCallResult
 {
     public bool TransportSuccess { get; init; }
+    public bool RequestMayHaveExecuted { get; init; }
     public bool UsedLegacyEndpoint { get; init; }
     public string Endpoint { get; init; } = string.Empty;
     public string Error { get; init; } = string.Empty;

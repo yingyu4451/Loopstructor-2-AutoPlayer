@@ -13,6 +13,7 @@ internal sealed class ActivationContext
         string profileRoot,
         string artifactRoot,
         string expectedAssemblySha256,
+        bool cheatModeAllowed,
         string source)
     {
         PipeName = pipeName;
@@ -20,6 +21,7 @@ internal sealed class ActivationContext
         ProfileRoot = profileRoot;
         ArtifactRoot = artifactRoot;
         ExpectedAssemblySha256 = expectedAssemblySha256;
+        CheatModeAllowed = cheatModeAllowed;
         Source = source;
     }
 
@@ -28,6 +30,7 @@ internal sealed class ActivationContext
     public string ProfileRoot { get; }
     public string ArtifactRoot { get; }
     public string ExpectedAssemblySha256 { get; }
+    public bool CheatModeAllowed { get; }
     public string Source { get; }
 
     public static bool TryLoad(string gameRoot, out ActivationContext? context, out string reason)
@@ -37,11 +40,16 @@ internal sealed class ActivationContext
         if (string.Equals(Environment.GetEnvironmentVariable(Protocol.EnabledEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             return TryCreate(
+                gameRoot,
                 Environment.GetEnvironmentVariable(Protocol.PipeEnvironmentVariable),
                 Environment.GetEnvironmentVariable(Protocol.TokenEnvironmentVariable),
                 Environment.GetEnvironmentVariable(Protocol.ProfileEnvironmentVariable),
                 Environment.GetEnvironmentVariable(Protocol.ArtifactEnvironmentVariable),
                 Environment.GetEnvironmentVariable(Protocol.ExpectedAssemblySha256EnvironmentVariable),
+                string.Equals(
+                    Environment.GetEnvironmentVariable(Protocol.CheatModeAllowedEnvironmentVariable),
+                    "1",
+                    StringComparison.Ordinal),
                 "environment",
                 out context,
                 out reason);
@@ -87,11 +95,13 @@ internal sealed class ActivationContext
             }
 
             return TryCreate(
+                gameRoot,
                 ticket.PipeName,
                 ticket.Token,
                 ticket.ProfileRoot,
                 ticket.ArtifactRoot,
                 ticket.ExpectedAssemblySha256,
+                ticket.CheatModeAllowed,
                 "ticket",
                 out context,
                 out reason);
@@ -108,11 +118,13 @@ internal sealed class ActivationContext
     }
 
     private static bool TryCreate(
+        string gameRoot,
         string? pipeName,
         string? token,
         string? profileRoot,
         string? artifactRoot,
         string? expectedAssemblySha256,
+        bool cheatModeAllowed,
         string source,
         out ActivationContext? context,
         out string reason)
@@ -158,6 +170,18 @@ internal sealed class ActivationContext
             return false;
         }
 
+        if (cheatModeAllowed)
+        {
+            string gameId = Protocol.HashGameRoot(gameRoot)[..16];
+            string cheatRoot = Path.GetFullPath(Path.Combine(Protocol.DataRoot, "profiles", gameId, "cheat"));
+            string? parent = Directory.GetParent(fullProfile)?.FullName;
+            if (!string.Equals(parent, cheatRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "作弊调试会话必须使用当前游戏专属的一次性隔离档。";
+                return false;
+            }
+        }
+
         string fullArtifact = Path.GetFullPath(artifactRoot);
         string allowedArtifactRoot = Path.GetFullPath(Path.Combine(Protocol.DataRoot, "artifacts"))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -169,7 +193,14 @@ internal sealed class ActivationContext
 
         Directory.CreateDirectory(fullProfile);
         Directory.CreateDirectory(fullArtifact);
-        context = new ActivationContext(pipeName, token, fullProfile, fullArtifact, expectedHash.ToLowerInvariant(), source);
+        context = new ActivationContext(
+            pipeName,
+            token,
+            fullProfile,
+            fullArtifact,
+            expectedHash.ToLowerInvariant(),
+            cheatModeAllowed,
+            source);
         reason = string.Empty;
         return true;
     }

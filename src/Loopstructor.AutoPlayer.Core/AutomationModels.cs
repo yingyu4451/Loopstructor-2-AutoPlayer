@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json.Linq;
@@ -15,6 +16,18 @@ public enum AutoPlayerRunState
     Completed,
     Faulted,
     Incompatible
+}
+
+public enum AutomationOutcome
+{
+    Unknown,
+    InProgress,
+    Victory,
+    Defeat,
+    Timeout,
+    WaveLimit,
+    Stopped,
+    Error
 }
 
 public enum AutomationStage
@@ -86,6 +99,7 @@ public sealed class AutoPlayerStatus
     public int ProtocolVersion { get; set; } = Protocol.CurrentVersion;
     public string PluginVersion { get; set; } = string.Empty;
     public AutoPlayerRunState RunState { get; set; } = AutoPlayerRunState.Standby;
+    public AutomationOutcome Outcome { get; set; } = AutomationOutcome.Unknown;
     public AutomationStage Stage { get; set; } = AutomationStage.WaitingForGame;
     public string StageDetail { get; set; } = string.Empty;
     public string Scene { get; set; } = string.Empty;
@@ -120,6 +134,15 @@ public sealed class AutoPlayerStatus
     public string LastCommand { get; set; } = string.Empty;
     public string LastMessage { get; set; } = string.Empty;
     public string EvidenceDirectory { get; set; } = string.Empty;
+    public bool CheatSessionAuthorized { get; set; }
+    public bool CheatAvailable { get; set; }
+    public bool CheatModeEnabled { get; set; }
+    public bool CheatUsed { get; set; }
+    public int CheatActionCount { get; set; }
+    public bool EnemyIdsVisible { get; set; }
+    public bool BaseGodModeEnabled { get; set; }
+    public string RunIntegrity { get; set; } = "clean";
+    public string CheatAvailabilityReason { get; set; } = string.Empty;
     public IReadOnlyList<TimelineEvent> Timeline { get; set; } = Array.Empty<TimelineEvent>();
 }
 
@@ -145,6 +168,13 @@ public sealed class BridgeHello
     public bool GameArtifactsRedirected { get; set; }
     public string ProfileRoot { get; set; } = string.Empty;
     public string ArtifactRoot { get; set; } = string.Empty;
+    public int CheatProtocolVersion { get; set; }
+    public bool CheatSessionAuthorized { get; set; }
+    public bool CheatAvailable { get; set; }
+    public bool CheatModeEnabled { get; set; }
+    public bool CheatUsed { get; set; }
+    public string CheatAvailabilityReason { get; set; } = string.Empty;
+    public IReadOnlyList<string> CheatCapabilities { get; set; } = Array.Empty<string>();
 }
 
 public sealed class ControlRequest
@@ -153,6 +183,7 @@ public sealed class ControlRequest
     public string Token { get; set; } = string.Empty;
     public string Command { get; set; } = "status";
     public AutomationRunOptions? Options { get; set; }
+    public JObject? Arguments { get; set; }
 }
 
 public sealed class ControlResponse
@@ -162,6 +193,7 @@ public sealed class ControlResponse
     public string Message { get; set; } = string.Empty;
     public AutoPlayerStatus? Status { get; set; }
     public BridgeHello? Hello { get; set; }
+    public JObject? Data { get; set; }
 }
 
 public sealed class LaunchTicket
@@ -174,17 +206,20 @@ public sealed class LaunchTicket
     public string ProfileRoot { get; set; } = string.Empty;
     public string ArtifactRoot { get; set; } = string.Empty;
     public string ExpectedAssemblySha256 { get; set; } = string.Empty;
+    public bool CheatModeAllowed { get; set; }
 }
 
 public static class Protocol
 {
     public const int CurrentVersion = 1;
+    public const int CheatCurrentVersion = 1;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
     public const string PipeEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PIPE";
     public const string ProfileEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PROFILE_ROOT";
     public const string ArtifactEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ARTIFACT_ROOT";
     public const string ExpectedAssemblySha256EnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ASSEMBLY_SHA256";
+    public const string CheatModeAllowedEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED";
 
     public static string DataRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -211,4 +246,64 @@ public static class Protocol
         string id = HashGameRoot(gameRoot).Substring(0, 16);
         return Path.Combine(DataRoot, "tickets", "launch-" + id + ".json");
     }
+}
+
+public static class CheatCommands
+{
+    public const string SetEnabled = "cheat.setEnabled";
+    public const string QueryCatalog = "cheat.queryCatalog";
+    public const string QueryState = "cheat.queryState";
+    public const string GrantVehicle = "cheat.grantVehicle";
+    public const string GrantDisposable = "cheat.grantDisposable";
+    public const string SetBaseGodMode = "cheat.setBaseGodMode";
+    public const string EndWave = "cheat.endWave";
+    public const string ClearEnemies = "cheat.clearEnemies";
+    public const string QueryVehicles = "cheat.queryVehicles";
+    public const string ModifyVehicle = "cheat.modifyVehicle";
+    public const string QueryEnemies = "cheat.queryEnemies";
+    public const string ModifyEnemy = "cheat.modifyEnemy";
+    public const string SetEnemyIdOverlay = "cheat.setEnemyIdOverlay";
+    public const string GrantRelic = "cheat.grantRelic";
+    public const string SpawnEnemy = "cheat.spawnEnemy";
+
+    public static IReadOnlyList<string> All { get; } = new[]
+    {
+        SetEnabled,
+        QueryCatalog,
+        QueryState,
+        GrantVehicle,
+        GrantDisposable,
+        SetBaseGodMode,
+        EndWave,
+        ClearEnemies,
+        QueryVehicles,
+        ModifyVehicle,
+        QueryEnemies,
+        ModifyEnemy,
+        SetEnemyIdOverlay,
+        GrantRelic,
+        SpawnEnemy
+    };
+
+    public static IReadOnlyList<string> Mutations { get; } = new[]
+    {
+        GrantVehicle,
+        GrantDisposable,
+        SetBaseGodMode,
+        EndWave,
+        ClearEnemies,
+        ModifyVehicle,
+        ModifyEnemy,
+        SetEnemyIdOverlay,
+        GrantRelic,
+        SpawnEnemy
+    };
+
+    public static bool IsCheatCommand(string? command) =>
+        !string.IsNullOrWhiteSpace(command) &&
+        (command ?? string.Empty).StartsWith("cheat.", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsMutationCommand(string? command) =>
+        !string.IsNullOrWhiteSpace(command) &&
+        Mutations.Contains(command ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 }

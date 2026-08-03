@@ -2,6 +2,8 @@
 param(
     [string]$Version,
 
+    [string]$SevenZipPath,
+
     [switch]$SkipBuild
 )
 
@@ -21,7 +23,8 @@ $pluginInfoPath = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\
 $pluginOutput = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\bin\Release\netstandard2.1'
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $packageWorkRoot = Join-Path $artifactsRoot 'package'
-$packageRoot = Join-Path $packageWorkRoot 'Loopstructor.AutoPlayer'
+$releaseDirectoryName = 'Loopstructor 2.AutoPlayer'
+$packageRoot = Join-Path $packageWorkRoot $releaseDirectoryName
 $releaseRoot = Join-Path $artifactsRoot 'release'
 
 function Write-Utf8NoBom {
@@ -213,7 +216,40 @@ function Publish-RootLauncher {
     )
 }
 
-function New-DeterministicZip {
+function Resolve-SevenZipExecutable {
+    param(
+        [string]$RequestedPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $resolved = [System.IO.Path]::GetFullPath($RequestedPath)
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            throw "7-Zip executable not found: $resolved"
+        }
+        return $resolved
+    }
+
+    $command = Get-Command '7z.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($command) {
+        return $command.Source
+    }
+
+    $candidates = @()
+    foreach ($programFilesRoot in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if (-not [string]::IsNullOrWhiteSpace($programFilesRoot)) {
+            $candidates += Join-Path $programFilesRoot '7-Zip\7z.exe'
+        }
+    }
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    throw '7-Zip is required to create the maximum-compression release ZIP. Install 7-Zip or pass -SevenZipPath.'
+}
+
+function New-MaximumCompressionZip {
     param(
         [Parameter(Mandatory = $true)]
         [string]$SourceDirectory,
@@ -221,51 +257,66 @@ function New-DeterministicZip {
         [Parameter(Mandatory = $true)]
         [string]$Destination,
 
-        [string]$EntryPrefix = ''
+        [Parameter(Mandatory = $true)]
+        [string]$SevenZipExecutable
     )
 
-    Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $sourceRoot = [System.IO.Path]::GetFullPath($SourceDirectory).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    $sourceParent = [System.IO.Directory]::GetParent($sourceRoot).FullName
+    $sourceName = [System.IO.Path]::GetFileName($sourceRoot)
+    if (-not [StringComparer]::Ordinal.Equals($sourceName, $releaseDirectoryName)) {
+        throw "Release staging directory must be named exactly '$releaseDirectoryName': $sourceRoot"
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force | Sort-Object FullName)
+    if ($files.Count -eq 0) {
+        throw "Release staging directory is empty: $sourceRoot"
+    }
+
+    $listPath = Join-Path $packageWorkRoot 'release-zip-files.txt'
+    $entryPaths = @(
+        $files | ForEach-Object {
+            $_.FullName.Substring($sourceParent.Length + 1).Replace('\', '/')
+        }
+    )
+    [System.IO.File]::WriteAllLines(
+        $listPath,
+        $entryPaths,
+        (New-Object System.Text.UTF8Encoding($false)))
 
     if (Test-Path -LiteralPath $Destination) {
         Remove-Item -LiteralPath $Destination -Force
     }
 
-    $compressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
-    if ([Enum]::GetNames([System.IO.Compression.CompressionLevel]) -contains 'SmallestSize') {
-        $compressionLevel = [Enum]::Parse(
-            [System.IO.Compression.CompressionLevel],
-            'SmallestSize')
-    }
+    $arguments = @(
+        'a',
+        '-tzip',
+        [System.IO.Path]::GetFullPath($Destination),
+        "@$listPath",
+        '-scsUTF-8',
+        '-mm=Deflate',
+        '-mx=9',
+        '-mfb=258',
+        '-mpass=15',
+        '-mtc=off',
+        '-mtm=off',
+        '-mta=off',
+        '-bd',
+        '-bb0',
+        '-y'
+    )
 
-    $archive = [System.IO.Compression.ZipFile]::Open($Destination, [System.IO.Compression.ZipArchiveMode]::Create)
+    Push-Location $sourceParent
     try {
-        $normalizedPrefix = $EntryPrefix.Trim().Trim('/')
-        $files = Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File -Force | Sort-Object FullName
-        foreach ($file in $files) {
-            $relativeEntry = $file.FullName.Substring($SourceDirectory.Length + 1).Replace('\', '/')
-            $entryName = if ([string]::IsNullOrWhiteSpace($normalizedPrefix)) {
-                $relativeEntry
-            }
-            else {
-                "$normalizedPrefix/$relativeEntry"
-            }
-            $entry = $archive.CreateEntry($entryName, $compressionLevel)
-            $entry.LastWriteTime = [DateTimeOffset]::Parse('1980-01-01T00:00:00Z')
-
-            $input = [System.IO.File]::OpenRead($file.FullName)
-            $output = $entry.Open()
-            try {
-                $input.CopyTo($output)
-            }
-            finally {
-                $output.Dispose()
-                $input.Dispose()
-            }
+        & $SevenZipExecutable @arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "7-Zip failed with exit code $LASTEXITCODE."
         }
     }
     finally {
-        $archive.Dispose()
+        Pop-Location
     }
 }
 
@@ -495,10 +546,14 @@ $checksumLines = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force |
     }
 Write-Utf8NoBom -Path (Join-Path $packageRoot 'checksums.sha256') -Content (($checksumLines -join "`n") + "`n")
 
-$releaseDirectoryName = 'Loopstructor 2.AutoPlayer'
 $zipName = "Loopstructor.AutoPlayer-$packageVersion-$runtimeIdentifier.zip"
 $zipPath = Join-Path $releaseRoot $zipName
-New-DeterministicZip -SourceDirectory $packageRoot -Destination $zipPath -EntryPrefix $releaseDirectoryName
+$sevenZipExecutable = Resolve-SevenZipExecutable -RequestedPath $SevenZipPath
+Write-Host "Creating maximum-compression ZIP with $sevenZipExecutable..."
+New-MaximumCompressionZip `
+    -SourceDirectory $packageRoot `
+    -Destination $zipPath `
+    -SevenZipExecutable $sevenZipExecutable
 Assert-ZipMatchesDirectory -ZipPath $zipPath -SourceDirectory $packageRoot -EntryPrefix $releaseDirectoryName
 
 $zipFile = Get-Item -LiteralPath $zipPath

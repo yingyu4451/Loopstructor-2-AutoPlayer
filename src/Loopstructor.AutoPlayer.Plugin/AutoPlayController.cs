@@ -14,6 +14,8 @@ internal sealed class AutoPlayController
 {
     private const int MaxTimelineEvents = 100;
     private const float SaveVerificationTimeoutSeconds = 30f;
+    private const float OutcomeVerificationTimeoutSeconds = 10f;
+    private static readonly TimeSpan FrontEndTransitionTimeout = TimeSpan.FromSeconds(20);
 
     private readonly object _sync = new();
     private readonly RuntimeBridge _bridge;
@@ -24,6 +26,7 @@ internal sealed class AutoPlayController
     private readonly ManualLogSource _log;
     private readonly DecisionEngine _decisionEngine = new();
     private readonly List<TimelineEvent> _timeline = new();
+    private readonly SceneTransitionGate _frontEndTransitionGate = new();
 
     private AutomationRunOptions _options = new();
     private AutoPlayerRunState _runState;
@@ -34,6 +37,7 @@ internal sealed class AutoPlayController
     private string _scene = string.Empty;
     private string _evidenceDirectory = string.Empty;
     private string _compatibilityError = string.Empty;
+    private AutomationOutcome _outcome;
     private int _consecutiveFailures;
     private int _wavesStarted;
     private int _wavesCompleted;
@@ -47,7 +51,16 @@ internal sealed class AutoPlayController
     private bool _wasInWave;
     private bool _wishReturnClicked;
     private bool _needsProcessRestart;
+    private bool _cheatAvailable;
+    private bool _cheatModeEnabled;
+    private bool _cheatUsed;
+    private bool _enemyIdsVisible;
+    private bool _baseGodModeEnabled;
+    private int _cheatActionCount;
+    private string _cheatAvailabilityReason = string.Empty;
+    private IReadOnlyList<string> _cheatCapabilities = Array.Empty<string>();
     private bool _frontEndReadinessObserved;
+    private bool _gameModeVerified;
     private string _pendingActionKey = string.Empty;
     private DateTime _startedAtUtc;
     private DateTime _lastActionAtUtc;
@@ -80,6 +93,12 @@ internal sealed class AutoPlayController
     {
         lock (_sync)
         {
+            if (_activation.CheatModeAllowed)
+            {
+                message = "本次进程是作弊调试会话，不能开始正常自动游玩。请关闭游戏并从 Manager 启动普通测试会话。";
+                return false;
+            }
+
             if (_needsProcessRestart)
             {
                 _runState = AutoPlayerRunState.Faulted;
@@ -106,6 +125,7 @@ internal sealed class AutoPlayController
 
             _options = Normalize(options ?? new AutomationRunOptions());
             _runState = AutoPlayerRunState.Running;
+            _outcome = AutomationOutcome.InProgress;
             _stage = AutomationStage.WaitingForGame;
             _stageDetail = "正在等待存档隔离验证和受支持的场景。";
             _consecutiveFailures = 0;
@@ -121,16 +141,93 @@ internal sealed class AutoPlayController
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
+            _gameModeVerified = false;
             _pendingActionKey = string.Empty;
+            _frontEndTransitionGate.Reset();
+            GameOutcomeObserver.Reset();
             _gameOverDetectedAt = -1f;
             _startedAtUtc = DateTime.UtcNow;
             _lastActionAtUtc = _startedAtUtc;
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
             _evidenceDirectory = _evidence.CreateRunDirectory();
+            _timeline.Clear();
             AddTimeline("start", $"已使用{ModeDisplayName(_options.Mode)}模式开始自动游玩。");
             message = "自动游玩已开始。";
             return true;
+        }
+    }
+
+    public void ConfigureCheat(bool available, string reason, IReadOnlyList<string> capabilities)
+    {
+        lock (_sync)
+        {
+            _cheatAvailable = available;
+            _cheatAvailabilityReason = reason ?? string.Empty;
+            _cheatCapabilities = capabilities ?? Array.Empty<string>();
+        }
+    }
+
+    public bool TrySetCheatMode(bool enabled, out string message)
+    {
+        lock (_sync)
+        {
+            if (enabled)
+            {
+                if (!_cheatAvailable)
+                {
+                    message = string.IsNullOrWhiteSpace(_cheatAvailabilityReason)
+                        ? "当前游戏构建不支持作弊工具。"
+                        : _cheatAvailabilityReason;
+                    return false;
+                }
+
+                if (_runState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused)
+                {
+                    message = "自动游玩正在运行或暂停。请先停止自动游玩，再启用作弊模式。";
+                    return false;
+                }
+
+                if (_needsProcessRestart && !_cheatUsed)
+                {
+                    message = "当前游戏进程已要求重启，不能再进入作弊模式。";
+                    return false;
+                }
+            }
+
+            _cheatModeEnabled = enabled;
+            message = enabled ? "作弊模式已启用。" : "作弊模式已关闭。";
+            return true;
+        }
+    }
+
+    public void RecordCheatAction(string command, string message)
+    {
+        lock (_sync)
+        {
+            _cheatUsed = true;
+            _cheatActionCount++;
+            _needsProcessRestart = true;
+            _lastCommand = command;
+            _lastMessage = message;
+            _lastActionAtUtc = DateTime.UtcNow;
+            AddTimeline("cheat", message + " 本进程已标记为作弊调试，不能计为正常自动游玩结果。");
+        }
+    }
+
+    public void SetEnemyIdsVisible(bool visible)
+    {
+        lock (_sync)
+        {
+            _enemyIdsVisible = visible;
+        }
+    }
+
+    public void SetBaseGodModeEnabled(bool enabled)
+    {
+        lock (_sync)
+        {
+            _baseGodModeEnabled = enabled;
         }
     }
 
@@ -183,6 +280,10 @@ internal sealed class AutoPlayController
             }
 
             _runState = AutoPlayerRunState.Standby;
+            if (_outcome is AutomationOutcome.Unknown or AutomationOutcome.InProgress)
+            {
+                _outcome = AutomationOutcome.Stopped;
+            }
             _stage = AutomationStage.WaitingForGame;
             _stageDetail = "已停止，不会再向游戏发送命令。";
             AddTimeline("stop", _stageDetail);
@@ -202,13 +303,15 @@ internal sealed class AutoPlayController
 
         if (DateTime.UtcNow - _startedAtUtc >= TimeSpan.FromMinutes(_options.MaxRunMinutes))
         {
-            Complete("已达到配置的运行时间上限。");
+            _outcome = AutomationOutcome.Timeout;
+            Fault("已达到配置的运行时间上限，但尚未观察到游戏胜利。");
             return;
         }
 
         string activeScene = SceneManager.GetActiveScene().name;
         if (!string.Equals(activeScene, _scene, StringComparison.Ordinal))
         {
+            bool completedTransition = _frontEndTransitionGate.ObserveScene(activeScene);
             _scene = activeScene;
             _defensePrepared = string.Equals(activeScene, "NewGameScene", StringComparison.OrdinalIgnoreCase) &&
                                !_openingDefenseRequired;
@@ -217,9 +320,14 @@ internal sealed class AutoPlayController
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
+            _gameModeVerified = false;
             _pendingActionKey = string.Empty;
             _gameOverDetectedAt = -1f;
             AddTimeline("scene", "已进入场景 " + activeScene + "。");
+            if (completedTransition)
+            {
+                AddTimeline("transition", "已观察到前端命令触发场景切换。");
+            }
             MarkProgress();
         }
 
@@ -273,6 +381,7 @@ internal sealed class AutoPlayController
             {
                 PluginVersion = PluginInfo.Version,
                 RunState = _runState,
+                Outcome = _outcome,
                 Stage = _stage,
                 StageDetail = _stageDetail,
                 Scene = _scene,
@@ -306,6 +415,17 @@ internal sealed class AutoPlayController
                 LastCommand = _lastCommand,
                 LastMessage = _lastMessage,
                 EvidenceDirectory = _evidenceDirectory,
+                CheatSessionAuthorized = _activation.CheatModeAllowed,
+                CheatAvailable = _cheatAvailable,
+                CheatModeEnabled = _cheatModeEnabled,
+                CheatUsed = _cheatUsed,
+                CheatActionCount = _cheatActionCount,
+                EnemyIdsVisible = _enemyIdsVisible,
+                BaseGodModeEnabled = _baseGodModeEnabled,
+                RunIntegrity = _cheatUsed
+                    ? "cheat-modified"
+                    : _activation.CheatModeAllowed ? "cheat-session" : "clean",
+                CheatAvailabilityReason = _cheatAvailabilityReason,
                 Timeline = _timeline.ToArray()
             };
         }
@@ -313,33 +433,58 @@ internal sealed class AutoPlayController
 
     public BridgeHello Hello()
     {
-        return new BridgeHello
+        lock (_sync)
         {
-            ProtocolVersion = Protocol.CurrentVersion,
-            GameProcessId = GetCurrentProcessId(),
-            PluginVersion = PluginInfo.Version,
-            GameVersion = _fingerprint.ProductVersion,
-            UnityVersion = _fingerprint.UnityVersion,
-            BuildGuid = _fingerprint.BuildGuid,
-            AssemblySha256 = _fingerprint.AssemblySha256,
-            AssemblyMvid = _fingerprint.AssemblyMvid,
-            ProductIdentityValid = _fingerprint.ProductIdentityValid,
-            FingerprintAccepted = _fingerprint.MatchesExpectedAssembly(_activation.ExpectedAssemblySha256),
-            CompatibilityError = _compatibilityError,
-            RuntimeContractAvailable = _bridge.IsAvailable,
-            MissingMembers = _bridge.MissingMembers,
-            Commands = _bridge.AvailableCommands,
-            SaveIsolationApplied = SaveIsolationPatch.Applied,
-            SaveIsolationVerified = SaveIsolationPatch.Verified,
-            PlatformWritesBlocked = PlatformWriteIsolationPatch.Applied,
-            GameArtifactsRedirected = GameArtifactIsolationPatch.Applied,
-            ProfileRoot = _activation.ProfileRoot,
-            ArtifactRoot = _activation.ArtifactRoot
-        };
+            return new BridgeHello
+            {
+                ProtocolVersion = Protocol.CurrentVersion,
+                GameProcessId = GetCurrentProcessId(),
+                PluginVersion = PluginInfo.Version,
+                GameVersion = _fingerprint.ProductVersion,
+                UnityVersion = _fingerprint.UnityVersion,
+                BuildGuid = _fingerprint.BuildGuid,
+                AssemblySha256 = _fingerprint.AssemblySha256,
+                AssemblyMvid = _fingerprint.AssemblyMvid,
+                ProductIdentityValid = _fingerprint.ProductIdentityValid,
+                FingerprintAccepted = _fingerprint.MatchesExpectedAssembly(_activation.ExpectedAssemblySha256),
+                CompatibilityError = _compatibilityError,
+                RuntimeContractAvailable = _bridge.IsAvailable,
+                MissingMembers = _bridge.MissingMembers,
+                Commands = _bridge.AvailableCommands,
+                SaveIsolationApplied = SaveIsolationPatch.Applied,
+                SaveIsolationVerified = SaveIsolationPatch.Verified,
+                PlatformWritesBlocked = PlatformWriteIsolationPatch.Applied,
+                GameArtifactsRedirected = GameArtifactIsolationPatch.Applied,
+                ProfileRoot = _activation.ProfileRoot,
+                ArtifactRoot = _activation.ArtifactRoot,
+                CheatProtocolVersion = Protocol.CheatCurrentVersion,
+                CheatSessionAuthorized = _activation.CheatModeAllowed,
+                CheatAvailable = _cheatAvailable,
+                CheatModeEnabled = _cheatModeEnabled,
+                CheatUsed = _cheatUsed,
+                CheatAvailabilityReason = _cheatAvailabilityReason,
+                CheatCapabilities = _cheatCapabilities
+            };
+        }
     }
 
     private void TickFrontEnd(string activeScene)
     {
+        if (_frontEndTransitionGate.IsWaiting)
+        {
+            if (_frontEndTransitionGate.HasTimedOut(DateTime.UtcNow, FrontEndTransitionTimeout))
+            {
+                Fault("前端命令 " + _frontEndTransitionGate.Command +
+                      " 已成功返回，但场景未在安全时限内切换；为避免重复提交，当前进程必须重启。");
+                return;
+            }
+
+            SetStage(
+                AutomationStage.FrontEnd,
+                "已发送 " + _frontEndTransitionGate.Command + "，正在等待游戏完成场景切换。");
+            return;
+        }
+
         string query = string.Equals(activeScene, "RandomChooseScene", StringComparison.OrdinalIgnoreCase)
             ? "queryRandomMode"
             : "queryFrontend";
@@ -375,7 +520,23 @@ internal sealed class AutoPlayController
             }
         }
 
-        Execute(action);
+        if (string.Equals(action.Command, "submitCommonMode", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_bridge.TryDisableCommonModeTutorial(out string tutorialMessage))
+            {
+                RegisterFailure(tutorialMessage);
+                return;
+            }
+
+            AddTimeline("guard", tutorialMessage);
+        }
+
+        bool executed = Execute(action);
+        if (executed && IsSceneTransitionCommand(action.Command))
+        {
+            _frontEndTransitionGate.Begin(action.Command, activeScene, DateTime.UtcNow);
+            SetStage(action.Stage, "已发送 " + action.Command + "，正在等待场景切换。");
+        }
     }
 
     private void TickInGame()
@@ -392,6 +553,27 @@ internal sealed class AutoPlayController
             case RuntimeResultDisposition.Failure:
                 RegisterFailure("命令 queryState 失败：" + Message(initialization));
                 return;
+        }
+
+        if (!_gameModeVerified)
+        {
+            if (!_bridge.TryGetGameMode(out string gameMode, out string modeMessage))
+            {
+                SetStage(AutomationStage.InitializingRun, modeMessage);
+                return;
+            }
+
+            string expectedMode = _options.Mode == AutomationGameMode.Common ? "commonMode" : "randomMode";
+            if (!string.Equals(gameMode, expectedMode, StringComparison.OrdinalIgnoreCase))
+            {
+                Fault("游戏进入了意外模式 " + gameMode + "，预期为 " + expectedMode +
+                      "；已停止自动游玩以避免测试错误模式。");
+                return;
+            }
+
+            _gameModeVerified = true;
+            AddTimeline("guard", "已验证当前游戏模式为 " + gameMode + "。");
+            MarkProgress();
         }
 
         JObject affordances = _bridge.Invoke("queryAffordances");
@@ -421,7 +603,8 @@ internal sealed class AutoPlayController
 
         if (_options.MaxWaves > 0 && _wavesCompleted >= _options.MaxWaves)
         {
-            Complete("已达到配置的波次上限。");
+            _outcome = AutomationOutcome.WaveLimit;
+            Fault("已达到配置的波次上限，但尚未观察到游戏胜利。");
             return;
         }
 
@@ -473,7 +656,7 @@ internal sealed class AutoPlayController
         AutomationAction action = _decisionEngine.DecideInGame(affordances, reward, events);
         if (action.Stage == AutomationStage.Completed)
         {
-            Complete(action.Reason);
+            Fault("运行时报告本局结束，但插件没有观察到可验证的胜利事件：" + action.Reason);
             return;
         }
 
@@ -489,6 +672,28 @@ internal sealed class AutoPlayController
             AddTimeline("settlement", _stageDetail);
             MarkProgress();
         }
+
+        AutomationOutcome observedOutcome = GameOutcomeObserver.Outcome;
+        if (observedOutcome == AutomationOutcome.Defeat)
+        {
+            _outcome = AutomationOutcome.Defeat;
+            Fault("已观察到游戏失败事件；本轮自动游玩没有获胜。");
+            return;
+        }
+
+        if (observedOutcome != AutomationOutcome.Victory)
+        {
+            if (Time.realtimeSinceStartup - _gameOverDetectedAt >= OutcomeVerificationTimeoutSeconds)
+            {
+                Fault("游戏已经结束，但未能验证独立的胜利或失败事件。");
+                return;
+            }
+
+            SetStage(AutomationStage.Completed, "游戏已经结束，正在等待独立胜负事件验证。");
+            return;
+        }
+
+        _outcome = AutomationOutcome.Victory;
 
         JObject interactables = _bridge.Invoke("queryUiInteractables");
         switch (RuntimeResultInspector.Classify(interactables))
@@ -623,6 +828,12 @@ internal sealed class AutoPlayController
     private static bool IsFrontEndMutation(string command) =>
         !string.Equals(command, "wait", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsSceneTransitionCommand(string command) =>
+        string.Equals(command, "submitCommonMode", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "continueGame", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "enterRandomMode", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "submitRandomMode", StringComparison.OrdinalIgnoreCase);
+
     private void ObserveWaveTransition(bool inWave)
     {
         if (inWave && !_wasInWave)
@@ -673,6 +884,10 @@ internal sealed class AutoPlayController
             _stageDetail = reason;
             _lastMessage = reason;
             _needsProcessRestart = true;
+            if (_outcome is AutomationOutcome.Unknown or AutomationOutcome.InProgress)
+            {
+                _outcome = AutomationOutcome.Error;
+            }
             AddTimeline("fault", reason);
             _evidence.CaptureFailure(EnsureEvidenceDirectory(), reason, Snapshot());
         }
@@ -680,6 +895,12 @@ internal sealed class AutoPlayController
 
     private void Complete(string reason)
     {
+        if (_outcome != AutomationOutcome.Victory)
+        {
+            Fault("拒绝把未验证为胜利的运行标记为完成：" + reason);
+            return;
+        }
+
         lock (_sync)
         {
             if (_runState == AutoPlayerRunState.Completed) return;
@@ -740,6 +961,8 @@ internal sealed class AutoPlayController
             return "外部平台写入隔离不完整。";
         if (!GameArtifactIsolationPatch.Applied)
             return "游戏诊断产物隔离不完整。";
+        if (!GameOutcomeObserver.Installed)
+            return "无法安装只读胜负结果观察器。";
         return string.Empty;
     }
 

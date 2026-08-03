@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using UnityEngine;
 
 namespace Loopstructor.AutoPlayer.Plugin;
 
@@ -161,6 +163,96 @@ internal sealed class RuntimeBridge
         }
     }
 
+    public bool TryDisableCommonModeTutorial(out string message)
+    {
+        const string panelTypeName = "MetroTD.CharacterSystem.UI.CharacterChooseMainPanel";
+        Type? panelType = FindType(panelTypeName);
+        FieldInfo? toggleField = panelType?.GetField(
+            "tutorToggle",
+            BindingFlags.Public | BindingFlags.Instance);
+        if (panelType == null || toggleField == null)
+        {
+            message = "普通模式教程开关契约不可用。";
+            return false;
+        }
+
+        try
+        {
+            UnityEngine.Object[] panels = Resources.FindObjectsOfTypeAll(panelType);
+            object? panel = panels
+                .OfType<Component>()
+                .FirstOrDefault(component => component.gameObject.scene.IsValid() && component.gameObject.activeInHierarchy)
+                ?? panels.FirstOrDefault();
+            object? toggle = panel == null ? null : toggleField.GetValue(panel);
+            MethodInfo? setValue = toggle?.GetType().GetMethod(
+                "SetValue",
+                BindingFlags.Public | BindingFlags.Instance,
+                null,
+                new[] { typeof(bool) },
+                null);
+            PropertyInfo? value = toggle?.GetType().GetProperty(
+                "Value",
+                BindingFlags.Public | BindingFlags.Instance);
+            if (toggle == null || setValue == null || value == null)
+            {
+                message = "正在等待普通模式教程开关初始化。";
+                return false;
+            }
+
+            setValue.Invoke(toggle, new object[] { false });
+            if (value.GetValue(toggle, null) is not bool enabled || enabled)
+            {
+                message = "无法验证普通模式教程开关已关闭。";
+                return false;
+            }
+
+            message = "已关闭普通模式教程开关。";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            message = "无法关闭普通模式教程开关：" + Unwrap(exception).Message;
+            return false;
+        }
+    }
+
+    public bool TryGetGameMode(out string mode, out string message)
+    {
+        mode = string.Empty;
+        Type? managerType = FindType("GameProgressManager");
+        PropertyInfo? instanceProperty = managerType?.GetProperty(
+            "Instance",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+        PropertyInfo? modeProperty = managerType?.GetProperty(
+            "Mode",
+            BindingFlags.Public | BindingFlags.Instance);
+        if (instanceProperty == null || modeProperty == null)
+        {
+            message = "游戏模式验证契约不可用。";
+            return false;
+        }
+
+        try
+        {
+            object? instance = instanceProperty.GetValue(null, null);
+            object? value = instance == null ? null : modeProperty.GetValue(instance, null);
+            if (value == null)
+            {
+                message = "正在等待游戏模式初始化。";
+                return false;
+            }
+
+            mode = value.ToString() ?? string.Empty;
+            message = "当前游戏模式为 " + mode + "。";
+            return !string.IsNullOrEmpty(mode);
+        }
+        catch (Exception exception)
+        {
+            message = "无法验证当前游戏模式：" + Unwrap(exception).Message;
+            return false;
+        }
+    }
+
     private static Type? FindType(string fullName)
     {
         foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -174,6 +266,11 @@ internal sealed class RuntimeBridge
 
         return null;
     }
+
+    private static Exception Unwrap(Exception exception) =>
+        exception is TargetInvocationException target && target.InnerException != null
+            ? target.InnerException
+            : exception;
 
     private static JObject Error(string message) => JObject.FromObject(new
     {

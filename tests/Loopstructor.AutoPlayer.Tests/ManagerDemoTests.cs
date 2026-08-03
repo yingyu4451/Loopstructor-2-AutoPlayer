@@ -57,6 +57,36 @@ public sealed class ManagerDemoTests
     }
 
     [Fact]
+    public void Parse_DemoCheatWindow_EnablesIsolatedCheatDemo()
+    {
+        ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[]
+        {
+            "--demo-cheat-window",
+            "--demo-cheat-tab",
+            "3"
+        });
+
+        Assert.True(options.DemoMode);
+        Assert.True(options.DemoCheatWindow);
+        Assert.False(options.DemoRestartRequired);
+        Assert.Equal(3, options.DemoCheatTab);
+    }
+
+    [Fact]
+    public void CheatDemo_ExposesAuthorizedEnabledSession()
+    {
+        BridgeHello hello = DemoData.CheatHello();
+        AutoPlayerStatus status = DemoData.CheatStatus();
+
+        Assert.True(hello.CheatSessionAuthorized);
+        Assert.True(hello.CheatAvailable);
+        Assert.Equal(CheatCommands.All.Count, hello.CheatCapabilities.Count);
+        Assert.True(status.CheatModeEnabled);
+        Assert.Equal("cheat-session", status.RunIntegrity);
+        Assert.Contains(Path.DirectorySeparatorChar + "cheat" + Path.DirectorySeparatorChar, status.IsolatedSaveRoot);
+    }
+
+    [Fact]
     public void DemoStatus_RestartVariant_ExposesRestartGateFromCompletedState()
     {
         AutoPlayerStatus status = DemoData.Status(needsProcessRestart: true);
@@ -117,6 +147,31 @@ public sealed class ManagerDemoTests
     }
 
     [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void RunControls_CheatSessionOrPriorCheatUse_DisablesNormalStart(
+        bool enabled,
+        bool used,
+        bool authorized)
+    {
+        AutoPlayerStatus status = new()
+        {
+            RunState = AutoPlayerRunState.Standby,
+            CheatModeEnabled = enabled,
+            CheatUsed = used,
+            CheatSessionAuthorized = authorized
+        };
+
+        RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
+
+        Assert.False(availability.CanStart);
+        Assert.False(availability.CanPause);
+        Assert.False(availability.CanResume);
+        Assert.False(availability.CanStop);
+    }
+
+    [Theory]
     [InlineData("INFO", "信息")]
     [InlineData("WARN", "警告")]
     [InlineData("ERROR", "错误")]
@@ -124,6 +179,7 @@ public sealed class ManagerDemoTests
     [InlineData("ACT", "操作")]
     [InlineData("STATE", "状态")]
     [InlineData("GAME", "游戏")]
+    [InlineData("CHEAT", "作弊")]
     public void LogCategoryName_MapsConsoleCategoriesToChinese(string category, string expected)
     {
         Assert.Equal(expected, MainForm.LogCategoryName(category));

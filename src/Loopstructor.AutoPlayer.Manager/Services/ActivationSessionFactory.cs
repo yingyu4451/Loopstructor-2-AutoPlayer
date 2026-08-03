@@ -14,7 +14,10 @@ public sealed class ActivationSessionFactory
         Formatting = Formatting.Indented
     };
 
-    public ActivationSession Create(GameInstallValidation game, string profileName)
+    public ActivationSession Create(
+        GameInstallValidation game,
+        string profileName,
+        bool cheatModeAllowed = false)
     {
         ArgumentNullException.ThrowIfNull(game);
         if (!game.IsValid || game.AssemblySha256.Length != 64)
@@ -25,8 +28,13 @@ public sealed class ActivationSessionFactory
         string gameId = Protocol.HashGameRoot(game.GameRoot)[..16];
         string safeProfile = SanitizeSegment(profileName, "qa-default");
         string sessionId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + RandomHex(4);
-        string profileRoot = Path.Combine(Protocol.DataRoot, "profiles", gameId, safeProfile);
         string artifactRoot = Path.Combine(Protocol.DataRoot, "artifacts", gameId, sessionId);
+        string profileRoot = BuildProfileRoot(
+            Protocol.DataRoot,
+            gameId,
+            safeProfile,
+            sessionId,
+            cheatModeAllowed);
         Directory.CreateDirectory(profileRoot);
         Directory.CreateDirectory(artifactRoot);
 
@@ -39,7 +47,8 @@ public sealed class ActivationSessionFactory
             Token = RandomHex(32),
             ProfileRoot = profileRoot,
             ArtifactRoot = artifactRoot,
-            ExpectedAssemblySha256 = game.AssemblySha256.ToLowerInvariant()
+            ExpectedAssemblySha256 = game.AssemblySha256.ToLowerInvariant(),
+            CheatModeAllowed = cheatModeAllowed
         };
 
         string ticketPath = Protocol.GetTicketPath(game.GameRoot);
@@ -51,7 +60,8 @@ public sealed class ActivationSessionFactory
             [Protocol.TokenEnvironmentVariable] = ticket.Token,
             [Protocol.ProfileEnvironmentVariable] = ticket.ProfileRoot,
             [Protocol.ArtifactEnvironmentVariable] = ticket.ArtifactRoot,
-            [Protocol.ExpectedAssemblySha256EnvironmentVariable] = ticket.ExpectedAssemblySha256
+            [Protocol.ExpectedAssemblySha256EnvironmentVariable] = ticket.ExpectedAssemblySha256,
+            [Protocol.CheatModeAllowedEnvironmentVariable] = cheatModeAllowed ? "1" : "0"
         };
 
         return new ActivationSession
@@ -65,6 +75,16 @@ public sealed class ActivationSessionFactory
 
     private static string RandomHex(int byteCount) =>
         Convert.ToHexString(RandomNumberGenerator.GetBytes(byteCount)).ToLowerInvariant();
+
+    internal static string BuildProfileRoot(
+        string dataRoot,
+        string gameId,
+        string safeProfile,
+        string sessionId,
+        bool cheatModeAllowed) =>
+        cheatModeAllowed
+            ? Path.Combine(dataRoot, "profiles", gameId, "cheat", sessionId)
+            : Path.Combine(dataRoot, "profiles", gameId, safeProfile);
 
     private static string SanitizeSegment(string? value, string fallback)
     {

@@ -14,6 +14,8 @@ flowchart LR
     P --> C["Core 决策引擎"]
     P -->|"反射调用 JSON 契约"| R["GuiGameAutomation.Runtime"]
     R --> S["Loopstructor 2 游戏状态与正常流程"]
+    P -->|"显式作弊授权 + Unity 主线程队列"| H["CheatController / CheatRuntimeBridge"]
+    H --> S
     P --> Q["隔离 QA Profile / Artifacts"]
     U["Updater"] -->|"校验 Release 清单与 SHA-256"| M
 ```
@@ -22,19 +24,19 @@ flowchart LR
 
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
-| `Loopstructor.AutoPlayer.Launcher` | .NET 8 Windows 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
+| `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
 | `Loopstructor.AutoPlayer.Manager` | .NET 8 Windows 自包含，共享运行时 | 选择游戏、安装载荷、创建 QA profile、生成会话凭据、启动游戏、显示状态和发起更新；`manager\` 同时携带 Manager 与 Updater 共用的运行时 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows，共享 Manager 运行时 | 在管理器退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
-| `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、证据采集 |
+| `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
 ## 启动与激活
 
 1. 管理器定位游戏 EXE，并读取 `<Game>_Data\Managed\Assembly-CSharp.dll` 的 SHA-256。
-2. 管理器在 `%LOCALAPPDATA%\LoopstructorAutoPlayer` 下创建本次 QA profile 与 artifact 目录。
+2. 管理器在 `%LOCALAPPDATA%\LoopstructorAutoPlayer` 下创建本次 QA profile 与 artifact 目录。普通会话使用 QA profile；启动前勾选作弊调试会话时改为创建 `profiles\<game-id>\cheat\<session-id>` 一次性隔离档。
 3. 每次启动生成唯一 pipe 名称和新的高熵 token。token 长度必须在 32 到 256 字符之间。
-4. 管理器通过子进程环境变量传递激活参数；无法可靠传递环境时，可写入绑定游戏根目录的单次启动票据。Manager 同时仅为这个子进程设置 Steam AppID `3841840`，避免 Steam `RestartAppIfNecessary` 改为启动库中另一份安装。
+4. 管理器通过子进程环境变量传递激活参数；无法可靠传递环境时，可写入绑定游戏根目录的单次启动票据。作弊授权也同时绑定到该次启动，不能在游戏启动后补授予。Manager 同时仅为这个子进程设置 Steam AppID `3841840`，避免 Steam `RestartAppIfNecessary` 改为启动库中另一份安装。
 5. BepInEx 加载插件后，`ActivationContext` 验证协议、有效期、游戏根目录、pipe、token、允许的数据根目录和预期程序集哈希。验证失败或不存在激活上下文时立即返回，不保护共享 Manager GameObject，也不安装自动化补丁或开放 IPC。
 6. 票据无论成功与否都在读取后删除；票据不得过期，也不得拥有超过 10 分钟的剩余有效期。
 7. 只有激活验证成功后，插件才对 BepInEx Manager GameObject 调用 `DontDestroyOnLoad` 并设置 `HideAndDontSave`，让本次激活适配器隐藏且跨场景存活；该状态只属于当前 QA 进程。
@@ -53,6 +55,7 @@ LOOPSTRUCTOR_AUTOPLAYER_TOKEN=<per-launch-secret>
 LOOPSTRUCTOR_AUTOPLAYER_PROFILE_ROOT=<absolute-qa-profile-path>
 LOOPSTRUCTOR_AUTOPLAYER_ARTIFACT_ROOT=<absolute-artifact-path>
 LOOPSTRUCTOR_AUTOPLAYER_ASSEMBLY_SHA256=<64-lowercase-hex>
+LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED=1  # 仅勾选作弊调试会话时
 ```
 
 这些变量是管理器与子进程之间的实现协议，不是建议用户手工配置的永久设置。profile 必须位于 `DataRoot\profiles` 的子目录，artifact 必须位于 `DataRoot\artifacts` 的子目录。
@@ -80,6 +83,27 @@ IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象。pipe 名称和 to
 
 控制请求由 pipe 后台线程读取，改变 Unity 状态的命令排队到游戏主线程执行。请求在主线程未及时处理时返回超时，不能从 pipe 线程直接操作 Unity 对象。
 
+作弊协议在基础命令之外使用独立版本号和固定命令集：
+
+| 命令 | 行为 |
+|---|---|
+| `cheat.setEnabled` | 在已授权会话中手动开启或关闭作弊模式 |
+| `cheat.queryCatalog` / `cheat.queryState` | 查询可用战车、消耗品、遗物、普通敌人以及作弊状态 |
+| `cheat.grantVehicle` | 获取战车，可选附魔与附魔等级 |
+| `cheat.grantDisposable` | 获取指定消耗品 |
+| `cheat.setBaseGodMode` | 开启或关闭基地无敌 |
+| `cheat.endWave` | 结束当前允许结束的普通波次 |
+| `cheat.clearEnemies` | 清除当前已生成的敌人，不清空后续生成计划 |
+| `cheat.queryVehicles` / `cheat.modifyVehicle` | 查询运行时车辆 ID 并修改指定车辆属性 |
+| `cheat.queryEnemies` / `cheat.modifyEnemy` | 查询运行时敌人 ID 并修改指定敌人属性 |
+| `cheat.setEnemyIdOverlay` | 在游戏画面中显示或隐藏敌人 ID |
+| `cheat.grantRelic` | 获得指定遗物 |
+| `cheat.spawnEnemy` | 在指定坐标生成允许列表中的普通敌人 |
+
+作弊授权会话不能执行 `start`，因此自动游玩与作弊调试不会共享同一游戏进程。在已启用的作弊模式中，第一次会改变游戏状态的操作尝试就设置 `CheatUsed`、把运行完整性标记为不可信并要求彻底重启；即使动作失败、超时或响应丢失，也不能据此恢复“干净”状态。请求 ID 用于同一写请求的幂等重取：重复 ID 但参数不同会被拒绝，已在主线程开始的请求会返回其实际完成结果。
+
+Manager 持续向插件提供控制租约。场景切换会重置基地无敌和敌人 ID 覆盖层；Manager 断连或心跳超时会进一步关闭作弊模式和全部瞬态功能。结束波次只允许用于活动的非 Boss 普通波次，并在执行前验证模板锁、波次对象及所需运行时方法；刷怪目录只包含当前游戏配置中具有有效预制体的非 Boss 普通敌人，Boss 与特殊波单位拒绝生成。
+
 ## 游戏运行时契约
 
 `RuntimeBridge` 不引用 `Assembly-CSharp.dll`，而是在已加载程序集里按完整类型名查找 `public static` 方法。当前契约覆盖：
@@ -89,6 +113,8 @@ IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象。pipe 名称和 to
 - 默认防御、车辆、地图、子关卡、时间倍率和开波。
 
 所有方法使用 JSON 字符串作为输入和结构化 JSON 作为输出。任何必需类型或方法缺失都会记录在握手状态中，整套自动化视为不兼容；不能只运行“碰巧还能找到”的部分命令。自动玩家不移动系统鼠标，也不发送系统键盘事件，因而不会抢占人工操作所依赖的全局输入；真实输入链路需要由独立黑盒测试覆盖。
+
+`CheatRuntimeBridge` 同样不静态引用游戏程序集，而是按当前受支持构建的实际类型与方法签名反射调用车辆、物品、波次、敌人和属性系统。目录查询保持只读；写命令先验证授权、隔离门禁、作弊开关、对象运行时 ID 和参数范围，再进入 Unity 主线程。运行时类型、方法、配置预制体或对象身份不符合预期时拒绝动作，不尝试猜测新版 API。
 
 ## 决策循环
 
@@ -116,6 +142,7 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 ```text
 %LOCALAPPDATA%\LoopstructorAutoPlayer\
   profiles\<qa-profile-id>\       独立测试存档
+  profiles\<game-id>\cheat\<session-id>\  一次性作弊调试存档
   artifacts\<run-id>\             状态、时间线、日志、失败截图
   tickets\launch-<root-id>.json    单次启动票据，消费后删除
 ```
@@ -142,7 +169,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.1.9-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.2.0-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
