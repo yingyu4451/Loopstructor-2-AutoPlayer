@@ -26,7 +26,7 @@ internal static class DemoData
     {
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
-        PluginVersion = "0.3.0",
+        PluginVersion = "0.2.0",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -53,7 +53,7 @@ internal static class DemoData
         hello.CheatModeEnabled = true;
         hello.CheatAvailabilityReason = string.Empty;
         hello.CheatCapabilities = CheatCommands.All;
-        hello.ProfileRoot = @"%LOCALAPPDATA%\LoopstructorAutoPlayer\profiles\b13f9f3421ae61aa\qa-default";
+        hello.ProfileRoot = @"%LOCALAPPDATA%\LoopstructorAutoPlayer\profiles\b13f9f3421ae61aa\cheat\20260729-142810-8fc17a2d";
         return hello;
     }
 
@@ -115,12 +115,12 @@ internal static class DemoData
         BridgeHello hello = CheatHello();
         status.RunState = AutoPlayerRunState.Standby;
         status.Stage = AutomationStage.FrontEnd;
-        status.StageDetail = "作弊工具已开启，等待手动操作";
+        status.StageDetail = "作弊调试会话已授权，等待手动操作";
         status.IsolatedSaveRoot = hello.ProfileRoot;
         status.CheatSessionAuthorized = true;
         status.CheatAvailable = true;
         status.CheatModeEnabled = true;
-        status.RunIntegrity = "clean";
+        status.RunIntegrity = "cheat-session";
         status.LastCommand = CheatCommands.QueryCatalog;
         status.LastMessage = "作弊资源目录已就绪";
         return status;

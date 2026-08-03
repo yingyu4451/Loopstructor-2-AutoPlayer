@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Newtonsoft.Json.Linq;
@@ -16,9 +15,6 @@ internal sealed class CheatForm : Form
     private readonly List<Control> _catalogQueryControls = new();
     private readonly List<Control> _entityQueryControls = new();
     private readonly ToolTip _toolTip = new();
-    private readonly Dictionary<string, Image> _iconCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _activeCatalogIconKeys = new(StringComparer.OrdinalIgnoreCase);
-    private readonly System.Windows.Forms.Timer _capturePollTimer = new() { Interval = 400 };
 
     private bool _trusted;
     private bool _busy;
@@ -30,10 +26,6 @@ internal sealed class CheatForm : Form
     private string _sessionKey = string.Empty;
     private string _lastMessage = string.Empty;
     private bool _lastMessageIsError;
-    private bool _capturePollInProgress;
-    private long _captureEpoch;
-    private string _spawnCaptureState = "idle";
-    private int _maxEnchantmentsPerVehicle = 5;
 
     private CheckBox _enableCheck = null!;
     private Label _versionLabel = null!;
@@ -44,24 +36,17 @@ internal sealed class CheatForm : Form
 
     private Button _catalogRefreshButton = null!;
     private Label _catalogSummary = null!;
-    private CatalogPickerControl _vehicleCatalog = null!;
+    private ComboBox _vehicleCatalog = null!;
     private NumericUpDown _vehicleCount = null!;
-    private CatalogPickerControl _enchantmentCatalog = null!;
+    private CheckBox _enchantedCheck = null!;
+    private ComboBox _enchantmentCatalog = null!;
     private NumericUpDown _enchantmentLevel = null!;
-    private Button _addEnchantmentButton = null!;
-    private Button _removeEnchantmentButton = null!;
-    private Button _clearEnchantmentsButton = null!;
-    private DataGridView _enchantmentGrid = null!;
-    private Label _enchantmentSummary = null!;
     private Button _grantVehicleButton = null!;
-    private CatalogPickerControl _disposableCatalog = null!;
+    private ComboBox _disposableCatalog = null!;
     private NumericUpDown _disposableCount = null!;
     private Button _grantDisposableButton = null!;
-    private CatalogPickerControl _relicCatalog = null!;
+    private ComboBox _relicCatalog = null!;
     private Button _grantRelicButton = null!;
-    private CatalogPickerControl _catapultCatalog = null!;
-    private NumericUpDown _catapultCount = null!;
-    private Button _grantCatapultButton = null!;
 
     private CheckBox _baseGodModeCheck = null!;
     private CheckBox _enemyIdOverlayCheck = null!;
@@ -83,22 +68,17 @@ internal sealed class CheatForm : Form
     private Button _modifyVehicleButton = null!;
     private Button _modifyEnemyButton = null!;
 
-    private CatalogPickerControl _enemyCatalog = null!;
+    private ComboBox _enemyCatalog = null!;
     private NumericUpDown _enemyLevel = null!;
     private NumericUpDown _enemyCount = null!;
     private NumericUpDown _spawnX = null!;
     private NumericUpDown _spawnY = null!;
     private NumericUpDown _spawnZ = null!;
-    private Button _capturePointButton = null!;
-    private Button _cancelCaptureButton = null!;
-    private Label _captureStatusLabel = null!;
-    private Label _spawnStatusLabel = null!;
     private Button _spawnEnemyButton = null!;
 
     public CheatForm(Func<string, JObject?, Task<ControlResponse?>> sendCommand)
     {
         _sendCommand = sendCommand ?? throw new ArgumentNullException(nameof(sendCommand));
-        _capturePollTimer.Tick += CapturePollTimerTick;
 
         InitializeWindow();
         BuildInterface();
@@ -139,49 +119,14 @@ internal sealed class CheatForm : Form
             _synchronizing = false;
         }
 
-        bool cheatModeEnabled = status?.CheatModeEnabled ?? hello?.CheatModeEnabled ?? false;
-        if ((!trusted || status?.CheatAvailable != true || !cheatModeEnabled)
-            && string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase))
-        {
-            ResetSpawnPointCapture("选点状态：作弊模式未启用");
-        }
-
         string pluginVersion = status?.PluginVersion ?? hello?.PluginVersion ?? string.Empty;
         _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v{Display(pluginVersion)}   /   作弊协议 v{hello?.CheatProtocolVersion ?? Protocol.CheatCurrentVersion}";
         ApplyAvailability();
     }
 
-    protected override void OnFormClosing(FormClosingEventArgs e)
-    {
-        if (string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(_spawnCaptureState, "arming", StringComparison.OrdinalIgnoreCase))
-        {
-            _captureEpoch++;
-            _capturePollTimer.Stop();
-            _spawnCaptureState = "idle";
-            _ = CancelSpawnPointCaptureOnCloseAsync();
-        }
-
-        base.OnFormClosing(e);
-    }
-
     internal void SelectDemoTab(int index)
     {
         if (index >= 0 && index < _tabs.TabPages.Count) _tabs.SelectedIndex = index;
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _capturePollTimer.Stop();
-            _capturePollTimer.Tick -= CapturePollTimerTick;
-            _capturePollTimer.Dispose();
-            _toolTip.Dispose();
-            DisposeCatalogIcons();
-        }
-
-        base.Dispose(disposing);
     }
 
     private void InitializeWindow()
@@ -262,7 +207,7 @@ internal sealed class CheatForm : Form
 
         _enableCheck = new CheckBox
         {
-            Text = "开启作弊模式",
+            Text = "启用本次作弊会话",
             AutoSize = true,
             Anchor = AnchorStyles.None,
             CheckAlign = ContentAlignment.MiddleLeft,
@@ -352,21 +297,11 @@ internal sealed class CheatForm : Form
     private TabPage BuildResourcesPage()
     {
         TabPage page = CreateTabPage("资源");
-        Panel viewport = new()
-        {
-            Dock = DockStyle.Fill,
-            AutoScroll = true,
-            BackColor = Theme.Surface,
-            Margin = Padding.Empty
-        };
         TableLayoutPanel layout = PageLayout(4);
-        layout.Dock = DockStyle.Top;
-        layout.Height = 540;
-        layout.MinimumSize = new Size(880, 540);
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 278));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 215));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 29));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 29));
 
         FlowLayoutPanel toolbar = HorizontalFlow();
         _catalogRefreshButton = QuietButton("刷新资源目录", 120);
@@ -376,85 +311,28 @@ internal sealed class CheatForm : Form
         toolbar.Controls.Add(_catalogSummary);
         layout.Controls.Add(toolbar, 0, 0);
 
-        _vehicleCatalog = CatalogPicker(270);
-        _vehicleCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
+        _vehicleCatalog = CatalogCombo(250);
         _vehicleCount = IntegerInput(1, 20, 1, 82);
+        _enchantedCheck = Toggle("附魔", 72);
+        _enchantmentCatalog = CatalogCombo(210);
+        _enchantmentLevel = IntegerInput(1, 7, 1, 82);
         _grantVehicleButton = Theme.CommandButton("获取战车", Theme.Teal, 108);
         _grantVehicleButton.Margin = new Padding(0, 23, 8, 0);
+        _enchantedCheck.CheckedChanged += (_, _) => ApplyAvailability();
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
-
-        TableLayoutPanel vehicleGrant = PageLayout(3);
-        vehicleGrant.Padding = new Padding(0, 4, 18, 0);
-        vehicleGrant.RowStyles.Add(new RowStyle(SizeType.Absolute, 75));
-        vehicleGrant.RowStyles.Add(new RowStyle(SizeType.Absolute, 67));
-        vehicleGrant.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        vehicleGrant.Controls.Add(CatalogField("战车（中文名 / ID）", _vehicleCatalog, 280), 0, 0);
-        FlowLayoutPanel vehicleAction = HorizontalFlow(true);
-        vehicleAction.Controls.AddRange(new Control[]
+        FlowLayoutPanel vehicleControls = HorizontalFlow(true);
+        vehicleControls.Controls.AddRange(new Control[]
         {
+            Field("战车", _vehicleCatalog, 260),
             Field("数量", _vehicleCount, 92),
+            Field("选项", _enchantedCheck, 82),
+            Field("附魔", _enchantmentCatalog, 220),
+            Field("附魔等级", _enchantmentLevel, 96),
             _grantVehicleButton
         });
-        vehicleGrant.Controls.Add(vehicleAction, 0, 1);
-        Label vehicleHint = InlineStatus("附魔列表留空时获取普通战车；列表中的附魔会一起应用。", 320);
-        vehicleHint.Dock = DockStyle.Fill;
-        vehicleGrant.Controls.Add(vehicleHint, 0, 2);
+        layout.Controls.Add(FlatSection("获取指定战车", vehicleControls), 0, 1);
 
-        _enchantmentCatalog = CatalogPicker(270);
-        _enchantmentCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
-        _enchantmentLevel = IntegerInput(1, 7, 1, 82);
-        _addEnchantmentButton = Theme.CommandButton("添加 / 更新", Theme.Blue, 108);
-        _addEnchantmentButton.Margin = new Padding(0, 23, 8, 0);
-        _addEnchantmentButton.Click += (_, _) => AddOrUpdateEnchantment();
-        _removeEnchantmentButton = QuietButton("移除选中", 92);
-        _clearEnchantmentsButton = QuietButton("清空", 64);
-        _removeEnchantmentButton.Click += (_, _) => RemoveSelectedEnchantment();
-        _clearEnchantmentsButton.Click += (_, _) => ClearEnchantments();
-        _enchantmentGrid = CreateEnchantmentGrid();
-        _enchantmentGrid.SelectionChanged += (_, _) => ApplyAvailability();
-        _enchantmentSummary = InlineStatus("已选 0 / 5", 150);
-
-        TableLayoutPanel enchantmentEditor = PageLayout(3);
-        enchantmentEditor.Padding = new Padding(18, 4, 0, 0);
-        enchantmentEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 75));
-        enchantmentEditor.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        enchantmentEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        FlowLayoutPanel enchantmentInputs = HorizontalFlow(true);
-        enchantmentInputs.Controls.AddRange(new Control[]
-        {
-            CatalogField("附魔（可添加多个）", _enchantmentCatalog, 280),
-            Field("附魔等级", _enchantmentLevel, 96),
-            _addEnchantmentButton
-        });
-        enchantmentEditor.Controls.Add(enchantmentInputs, 0, 0);
-        enchantmentEditor.Controls.Add(_enchantmentGrid, 0, 1);
-        FlowLayoutPanel enchantmentActions = HorizontalFlow();
-        enchantmentActions.Padding = new Padding(0, 4, 0, 0);
-        enchantmentActions.Controls.AddRange(new Control[]
-        {
-            _removeEnchantmentButton,
-            _clearEnchantmentsButton,
-            _enchantmentSummary
-        });
-        enchantmentEditor.Controls.Add(enchantmentActions, 0, 2);
-
-        TableLayoutPanel vehicleBody = PageLayout(1);
-        vehicleBody.ColumnCount = 3;
-        vehicleBody.RowCount = 1;
-        vehicleBody.ColumnStyles.Clear();
-        vehicleBody.RowStyles.Clear();
-        vehicleBody.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-        vehicleBody.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 1));
-        vehicleBody.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
-        vehicleBody.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        vehicleBody.Controls.Add(vehicleGrant, 0, 0);
-        vehicleBody.Controls.Add(Divider(), 1, 0);
-        vehicleBody.Controls.Add(enchantmentEditor, 2, 0);
-        layout.Controls.Add(FlatSection("获取指定战车", vehicleBody, drawBottomLine: false), 0, 1);
-        layout.Controls.Add(Divider(), 0, 2);
-
-        _disposableCatalog = CatalogPicker(250);
-        _disposableCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
+        _disposableCatalog = CatalogCombo(280);
         _disposableCount = IntegerInput(1, 20, 1, 82);
         _grantDisposableButton = Theme.CommandButton("获取消耗品", Theme.Teal, 116);
         _grantDisposableButton.Margin = new Padding(0, 23, 8, 0);
@@ -462,68 +340,30 @@ internal sealed class CheatForm : Form
         FlowLayoutPanel disposableControls = HorizontalFlow(true);
         disposableControls.Controls.AddRange(new Control[]
         {
-            CatalogField("消耗品", _disposableCatalog, 260),
+            Field("消耗品", _disposableCatalog, 290),
             Field("数量", _disposableCount, 92),
             _grantDisposableButton
         });
+        layout.Controls.Add(FlatSection("获取指定消耗品", disposableControls), 0, 2);
 
-        _relicCatalog = CatalogPicker(250);
-        _relicCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
+        _relicCatalog = CatalogCombo(280);
         _grantRelicButton = Theme.CommandButton("获取遗物", Theme.Teal, 108);
         _grantRelicButton.Margin = new Padding(0, 23, 8, 0);
         _grantRelicButton.Click += async (_, _) => await GrantRelicAsync();
         FlowLayoutPanel relicControls = HorizontalFlow(true);
         relicControls.Controls.AddRange(new Control[]
         {
-            CatalogField("遗物", _relicCatalog, 260),
+            Field("遗物", _relicCatalog, 290),
             _grantRelicButton
         });
-
-        _catapultCatalog = CatalogPicker(250);
-        _catapultCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
-        _catapultCount = IntegerInput(1, 20, 1, 82);
-        _grantCatapultButton = Theme.CommandButton("获取弹射点", Theme.Amber, 116);
-        _grantCatapultButton.Margin = new Padding(0, 23, 8, 0);
-        _grantCatapultButton.Click += async (_, _) => await GrantCatapultPointAsync();
-        FlowLayoutPanel catapultControls = HorizontalFlow(true);
-        catapultControls.Controls.AddRange(new Control[]
-        {
-            CatalogField("弹射点", _catapultCatalog, 260),
-            Field("数量", _catapultCount, 92),
-            _grantCatapultButton
-        });
-
-        TableLayoutPanel resourceColumns = PageLayout(1);
-        resourceColumns.ColumnCount = 5;
-        resourceColumns.RowCount = 1;
-        resourceColumns.ColumnStyles.Clear();
-        resourceColumns.RowStyles.Clear();
-        resourceColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
-        resourceColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 1));
-        resourceColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
-        resourceColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 1));
-        resourceColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
-        resourceColumns.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        resourceColumns.Controls.Add(FlatSection("获取指定消耗品", disposableControls, drawBottomLine: false), 0, 0);
-        resourceColumns.Controls.Add(Divider(), 1, 0);
-        resourceColumns.Controls.Add(FlatSection("获取指定遗物", relicControls, drawBottomLine: false), 2, 0);
-        resourceColumns.Controls.Add(Divider(), 3, 0);
-        resourceColumns.Controls.Add(FlatSection("获取弹射点", catapultControls, drawBottomLine: false), 4, 0);
-        layout.Controls.Add(resourceColumns, 0, 3);
+        layout.Controls.Add(FlatSection("获取指定遗物", relicControls, drawBottomLine: false), 0, 3);
 
         AddMutationControls(
-            _vehicleCatalog, _vehicleCount, _enchantmentCatalog, _enchantmentLevel,
-            _addEnchantmentButton, _removeEnchantmentButton, _clearEnchantmentsButton,
+            _vehicleCatalog, _vehicleCount, _enchantedCheck, _enchantmentCatalog, _enchantmentLevel,
             _grantVehicleButton, _disposableCatalog, _disposableCount, _grantDisposableButton,
-            _relicCatalog, _grantRelicButton, _catapultCatalog, _catapultCount, _grantCatapultButton);
+            _relicCatalog, _grantRelicButton);
         _catalogQueryControls.Add(_catalogRefreshButton);
-        viewport.Controls.Add(layout);
-        viewport.ClientSizeChanged += (_, _) =>
-        {
-            int availableWidth = Math.Max(0, viewport.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
-            layout.Width = Math.Max(layout.MinimumSize.Width, availableWidth);
-        };
-        page.Controls.Add(viewport);
+        page.Controls.Add(layout);
         return page;
     }
 
@@ -690,69 +530,31 @@ internal sealed class CheatForm : Form
         toolbar.Controls.Add(hint);
         layout.Controls.Add(toolbar, 0, 0);
 
-        _enemyCatalog = CatalogPicker(340);
-        _enemyCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
+        _enemyCatalog = CatalogCombo(280);
         _enemyLevel = IntegerInput(1, 200, 1, 90);
         _enemyCount = IntegerInput(1, 10, 1, 82);
         _spawnX = CoordinateInput();
         _spawnY = CoordinateInput();
         _spawnZ = CoordinateInput();
-        _capturePointButton = Theme.CommandButton("从游戏选点", Theme.Blue, 118);
-        _cancelCaptureButton = QuietButton("取消选点", 88);
-        _capturePointButton.Margin = new Padding(0, 23, 8, 0);
-        _cancelCaptureButton.Margin = new Padding(0, 25, 8, 0);
-        _capturePointButton.Click += async (_, _) => await SetSpawnPointCaptureAsync(true);
-        _cancelCaptureButton.Click += async (_, _) => await SetSpawnPointCaptureAsync(false);
-        _toolTip.SetToolTip(_capturePointButton, "进入游戏后按住 Alt 并单击鼠标左键，选择怪物生成位置。");
-        _captureStatusLabel = InlineStatus("选点状态：未启动", 760);
-        _captureStatusLabel.Dock = DockStyle.Fill;
-        _spawnStatusLabel = InlineStatus("生成状态：尚未执行", 760);
-        _spawnStatusLabel.Dock = DockStyle.Fill;
         _spawnEnemyButton = Theme.CommandButton("生成怪物", Theme.Amber, 112);
-        _spawnEnemyButton.Margin = new Padding(0, 3, 8, 0);
+        _spawnEnemyButton.Margin = new Padding(0, 23, 8, 0);
         _spawnEnemyButton.Click += async (_, _) => await SpawnEnemyAsync();
-
-        TableLayoutPanel spawnEditor = PageLayout(5);
-        spawnEditor.Padding = new Padding(0, 8, 0, 0);
-        spawnEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
-        spawnEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
-        spawnEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        spawnEditor.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
-        spawnEditor.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        FlowLayoutPanel catalogControls = HorizontalFlow(true);
-        catalogControls.Controls.AddRange(new Control[]
+        FlowLayoutPanel controls = HorizontalFlow(true);
+        controls.Padding = new Padding(0, 12, 0, 0);
+        controls.Controls.AddRange(new Control[]
         {
-            CatalogField("怪物（中文名 / ID）", _enemyCatalog, 350),
+            Field("怪物", _enemyCatalog, 290),
             Field("等级", _enemyLevel, 100),
-            Field("数量", _enemyCount, 92)
-        });
-        spawnEditor.Controls.Add(catalogControls, 0, 0);
-
-        FlowLayoutPanel pointControls = HorizontalFlow(true);
-        pointControls.Controls.AddRange(new Control[]
-        {
+            Field("数量", _enemyCount, 92),
             Field("X", _spawnX, 130),
             Field("Y", _spawnY, 130),
             Field("Z", _spawnZ, 130),
-            _capturePointButton,
-            _cancelCaptureButton
+            _spawnEnemyButton
         });
-        spawnEditor.Controls.Add(pointControls, 0, 1);
-        spawnEditor.Controls.Add(_captureStatusLabel, 0, 2);
-        spawnEditor.Controls.Add(Divider(), 0, 3);
-
-        FlowLayoutPanel spawnAction = HorizontalFlow(true);
-        spawnAction.Padding = new Padding(0, 12, 0, 0);
-        spawnAction.Controls.Add(_spawnEnemyButton);
-        spawnAction.Controls.Add(_spawnStatusLabel);
-        spawnEditor.Controls.Add(spawnAction, 0, 4);
-        layout.Controls.Add(FlatSection("在指定世界坐标生成怪物", spawnEditor, drawBottomLine: false), 0, 1);
+        layout.Controls.Add(FlatSection("在指定世界坐标生成怪物", controls, drawBottomLine: false), 0, 1);
 
         _catalogQueryControls.Add(refresh);
-        AddMutationControls(
-            _enemyCatalog, _enemyLevel, _enemyCount, _spawnX, _spawnY, _spawnZ,
-            _capturePointButton, _cancelCaptureButton, _spawnEnemyButton);
+        AddMutationControls(_enemyCatalog, _enemyLevel, _enemyCount, _spawnX, _spawnY, _spawnZ, _spawnEnemyButton);
         page.Controls.Add(layout);
         return page;
     }
@@ -782,103 +584,39 @@ internal sealed class CheatForm : Form
         ControlResponse? response = await ExecuteCommandAsync(CheatCommands.QueryCatalog, null, announce);
         if (response?.Success != true || response.Data == null) return;
 
-        _activeCatalogIconKeys.Clear();
         PopulateCatalog(_vehicleCatalog, response.Data["vehicles"] as JArray);
         PopulateCatalog(_enchantmentCatalog, response.Data["enchantments"] as JArray);
         PopulateCatalog(_disposableCatalog, response.Data["disposables"] as JArray);
         PopulateCatalog(_relicCatalog, response.Data["relics"] as JArray);
         PopulateCatalog(_enemyCatalog, response.Data["enemies"] as JArray);
-        PopulateCatalog(_catapultCatalog, response.Data["catapultPoints"] as JArray);
-        DisposeUnusedCatalogIcons();
         ApplyCatalogLimits(response.Data["limits"] as JObject);
-        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentCatalog.ItemCount} / 消耗品 {_disposableCatalog.ItemCount} / 遗物 {_relicCatalog.ItemCount} / 弹射点 {_catapultCatalog.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
+        _catalogSummary.Text = $"战车 {_vehicleCatalog.Items.Count} / 附魔 {_enchantmentCatalog.Items.Count} / 消耗品 {_disposableCatalog.Items.Count} / 遗物 {_relicCatalog.Items.Count} / 怪物 {_enemyCatalog.Items.Count}";
     }
 
     private async Task GrantVehicleAsync()
     {
-        if (!TryCatalogSelection(_vehicleCatalog, "请选择战车。", out CatalogPickerItem? vehicle)) return;
-        JArray enchantments = new();
-        foreach (DataGridViewRow row in _enchantmentGrid.Rows)
+        if (!TryCatalogSelection(_vehicleCatalog, "请选择战车。", out CatalogItem? vehicle)) return;
+        CatalogItem? enchantment = _enchantmentCatalog.SelectedItem as CatalogItem;
+        if (_enchantedCheck.Checked && enchantment == null)
         {
-            if (row.Tag is not EnchantmentSelection selection) continue;
-            enchantments.Add(new JObject
-            {
-                ["enchantmentId"] = selection.Item.Id,
-                ["level"] = selection.Level
-            });
+            ShowLocalError("已选择附魔，请指定附魔类型。");
+            return;
         }
 
         JObject arguments = new()
         {
             ["vehicleId"] = vehicle!.Id,
             ["count"] = Decimal.ToInt32(_vehicleCount.Value),
-            ["enchantments"] = enchantments
+            ["enchanted"] = _enchantedCheck.Checked,
+            ["enchantmentId"] = enchantment?.Id ?? string.Empty,
+            ["enchantmentLevel"] = Decimal.ToInt32(_enchantmentLevel.Value)
         };
         await ExecuteCommandAsync(CheatCommands.GrantVehicle, arguments);
     }
 
-    private void AddOrUpdateEnchantment()
-    {
-        if (!TryCatalogSelection(_enchantmentCatalog, "请选择要添加的附魔。", out CatalogPickerItem? item)) return;
-        int level = Decimal.ToInt32(_enchantmentLevel.Value);
-        DataGridViewRow? existing = _enchantmentGrid.Rows
-            .Cast<DataGridViewRow>()
-            .FirstOrDefault(row => row.Tag is EnchantmentSelection selection
-                                   && string.Equals(selection.Item.Id, item!.Id, StringComparison.Ordinal));
-        EnchantmentSelection next = new(item!, level);
-        if (existing != null)
-        {
-            existing.Tag = next;
-            existing.Cells["icon"].Value = item!.Icon;
-            existing.Cells["name"].Value = item.DisplayName;
-            existing.Cells["id"].Value = item.Id;
-            existing.Cells["level"].Value = level;
-            existing.Selected = true;
-            _enchantmentGrid.CurrentCell = existing.Cells["name"];
-            UpdateEnchantmentSummary("已更新附魔等级");
-            return;
-        }
-
-        if (_enchantmentGrid.Rows.Count >= _maxEnchantmentsPerVehicle)
-        {
-            ShowLocalError($"一辆战车最多添加 {_maxEnchantmentsPerVehicle} 个附魔。");
-            return;
-        }
-
-        int rowIndex = _enchantmentGrid.Rows.Add(item!.Icon, item.DisplayName, item.Id, level);
-        DataGridViewRow row = _enchantmentGrid.Rows[rowIndex];
-        row.Tag = next;
-        row.Selected = true;
-        _enchantmentGrid.CurrentCell = row.Cells["name"];
-        UpdateEnchantmentSummary("已添加附魔");
-    }
-
-    private void RemoveSelectedEnchantment()
-    {
-        if (_enchantmentGrid.SelectedRows.Count == 0) return;
-        _enchantmentGrid.Rows.Remove(_enchantmentGrid.SelectedRows[0]);
-        SelectFirstRowWhenNeeded(_enchantmentGrid);
-        UpdateEnchantmentSummary();
-    }
-
-    private void ClearEnchantments()
-    {
-        _enchantmentGrid.Rows.Clear();
-        UpdateEnchantmentSummary();
-    }
-
-    private void UpdateEnchantmentSummary(string? action = null)
-    {
-        _enchantmentSummary.Text = string.IsNullOrWhiteSpace(action)
-            ? $"已选 {_enchantmentGrid.Rows.Count} / {_maxEnchantmentsPerVehicle}"
-            : $"{action} · {_enchantmentGrid.Rows.Count} / {_maxEnchantmentsPerVehicle}";
-        _enchantmentSummary.ForeColor = Theme.Muted;
-        ApplyAvailability();
-    }
-
     private async Task GrantDisposableAsync()
     {
-        if (!TryCatalogSelection(_disposableCatalog, "请选择消耗品。", out CatalogPickerItem? item)) return;
+        if (!TryCatalogSelection(_disposableCatalog, "请选择消耗品。", out CatalogItem? item)) return;
         await ExecuteCommandAsync(
             CheatCommands.GrantDisposable,
             new JObject
@@ -890,22 +628,10 @@ internal sealed class CheatForm : Form
 
     private async Task GrantRelicAsync()
     {
-        if (!TryCatalogSelection(_relicCatalog, "请选择遗物。", out CatalogPickerItem? item)) return;
+        if (!TryCatalogSelection(_relicCatalog, "请选择遗物。", out CatalogItem? item)) return;
         await ExecuteCommandAsync(
             CheatCommands.GrantRelic,
             new JObject { ["relicId"] = item!.Id });
-    }
-
-    private async Task GrantCatapultPointAsync()
-    {
-        if (!TryCatalogSelection(_catapultCatalog, "请选择弹射点。", out CatalogPickerItem? item)) return;
-        await ExecuteCommandAsync(
-            CheatCommands.GrantCatapultPoint,
-            new JObject
-            {
-                ["disposableId"] = item!.Id,
-                ["count"] = Decimal.ToInt32(_catapultCount.Value)
-            });
     }
 
     private async Task BaseGodModeChangedAsync()
@@ -1026,211 +752,18 @@ internal sealed class CheatForm : Form
 
     private async Task SpawnEnemyAsync()
     {
-        if (!TryCatalogSelection(_enemyCatalog, "请选择要生成的怪物。", out CatalogPickerItem? enemy)) return;
-        int requested = Decimal.ToInt32(_enemyCount.Value);
-        _spawnStatusLabel.Text = $"生成状态：正在请求生成 {requested} 个怪物...";
-        _spawnStatusLabel.ForeColor = Theme.Blue;
-        ControlResponse? response = await ExecuteCommandAsync(
+        if (!TryCatalogSelection(_enemyCatalog, "请选择要生成的怪物。", out CatalogItem? enemy)) return;
+        await ExecuteCommandAsync(
             CheatCommands.SpawnEnemy,
             new JObject
             {
                 ["enemyId"] = enemy!.Id,
                 ["level"] = Decimal.ToInt32(_enemyLevel.Value),
-                ["count"] = requested,
+                ["count"] = Decimal.ToInt32(_enemyCount.Value),
                 ["x"] = Decimal.ToDouble(_spawnX.Value),
                 ["y"] = Decimal.ToDouble(_spawnY.Value),
                 ["z"] = Decimal.ToDouble(_spawnZ.Value)
             });
-        if (IsDisposed) return;
-        int accepted = response?.Data?.Value<int?>("requested") ?? requested;
-        int spawned = response?.Data?.Value<int?>("spawned") ?? (response?.Success == true ? accepted : 0);
-        if (response?.Success == true && spawned >= accepted)
-        {
-            _spawnStatusLabel.Text = $"生成状态：已生成 {spawned} / {accepted}";
-            _spawnStatusLabel.ForeColor = Theme.Teal;
-        }
-        else if (spawned > 0)
-        {
-            _spawnStatusLabel.Text = $"生成状态：部分成功，已生成 {spawned} / {accepted}";
-            _spawnStatusLabel.ForeColor = Theme.Amber;
-        }
-        else
-        {
-            _spawnStatusLabel.Text = "生成状态：失败，未生成怪物";
-            _spawnStatusLabel.ForeColor = Theme.Red;
-        }
-    }
-
-    private async Task SetSpawnPointCaptureAsync(bool enabled)
-    {
-        long operationEpoch = ++_captureEpoch;
-        _spawnCaptureState = enabled ? "arming" : "cancelling";
-        _captureStatusLabel.Text = enabled ? "选点状态：正在启动..." : "选点状态：正在取消...";
-        _captureStatusLabel.ForeColor = Theme.Blue;
-        ControlResponse? response = await ExecuteCommandAsync(
-            CheatCommands.SetSpawnPointCapture,
-            new JObject { ["enabled"] = enabled });
-        if (IsDisposed || operationEpoch != _captureEpoch) return;
-        if (response?.Success != true)
-        {
-            _capturePollTimer.Stop();
-            _spawnCaptureState = "failed";
-            _captureStatusLabel.Text = enabled ? "选点状态：启动失败" : "选点状态：取消失败";
-            _captureStatusLabel.ForeColor = Theme.Red;
-            ApplyAvailability();
-            return;
-        }
-
-        JObject? capture = ExtractSpawnPointCapture(response.Data);
-        if (capture != null)
-        {
-            ApplySpawnPointCapture(capture);
-        }
-        else
-        {
-            ApplySpawnPointCapture(new JObject
-            {
-                ["state"] = enabled ? "armed" : "cancelled",
-                ["message"] = enabled ? "等待游戏内选点" : "已取消选点"
-            });
-        }
-    }
-
-    private async Task CancelSpawnPointCaptureOnCloseAsync()
-    {
-        try
-        {
-            await _sendCommand(
-                CheatCommands.SetSpawnPointCapture,
-                new JObject { ["enabled"] = false });
-        }
-        catch
-        {
-            // The plugin also expires an abandoned capture request. Closing the
-            // window must never be delayed by a best-effort cleanup failure.
-        }
-    }
-
-    private async void CapturePollTimerTick(object? sender, EventArgs eventArgs)
-    {
-        if (_capturePollInProgress || _busy || !string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase)) return;
-        string pollSessionKey = _sessionKey;
-        long pollEpoch = _captureEpoch;
-        _capturePollInProgress = true;
-        try
-        {
-            ControlResponse? response = await _sendCommand(CheatCommands.QueryState, null);
-            if (IsDisposed
-                || pollEpoch != _captureEpoch
-                || !string.Equals(_sessionKey, pollSessionKey, StringComparison.Ordinal)) return;
-            if (response == null)
-            {
-                SetCapturePollingError("插件没有返回选点状态。");
-                return;
-            }
-
-            if (response.Status != null)
-            {
-                UpdateSession(_trusted, response.Hello ?? _hello, response.Status);
-            }
-
-            ApplyStateData(response.Data);
-            if (!response.Success)
-            {
-                SetCapturePollingError(string.IsNullOrWhiteSpace(response.Message)
-                    ? "读取选点状态失败。"
-                    : response.Message);
-            }
-        }
-        catch (Exception exception)
-        {
-            if (!IsDisposed
-                && pollEpoch == _captureEpoch
-                && string.Equals(_sessionKey, pollSessionKey, StringComparison.Ordinal))
-            {
-                SetCapturePollingError("读取选点状态失败：" + exception.Message);
-            }
-        }
-        finally
-        {
-            _capturePollInProgress = false;
-            if (!IsDisposed) ApplyAvailability();
-        }
-    }
-
-    private void SetCapturePollingError(string message)
-    {
-        _capturePollTimer.Stop();
-        _spawnCaptureState = "failed";
-        _captureStatusLabel.Text = "选点状态：" + message;
-        _captureStatusLabel.ForeColor = Theme.Red;
-    }
-
-    private static JObject? ExtractSpawnPointCapture(JObject? data)
-    {
-        if (data == null) return null;
-        if (data["spawnPointCapture"] is JObject nested) return nested;
-        return data["state"] != null ? data : null;
-    }
-
-    private void ApplySpawnPointCapture(JObject capture)
-    {
-        string state = (capture.Value<string>("state") ?? "idle").Trim().ToLowerInvariant();
-        string message = capture.Value<string>("message") ?? string.Empty;
-        _spawnCaptureState = state;
-        switch (state)
-        {
-            case "armed":
-                _captureStatusLabel.Text = string.IsNullOrWhiteSpace(message)
-                    ? "选点状态：等待游戏内 Alt + 左键..."
-                    : "选点状态：" + message;
-                _captureStatusLabel.ForeColor = Theme.Amber;
-                if (!_capturePollTimer.Enabled) _capturePollTimer.Start();
-                break;
-            case "captured":
-                _capturePollTimer.Stop();
-                SetCoordinateValue(_spawnX, ToDecimal(capture["x"], _spawnX.Value));
-                SetCoordinateValue(_spawnY, ToDecimal(capture["y"], _spawnY.Value));
-                SetCoordinateValue(_spawnZ, ToDecimal(capture["z"], _spawnZ.Value));
-                _captureStatusLabel.Text = $"选点状态：已捕获 {FormatNumber(_spawnX.Value)} / {FormatNumber(_spawnY.Value)} / {FormatNumber(_spawnZ.Value)}";
-                _captureStatusLabel.ForeColor = Theme.Teal;
-                break;
-            case "failed":
-            case "expired":
-                _capturePollTimer.Stop();
-                _captureStatusLabel.Text = string.IsNullOrWhiteSpace(message)
-                    ? "选点状态：捕获失败"
-                    : "选点状态：" + message;
-                _captureStatusLabel.ForeColor = Theme.Red;
-                break;
-            case "cancelled":
-            case "disabled":
-            case "idle":
-            default:
-                _capturePollTimer.Stop();
-                _captureStatusLabel.Text = string.IsNullOrWhiteSpace(message)
-                    ? "选点状态：未启动"
-                    : "选点状态：" + message;
-                _captureStatusLabel.ForeColor = Theme.Muted;
-                break;
-        }
-
-        ApplyAvailability();
-    }
-
-    private void ResetSpawnPointCapture(string statusText)
-    {
-        _captureEpoch++;
-        _capturePollTimer.Stop();
-        _spawnCaptureState = "idle";
-        if (_captureStatusLabel == null) return;
-        _captureStatusLabel.Text = statusText;
-        _captureStatusLabel.ForeColor = Theme.Muted;
-    }
-
-    private static void SetCoordinateValue(NumericUpDown input, decimal value)
-    {
-        input.Value = Math.Clamp(value, input.Minimum, input.Maximum);
     }
 
     private async Task<ControlResponse?> ExecuteCommandAsync(
@@ -1248,7 +781,6 @@ internal sealed class CheatForm : Form
         try
         {
             ControlResponse? response = await _sendCommand(command, arguments);
-            if (IsDisposed) return response;
             if (response == null)
             {
                 ShowLocalError("插件没有返回有效响应。");
@@ -1280,37 +812,36 @@ internal sealed class CheatForm : Form
         }
         catch (Exception exception)
         {
-            if (!IsDisposed) ShowLocalError("发送作弊命令失败：" + exception.Message);
+            ShowLocalError("发送作弊命令失败：" + exception.Message);
             return null;
         }
         finally
         {
             _busy = false;
-            if (!IsDisposed) ApplyAvailability();
+            ApplyAvailability();
         }
     }
 
     private void ApplyStateData(JObject? data)
     {
         if (data == null) return;
-        if (ReadBoolean(data["outcomeUnknown"]) == true) _writeOutcomeUnknown = true;
+        if (data.Value<bool?>("outcomeUnknown") == true) _writeOutcomeUnknown = true;
         _synchronizing = true;
         try
         {
-            bool? enabled = ReadBoolean(data["enabled"]);
+            bool? enabled = data.Value<bool?>("enabled");
             if (enabled.HasValue) _enableCheck.Checked = enabled.Value;
-            bool? overlay = ReadBoolean(data["enemyIdsVisible"]) ?? ReadBoolean(data["visible"]);
+            bool? overlay = data.Value<bool?>("enemyIdsVisible") ?? data.Value<bool?>("visible");
             if (overlay.HasValue) _enemyIdOverlayCheck.Checked = overlay.Value;
-            bool? godMode = ReadBoolean(data["baseGodMode"]);
+            bool? godMode = data.Value<bool?>("baseGodMode")
+                            ?? data.Value<bool?>("requested")
+                            ?? data.Value<bool?>("actual");
             if (godMode.HasValue) _baseGodModeCheck.Checked = godMode.Value;
         }
         finally
         {
             _synchronizing = false;
         }
-
-        JObject? capture = ExtractSpawnPointCapture(data);
-        if (capture != null) ApplySpawnPointCapture(capture);
     }
 
     private void ApplyAvailability()
@@ -1329,33 +860,10 @@ internal sealed class CheatForm : Form
         foreach (Control control in _mutationControls) control.Enabled = canMutate;
         foreach (Control control in _catalogQueryControls) control.Enabled = canQueryCatalog;
         foreach (Control control in _entityQueryControls) control.Enabled = canQueryEntities;
-
-        if (_addEnchantmentButton != null)
+        if (_enchantmentCatalog != null)
         {
-            bool selectedAlready = _enchantmentCatalog.SelectedCatalogItem != null
-                                   && _enchantmentGrid.Rows.Cast<DataGridViewRow>().Any(row =>
-                                       row.Tag is EnchantmentSelection selection
-                                       && string.Equals(
-                                           selection.Item.Id,
-                                           _enchantmentCatalog.SelectedCatalogItem.Id,
-                                           StringComparison.Ordinal));
-            _addEnchantmentButton.Enabled = canMutate
-                                            && _enchantmentCatalog.SelectedCatalogItem != null
-                                            && (selectedAlready || _enchantmentGrid.Rows.Count < _maxEnchantmentsPerVehicle);
-            _removeEnchantmentButton.Enabled = canMutate && _enchantmentGrid.SelectedRows.Count > 0;
-            _clearEnchantmentsButton.Enabled = canMutate && _enchantmentGrid.Rows.Count > 0;
-            _grantVehicleButton.Enabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
-            _grantDisposableButton.Enabled = canMutate && _disposableCatalog.SelectedCatalogItem != null;
-            _grantRelicButton.Enabled = canMutate && _relicCatalog.SelectedCatalogItem != null;
-            _grantCatapultButton.Enabled = canMutate && _catapultCatalog.SelectedCatalogItem != null;
-        }
-
-        if (_capturePointButton != null)
-        {
-            bool captureArmed = string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase);
-            _capturePointButton.Enabled = canMutate && !captureArmed;
-            _cancelCaptureButton.Enabled = canMutate && captureArmed;
-            _spawnEnemyButton.Enabled = canMutate && _enemyCatalog.SelectedCatalogItem != null;
+            _enchantmentCatalog.Enabled = canMutate && _enchantedCheck.Checked;
+            _enchantmentLevel.Enabled = canMutate && _enchantedCheck.Checked;
         }
 
         if (_modifyVehicleButton != null)
@@ -1411,16 +919,8 @@ internal sealed class CheatForm : Form
         else if (_status?.CheatModeEnabled == true)
         {
             _statusTitle.Text = _status.CheatUsed
-                ? _status.CheatActionCount > 0
-                    ? $"作弊模式已启用 / 本进程已尝试 {_status.CheatActionCount} 次修改"
-                    : "作弊模式已启用 / 当前 QA 档有历史作弊标记"
+                ? $"作弊模式已启用 / 已执行 {_status.CheatActionCount} 次修改"
                 : "作弊模式已启用";
-            rail = Theme.Amber;
-            _statusBanner.BackColor = Color.FromArgb(246, 239, 219);
-        }
-        else if (_status?.CheatUsed == true)
-        {
-            _statusTitle.Text = "当前 QA 档已被作弊修改 / 只能继续作弊测试";
             rail = Theme.Amber;
             _statusBanner.BackColor = Color.FromArgb(246, 239, 219);
         }
@@ -1454,10 +954,7 @@ internal sealed class CheatForm : Form
             return string.IsNullOrWhiteSpace(reason) ? "插件未提供作弊运行时合同。" : reason;
         }
 
-        if (_status?.CheatUsed == true)
-        {
-            return "该 QA 档已有持久作弊污染标记；普通自动游玩已禁用，请为干净基线使用新的 QA 配置名称。";
-        }
+        if (_status?.CheatUsed == true) return "本轮测试已标记为使用作弊，不应作为自然自动游玩结果。";
         return "启用后可以执行资源、战斗、属性和怪物生成命令。";
     }
 
@@ -1466,169 +963,44 @@ internal sealed class CheatForm : Form
         _lastMessage = string.Empty;
         _lastMessageIsError = false;
         _writeOutcomeUnknown = false;
-        _captureEpoch++;
-        _capturePollTimer.Stop();
-        _spawnCaptureState = "idle";
-        _vehicleCatalog?.ClearItems();
-        _enchantmentCatalog?.ClearItems();
-        _disposableCatalog?.ClearItems();
-        _relicCatalog?.ClearItems();
-        _enemyCatalog?.ClearItems();
-        _catapultCatalog?.ClearItems();
-        _enchantmentGrid?.Rows.Clear();
+        ClearCombo(_vehicleCatalog);
+        ClearCombo(_enchantmentCatalog);
+        ClearCombo(_disposableCatalog);
+        ClearCombo(_relicCatalog);
+        ClearCombo(_enemyCatalog);
         _vehicleGrid?.Rows.Clear();
         _enemyGrid?.Rows.Clear();
-        DisposeCatalogIcons();
-        _maxEnchantmentsPerVehicle = 5;
         if (_catalogSummary != null) _catalogSummary.Text = "尚未读取资源目录";
-        if (_enchantmentSummary != null) _enchantmentSummary.Text = "已选 0 / 5";
         if (_vehicleSummary != null) _vehicleSummary.Text = "尚未读取战车";
         if (_enemySummary != null) _enemySummary.Text = "尚未读取敌人";
-        if (_captureStatusLabel != null)
-        {
-            _captureStatusLabel.Text = "选点状态：未启动";
-            _captureStatusLabel.ForeColor = Theme.Muted;
-        }
-        if (_spawnStatusLabel != null)
-        {
-            _spawnStatusLabel.Text = "生成状态：尚未执行";
-            _spawnStatusLabel.ForeColor = Theme.Muted;
-        }
         if (_baseGodModeCheck != null) SetCheckedSilently(_baseGodModeCheck, false);
         if (_enemyIdOverlayCheck != null) SetCheckedSilently(_enemyIdOverlayCheck, false);
     }
 
-    private void PopulateCatalog(CatalogPickerControl picker, JArray? items)
+    private void PopulateCatalog(ComboBox combo, JArray? items)
     {
-        List<CatalogPickerItem> catalogItems = new();
-        foreach (JObject item in items?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
-        {
-            string id = item.Value<string>("id") ?? item["id"]?.ToString() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(id)) continue;
-            string name = item.Value<string>("name") ?? string.Empty;
-            string fallbackName = item.Value<string>("fallbackName") ?? string.Empty;
-            string iconFile = item.Value<string>("iconFile") ?? string.Empty;
-            string iconSha256 = item.Value<string>("iconSha256") ?? string.Empty;
-            IReadOnlyList<string> tags = (item["tags"] as JArray)?
-                .Values<string>()
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value!)
-                .ToArray() ?? Array.Empty<string>();
-            catalogItems.Add(new CatalogPickerItem(
-                id,
-                name,
-                fallbackName,
-                TryLoadCatalogIcon(iconFile, iconSha256),
-                tags));
-        }
-
-        picker.SetItems(catalogItems);
-        ApplyAvailability();
-    }
-
-    private Image? TryLoadCatalogIcon(string iconFile, string iconSha256)
-    {
-        if (string.IsNullOrWhiteSpace(iconFile) || string.IsNullOrWhiteSpace(iconSha256)) return null;
-        string artifactRoot = _hello?.ArtifactRoot ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(artifactRoot)
-            || !Path.IsPathFullyQualified(artifactRoot)
-            || Path.IsPathRooted(iconFile))
-        {
-            return null;
-        }
-
+        string selectedId = (combo.SelectedItem as CatalogItem)?.Id ?? string.Empty;
+        combo.BeginUpdate();
         try
         {
-            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(artifactRoot));
-            string candidate = Path.GetFullPath(Path.Combine(root, iconFile));
-            string relative = Path.GetRelativePath(root, candidate);
-            if (Path.IsPathRooted(relative)
-                || string.Equals(relative, ".", StringComparison.Ordinal)
-                || string.Equals(relative, "..", StringComparison.Ordinal)
-                || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+            combo.Items.Clear();
+            foreach (JObject item in items?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
             {
-                return null;
+                string id = item.Value<string>("id") ?? item["id"]?.ToString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                string name = item.Value<string>("name") ?? id;
+                combo.Items.Add(new CatalogItem(id, name));
             }
 
-            FileAttributes attributes = File.GetAttributes(candidate);
-            if ((attributes & FileAttributes.ReparsePoint) != 0) return null;
-            DirectoryInfo? directory = Directory.GetParent(candidate);
-            while (directory != null && !string.Equals(
-                       Path.TrimEndingDirectorySeparator(directory.FullName),
-                       root,
-                       StringComparison.OrdinalIgnoreCase))
-            {
-                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0) return null;
-                directory = directory.Parent;
-            }
-            if (directory == null) return null;
-            if (iconSha256.Length != 64) return null;
-
-            byte[] expectedHash;
-            try
-            {
-                expectedHash = Convert.FromHexString(iconSha256);
-            }
-            catch (FormatException)
-            {
-                return null;
-            }
-
-            string cacheKey = candidate + "|" + iconSha256.ToUpperInvariant();
-            _activeCatalogIconKeys.Add(cacheKey);
-            if (_iconCache.TryGetValue(cacheKey, out Image? cached)) return cached;
-
-            byte[] bytes;
-            using (FileStream file = new(
-                       candidate,
-                       FileMode.Open,
-                       FileAccess.Read,
-                       FileShare.Read,
-                       4096,
-                       FileOptions.SequentialScan))
-            {
-                if (file.Length <= 0 || file.Length > 4 * 1024 * 1024) return null;
-                bytes = new byte[checked((int)file.Length)];
-                file.ReadExactly(bytes);
-            }
-            byte[] actualHash = SHA256.HashData(bytes);
-            if (!CryptographicOperations.FixedTimeEquals(expectedHash, actualHash)) return null;
-
-            using MemoryStream stream = new(bytes, writable: false);
-            using Image source = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: true);
-            if (source.Width <= 0 || source.Height <= 0 || source.Width > 1024 || source.Height > 1024) return null;
-            Image image = new Bitmap(source);
-            _iconCache[cacheKey] = image;
-            return image;
+            int matchingIndex = combo.Items.Cast<CatalogItem>()
+                .Select((item, index) => new { item, index })
+                .FirstOrDefault(pair => string.Equals(pair.item.Id, selectedId, StringComparison.Ordinal))
+                ?.index ?? -1;
+            combo.SelectedIndex = matchingIndex >= 0 ? matchingIndex : combo.Items.Count > 0 ? 0 : -1;
         }
-        catch (Exception exception) when (exception is IOException
-                                          or UnauthorizedAccessException
-                                          or ArgumentException
-                                          or NotSupportedException
-                                          or OutOfMemoryException
-                                          or System.Security.SecurityException
-                                          or System.Runtime.InteropServices.ExternalException)
+        finally
         {
-            return null;
-        }
-    }
-
-    private void DisposeCatalogIcons()
-    {
-        foreach (Image image in _iconCache.Values) image.Dispose();
-        _iconCache.Clear();
-        _activeCatalogIconKeys.Clear();
-    }
-
-    private void DisposeUnusedCatalogIcons()
-    {
-        foreach (string key in _iconCache.Keys
-                     .Where(key => !_activeCatalogIconKeys.Contains(key))
-                     .ToArray())
-        {
-            _iconCache[key].Dispose();
-            _iconCache.Remove(key);
+            combo.EndUpdate();
         }
     }
 
@@ -1637,16 +1009,9 @@ internal sealed class CheatForm : Form
         if (limits == null) return;
         SetMaximum(_vehicleCount, limits.Value<int?>("maxGrantCount"));
         SetMaximum(_disposableCount, limits.Value<int?>("maxGrantCount"));
-        SetMaximum(_catapultCount, limits.Value<int?>("maxGrantCount"));
         SetMaximum(_enchantmentLevel, limits.Value<int?>("maxEnchantmentLevel"));
         SetMaximum(_enemyLevel, limits.Value<int?>("maxEnemyLevel"));
         SetMaximum(_enemyCount, limits.Value<int?>("maxSpawnCount"));
-        _maxEnchantmentsPerVehicle = Math.Clamp(limits.Value<int?>("maxEnchantmentsPerVehicle") ?? 5, 0, 64);
-        while (_enchantmentGrid.Rows.Count > _maxEnchantmentsPerVehicle)
-        {
-            _enchantmentGrid.Rows.RemoveAt(_enchantmentGrid.Rows.Count - 1);
-        }
-        UpdateEnchantmentSummary();
         decimal coordinateMaximum = ToDecimal(limits["maxCoordinateMagnitude"], 10_000m);
         coordinateMaximum = Math.Max(1m, Math.Abs(coordinateMaximum));
         foreach (NumericUpDown input in new[] { _spawnX, _spawnY, _spawnZ })
@@ -1814,9 +1179,9 @@ internal sealed class CheatForm : Form
         }
     }
 
-    private bool TryCatalogSelection(CatalogPickerControl picker, string error, out CatalogPickerItem? item)
+    private bool TryCatalogSelection(ComboBox combo, string error, out CatalogItem? item)
     {
-        item = picker.SelectedCatalogItem;
+        item = combo.SelectedItem as CatalogItem;
         if (item != null) return true;
         ShowLocalError(error);
         return false;
@@ -1919,35 +1284,6 @@ internal sealed class CheatForm : Form
         field.Controls.Add(input, 0, 1);
         return field;
     }
-
-    private static Control CatalogField(string caption, CatalogPickerControl input, int width)
-    {
-        TableLayoutPanel field = new()
-        {
-            Width = width,
-            Height = 72,
-            ColumnCount = 1,
-            RowCount = 2,
-            Margin = new Padding(0, 0, 10, 0),
-            Padding = Padding.Empty
-        };
-        field.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        field.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        Label label = Theme.Caption(caption);
-        label.Dock = DockStyle.Fill;
-        label.Margin = Padding.Empty;
-        input.Dock = DockStyle.Fill;
-        input.Margin = Padding.Empty;
-        field.Controls.Add(label, 0, 0);
-        field.Controls.Add(input, 0, 1);
-        return field;
-    }
-
-    private static CatalogPickerControl CatalogPicker(int width) => new()
-    {
-        Width = width,
-        Height = 46
-    };
 
     private static ComboBox CatalogCombo(int width) => new()
     {
@@ -2075,28 +1411,6 @@ internal sealed class CheatForm : Form
         return grid;
     }
 
-    private static DataGridView CreateEnchantmentGrid()
-    {
-        DataGridView grid = CreateGrid();
-        grid.RowTemplate.Height = 36;
-        grid.ColumnHeadersHeight = 30;
-        DataGridViewImageColumn icon = new()
-        {
-            Name = "icon",
-            HeaderText = string.Empty,
-            Width = 44,
-            MinimumWidth = 44,
-            ReadOnly = true,
-            ImageLayout = DataGridViewImageCellLayout.Zoom,
-            SortMode = DataGridViewColumnSortMode.NotSortable
-        };
-        grid.Columns.Add(icon);
-        AddGridColumn(grid, "name", "附魔名称", 180, fill: true);
-        AddGridColumn(grid, "id", "附魔 ID", 160);
-        AddGridColumn(grid, "level", "等级", 64);
-        return grid;
-    }
-
     private static DataGridView CreateGrid() => new()
     {
         Dock = DockStyle.Fill,
@@ -2166,6 +1480,13 @@ internal sealed class CheatForm : Form
         grid.CurrentCell = grid.Rows[0].Cells[0];
     }
 
+    private static void ClearCombo(ComboBox? combo)
+    {
+        if (combo == null) return;
+        combo.Items.Clear();
+        combo.SelectedIndex = -1;
+    }
+
     private static void SetMaximum(NumericUpDown input, int? maximum)
     {
         if (!maximum.HasValue || maximum.Value < input.Minimum) return;
@@ -2195,13 +1516,14 @@ internal sealed class CheatForm : Form
             : fallback;
     }
 
-    private static bool? ReadBoolean(JToken? token) => token?.Type == JTokenType.Boolean
-        ? token.Value<bool>()
-        : null;
-
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
-    private sealed record EnchantmentSelection(CatalogPickerItem Item, int Level);
+    private sealed record CatalogItem(string Id, string Name)
+    {
+        public override string ToString() => string.Equals(Id, Name, StringComparison.Ordinal)
+            ? Id
+            : $"{Name} [{Id}]";
+    }
 
     private sealed record AttributeItem(
         string Id,

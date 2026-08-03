@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.3.0 -SkipBuild
+.\scripts\package.ps1 -Version 0.2.0 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.3.0
+.\scripts\package.ps1 -Version 0.2.0
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.3.0-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.2.0-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET 运行时，无需安装系统 .NET；根启动器仍是自包含单文件，运行时位于内部 `manager\` 目录，`updater\` 复用它而不再重复携带。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -49,8 +49,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ```text
 %LOCALAPPDATA%\LoopstructorAutoPlayer\
-  profiles\<game-id>\<qa-profile-id>\
-  artifacts\<game-id>\<run-id>\
+  profiles\<qa-profile-id>\
+  artifacts\<run-id>\
   tickets\launch-<game-root-id>.json
 ```
 
@@ -58,25 +58,22 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ### 作弊调试模式
 
-作弊模式只用于隔离的本地 QA 调试。由 Manager 启动并通过安全握手的游戏进程都可以随时打开独立的“作弊工具”窗口，再手动开启或关闭作弊模式；不再需要启动前选择单独的作弊调试会话。作弊工具与自动游玩仍不能同时运行，未通过握手、隔离门禁或未手动开启时，所有作弊写命令都会被拒绝。
-
-战车、附魔、消耗品、遗物和怪物目录优先显示游戏配置中的简体中文名称及图标，同时保留内部 ID 便于诊断；配置缺少显示资料时才回退到内部 ID 和占位图。插件不会为了读取中文名而切换游戏的全局语言。
+作弊模式只用于隔离的本地 QA 调试，必须在启动游戏前主动勾选“作弊调试会话（使用一次性隔离档）”。Manager 会为该次启动创建 `%LOCALAPPDATA%\LoopstructorAutoPlayer\profiles\<game-id>\cheat\<session-id>\`，不会复用普通 QA profile。游戏完成安全握手后，打开独立的“作弊工具”窗口并手动启用作弊模式；未显式授权、未握手或未手动启用时，所有作弊写命令都会被拒绝。
 
 作弊工具提供以下能力：
 
-1. 获取指定战车，并可同时选择多种附魔及各自等级；
+1. 获取指定战车，并可选择是否附魔及附魔等级；
 2. 获取指定消耗品；
-3. 获取普通弹射点或能量弹射点；
-4. 开启或关闭基地无敌；
-5. 结束当前波次；
-6. 清除当前已经生成的所有敌人；
-7. 修改指定车辆的属性；
-8. 修改指定敌人的属性；
-9. 在游戏画面中显示敌人运行时 ID，便于查询和修改；
-10. 获得指定遗物；
-11. 在指定坐标生成允许的怪物，也可进入定位状态后在游戏内按住左 Alt 并点击鼠标左键固定位置；定位等待两分钟后自动失效，关闭作弊工具窗口也会主动取消。
+3. 开启或关闭基地无敌；
+4. 结束当前波次；
+5. 清除当前已经生成的所有敌人；
+6. 修改指定车辆的属性；
+7. 修改指定敌人的属性；
+8. 在游戏画面中显示敌人运行时 ID，便于查询和修改；
+9. 获得指定遗物；
+10. 在指定坐标生成允许的怪物。
 
-仅获得作弊能力不会阻止正常自动游玩；实际开启作弊模式后必须先关闭它才能启动自动游玩。任何会改变游戏状态的作弊操作都会先在当前 QA profile 中原子写入持久污染标记，再调用游戏 API；标记失败时写操作直接拒绝。写操作一经尝试，无论成功、失败还是响应丢失，当前进程都要求彻底重启，而且该 QA profile 在重启后仍只能用于作弊测试。重启本身不会清除污染；需要干净基线时必须改用新的 QA 配置名称。场景切换会关闭基地无敌、敌人 ID 显示和待捕获位置等瞬态功能；Manager 连接或心跳丢失时，插件也会自动关闭作弊模式和这些瞬态功能。
+作弊授权会话与自动游玩互斥：即使尚未启用或尚未执行作弊，也不能在同一游戏进程中开始自动游玩。在已启用的作弊模式中，任何会改变游戏状态的操作一经尝试，无论成功、失败还是响应丢失，本次结果都会标记为不可信并要求彻底重启；要恢复干净自动测试，必须关闭游戏，再取消勾选作弊调试会话并由 Manager 重新启动。场景切换会关闭基地无敌和敌人 ID 显示等瞬态功能；Manager 连接或心跳丢失时，插件也会自动关闭作弊模式和这些瞬态功能。
 
 为避免破坏波次账本，结束波次只允许用于正在进行的普通波次，模板锁定、没有活动波次或 Boss 波均会拒绝；刷怪只接受当前游戏配置中存在有效预制体的普通敌人，Boss 和特殊波单位不在允许列表。清除所有敌人只清理已经生成的对象，波次计划中的后续敌人仍可能继续出现；需要结束波次时应使用单独的“结束当前波次”操作。
 
@@ -140,7 +137,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.3.0-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.2.0-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
 
 安装更新时会打开独立的更新窗口，按“准备、下载、校验、安装、重启”显示阶段进度。下载阶段显示已下载大小、总大小和实时速度；解压与事务替换阶段显示安装进度，完成后会显示最终结果。开始替换文件后窗口会锁定关闭操作，避免破坏更新或回滚。
 

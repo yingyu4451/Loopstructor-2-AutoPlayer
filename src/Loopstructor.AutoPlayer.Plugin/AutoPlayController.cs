@@ -79,20 +79,13 @@ internal sealed class AutoPlayController
         _activation = activation;
         _evidence = evidence;
         _log = log;
-        _cheatUsed = activation.CheatProfileTainted;
         _compatibilityError = BuildCompatibilityError();
         _runState = string.IsNullOrEmpty(_compatibilityError)
             ? AutoPlayerRunState.Standby
             : AutoPlayerRunState.Incompatible;
         _stageDetail = string.IsNullOrEmpty(_compatibilityError)
-            ? _cheatUsed
-                ? "已激活；当前 QA 配置已被作弊写操作永久标记，只能继续用于作弊测试。"
-                : "已激活，正在等待开始命令。"
+            ? "已激活，正在等待开始命令。"
             : _compatibilityError;
-        if (_cheatUsed)
-        {
-            AddTimeline("cheat", "检测到当前 QA 配置的持久作弊污染标记；普通自动游玩已禁用。");
-        }
         if (!string.IsNullOrEmpty(_compatibilityError)) AddTimeline("error", _compatibilityError);
     }
 
@@ -100,15 +93,9 @@ internal sealed class AutoPlayController
     {
         lock (_sync)
         {
-            if (_cheatUsed)
+            if (_activation.CheatModeAllowed)
             {
-                message = "当前 QA 配置已执行过作弊写操作并被永久标记，不能用于普通自动游玩。请新建并选择未污染的 QA 配置；当前配置仍可继续用于作弊测试。";
-                return false;
-            }
-
-            if (_cheatModeEnabled)
-            {
-                message = "作弊模式当前已启用，不能开始自动游玩。请先关闭作弊模式；执行过作弊写操作后必须重启游戏进程。";
+                message = "本次进程是作弊调试会话，不能开始正常自动游玩。请关闭游戏并从 Manager 启动普通测试会话。";
                 return false;
             }
 
@@ -224,7 +211,7 @@ internal sealed class AutoPlayController
             _lastCommand = command;
             _lastMessage = message;
             _lastActionAtUtc = DateTime.UtcNow;
-            AddTimeline("cheat", message + " 当前 QA 配置已永久标记为作弊污染，不能用于普通自动游玩。");
+            AddTimeline("cheat", message + " 本进程已标记为作弊调试，不能计为正常自动游玩结果。");
         }
     }
 
@@ -435,7 +422,9 @@ internal sealed class AutoPlayController
                 CheatActionCount = _cheatActionCount,
                 EnemyIdsVisible = _enemyIdsVisible,
                 BaseGodModeEnabled = _baseGodModeEnabled,
-                RunIntegrity = _cheatUsed ? "cheat-modified" : "clean",
+                RunIntegrity = _cheatUsed
+                    ? "cheat-modified"
+                    : _activation.CheatModeAllowed ? "cheat-session" : "clean",
                 CheatAvailabilityReason = _cheatAvailabilityReason,
                 Timeline = _timeline.ToArray()
             };

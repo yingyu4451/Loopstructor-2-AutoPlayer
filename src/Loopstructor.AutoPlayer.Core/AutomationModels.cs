@@ -212,7 +212,7 @@ public sealed class LaunchTicket
 public static class Protocol
 {
     public const int CurrentVersion = 1;
-    public const int CheatCurrentVersion = 2;
+    public const int CheatCurrentVersion = 1;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
     public const string PipeEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PIPE";
@@ -255,7 +255,6 @@ public static class CheatCommands
     public const string QueryState = "cheat.queryState";
     public const string GrantVehicle = "cheat.grantVehicle";
     public const string GrantDisposable = "cheat.grantDisposable";
-    public const string GrantCatapultPoint = "cheat.grantCatapultPoint";
     public const string SetBaseGodMode = "cheat.setBaseGodMode";
     public const string EndWave = "cheat.endWave";
     public const string ClearEnemies = "cheat.clearEnemies";
@@ -265,7 +264,6 @@ public static class CheatCommands
     public const string ModifyEnemy = "cheat.modifyEnemy";
     public const string SetEnemyIdOverlay = "cheat.setEnemyIdOverlay";
     public const string GrantRelic = "cheat.grantRelic";
-    public const string SetSpawnPointCapture = "cheat.setSpawnPointCapture";
     public const string SpawnEnemy = "cheat.spawnEnemy";
 
     public static IReadOnlyList<string> All { get; } = new[]
@@ -275,7 +273,6 @@ public static class CheatCommands
         QueryState,
         GrantVehicle,
         GrantDisposable,
-        GrantCatapultPoint,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
@@ -285,7 +282,6 @@ public static class CheatCommands
         ModifyEnemy,
         SetEnemyIdOverlay,
         GrantRelic,
-        SetSpawnPointCapture,
         SpawnEnemy
     };
 
@@ -293,7 +289,6 @@ public static class CheatCommands
     {
         GrantVehicle,
         GrantDisposable,
-        GrantCatapultPoint,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
