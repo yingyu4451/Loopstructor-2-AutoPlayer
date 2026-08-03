@@ -51,7 +51,6 @@ internal sealed class MainForm : Form
     private Button _cheatButton = null!;
     private TextBox _profileName = null!;
     private CheckBox _continueProfile = null!;
-    private CheckBox _cheatSessionCheck = null!;
     private CheckBox _autoUpdateCheck = null!;
     private ComboBox _mode = null!;
     private NumericUpDown _speed = null!;
@@ -334,27 +333,6 @@ internal sealed class MainForm : Form
             Margin = new Padding(0, 0, 0, 5)
         };
         fields.Controls.Add(_continueProfile);
-
-        _cheatSessionCheck = new CheckBox
-        {
-            Text = "作弊调试会话（使用一次性隔离档）",
-            Width = 250,
-            Height = 30,
-            ForeColor = Color.FromArgb(130, 82, 10),
-            Font = Theme.Body(8.5f, FontStyle.Bold),
-            Margin = new Padding(0, 0, 0, 7)
-        };
-        _cheatSessionCheck.CheckedChanged += (_, _) =>
-        {
-            if (_cheatSessionCheck.Checked)
-            {
-                _continueProfile.Checked = false;
-            }
-
-            _continueProfile.Enabled = !_cheatSessionCheck.Checked;
-            _launchButton.Text = _cheatSessionCheck.Checked ? "启动作弊调试会话" : "启动所选测试包";
-        };
-        fields.Controls.Add(_cheatSessionCheck);
 
         _launchButton = Theme.CommandButton("启动所选测试包", Theme.TealDark, 250);
         _launchButton.Height = 37;
@@ -749,10 +727,7 @@ internal sealed class MainForm : Form
         }
 
         SaveSettings();
-        GameLaunchResult result = _gameLauncher.Launch(
-            _game,
-            _settings.ProfileName,
-            _cheatSessionCheck.Checked);
+        GameLaunchResult result = _gameLauncher.Launch(_game, _settings.ProfileName);
         if (!result.Success || result.Session == null)
         {
             AppendLog("ERROR", result.Message, Theme.Red);
@@ -775,10 +750,7 @@ internal sealed class MainForm : Form
         _stageDetail.Text = "正在核对进程、程序集指纹、隔离目录与平台写入门禁";
         AppendLog("INFO", result.Message, Theme.Blue);
         AppendLog("SAFE", "只接受所选目录、当前 SHA-256 与本次随机管道对应的插件。", Theme.Teal);
-        if (_session.Ticket.CheatModeAllowed)
-        {
-            AppendLog("CHEAT", "本次为作弊调试会话，已分配一次性隔离存档；结果不会计为正常自动游玩测试。", Theme.Amber);
-        }
+        AppendLog("CHEAT", "安全握手通过后可随时打开作弊工具；作弊写操作会标记本进程并要求重启。", Theme.Amber);
         _pollTimer.Start();
         SetOperationAvailability();
         _ = PollPluginAsync();
@@ -961,7 +933,7 @@ internal sealed class MainForm : Form
             {
                 bool outcomeUnknown = result.RequestMayHaveExecuted && CheatCommands.IsMutationCommand(command);
                 string message = outcomeUnknown
-                    ? "作弊写命令已发送，但连续两次未能取回同一请求 ID 的结果。为避免重复执行，本窗口已冻结写操作；请关闭游戏并新建作弊调试会话。"
+                    ? "作弊写命令已发送，但连续两次未能取回同一请求 ID 的结果。为避免重复执行，本窗口已冻结写操作；请关闭游戏并重新启动测试进程。"
                     : result.Error;
                 AppendLog("ERROR", "作弊命令发送失败：" + message, Theme.Red);
                 return new ControlResponse
@@ -973,7 +945,10 @@ internal sealed class MainForm : Form
             }
 
             ControlResponse response = result.Response!;
-            AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? Theme.Amber : Theme.Red);
+            if (!response.Success || !string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? Theme.Amber : Theme.Red);
+            }
             if (response.Status != null)
             {
                 ApplyStatus(response.Status);
@@ -1075,7 +1050,7 @@ internal sealed class MainForm : Form
 
         if (hello.CheatSessionAuthorized != _session.Ticket.CheatModeAllowed)
         {
-            error = "插件回报的作弊会话授权与本次 Manager 启动票据不一致。";
+            error = "插件回报的作弊控制授权与本次 Manager 启动票据不一致。";
             return false;
         }
 
@@ -1132,15 +1107,21 @@ internal sealed class MainForm : Form
         SetTelemetry(
             "integrity",
             status.CheatUsed
-                ? $"作弊已使用 / {status.CheatActionCount} 项"
-                : status.CheatSessionAuthorized ? "作弊调试会话" : "正常测试");
+                ? status.CheatActionCount > 0
+                    ? $"QA 档已污染 / 本进程 {status.CheatActionCount} 项"
+                    : "QA 档已污染 / 历史作弊"
+                : "正常测试");
         SetTelemetry("outcome", OutcomeName(status.Outcome));
         SetTelemetry("waves", $"{status.WavesCompleted} 完成 / {status.WavesStarted} 启动");
         int processId = _hello?.GameProcessId ?? _session?.ProcessId ?? 0;
         string processPrefix = processId > 0 ? $"PID {processId} / " : string.Empty;
-        SetTelemetry("process", processPrefix + (status.NeedsProcessRestart ? "必须彻底重启" : "可继续测试"));
+        SetTelemetry(
+            "process",
+            processPrefix + (status.CheatUsed
+                ? "QA 档只可用于作弊测试"
+                : status.NeedsProcessRestart ? "必须彻底重启" : "可继续测试"));
 
-        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatActionCount}";
+        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CheatActionCount}";
         if (!string.Equals(signature, _lastStatusSignature, StringComparison.Ordinal))
         {
             _lastStatusSignature = signature;
@@ -1181,21 +1162,30 @@ internal sealed class MainForm : Form
             _runState.ForeColor = Color.FromArgb(130, 82, 10);
             _runState.Text = "作弊模式 / 已启用";
             _stageDetail.Text = status.CheatUsed
-                ? $"已执行 {status.CheatActionCount} 项作弊操作；本进程结果不计为正常自动游玩测试。"
+                ? status.CheatActionCount > 0
+                    ? $"本进程已尝试 {status.CheatActionCount} 项作弊操作；当前 QA 档已永久标记为污染。"
+                    : "当前 QA 档存在历史作弊污染标记，只能继续用于作弊测试。"
                 : "作弊工具已就绪；尚未执行会改变对局的操作。";
             _connection.SetState("作弊模式", Theme.Amber);
-            SetTelemetry("process", status.CheatUsed ? "作弊调试 / 退出后重启" : "作弊模式已启用");
+            SetTelemetry("process", status.CheatUsed ? "QA 档已污染 / 只能作弊测试" : "作弊模式已启用");
             _restartWarningReported = status.CheatUsed;
         }
-        else if (status.CheatSessionAuthorized)
+        else if (status.CheatUsed)
         {
             _stageBanner.BackColor = Color.FromArgb(252, 242, 218);
             _runState.ForeColor = Color.FromArgb(130, 82, 10);
-            _runState.Text = "作弊调试会话 / 等待启用";
-            _stageDetail.Text = "打开作弊工具并显式启用；本进程不能运行普通自动游玩。";
-            _connection.SetState("作弊会话", Theme.Amber);
-            SetTelemetry("process", "作弊调试 / 独立进程");
-            _restartWarningReported = false;
+            _runState.Text = "QA 档 / 已被作弊修改";
+            _stageDetail.Text = "普通自动游玩已禁用。请改用新的 QA 配置名称建立干净测试档；当前档仍可继续作弊测试。";
+            _connection.SetState("QA 档污染", Theme.Amber);
+            SetTelemetry("process", "QA 档已污染 / 只能作弊测试");
+            if (!_restartWarningReported)
+            {
+                _restartWarningReported = true;
+                AppendLog(
+                    "WARN",
+                    "当前 QA 档存在持久作弊污染标记，普通自动游玩已禁用。请使用新的 QA 配置名称建立干净测试档。",
+                    Theme.Amber);
+            }
         }
         else if (status.NeedsProcessRestart)
         {
@@ -1281,8 +1271,7 @@ internal sealed class MainForm : Form
         _togglePluginButton.Text = _pluginStatus?.State == PluginState.Disabled ? "启用" : "停用";
         _uninstallButton.Enabled = validGame && _pluginStatus?.State != PluginState.NotInstalled;
         _launchButton.Enabled = validGame && _pluginStatus?.State == PluginState.Enabled;
-        _cheatSessionCheck.Enabled = validGame;
-        _continueProfile.Enabled = !_cheatSessionCheck.Checked;
+        _continueProfile.Enabled = validGame;
         _cheatButton.Enabled = _sessionTrusted
                                && (_status?.CheatSessionAuthorized == true
                                    || _hello?.CheatSessionAuthorized == true
@@ -1316,8 +1305,7 @@ internal sealed class MainForm : Form
     {
         UseWaitCursor = busy;
         _browseButton.Enabled = !busy;
-        _cheatSessionCheck.Enabled = !busy;
-        _continueProfile.Enabled = !busy && !_cheatSessionCheck.Checked;
+        _continueProfile.Enabled = !busy;
         if (busy)
         {
             _installButton.Enabled = false;
@@ -1332,7 +1320,7 @@ internal sealed class MainForm : Form
         foreach (Control control in new Control[]
                  {
                      _browseButton, _installButton, _togglePluginButton, _uninstallButton, _launchButton,
-                     _cheatSessionCheck, _cheatButton, _startButton, _pauseButton, _resumeButton, _stopButton, _updateButton
+                     _cheatButton, _startButton, _pauseButton, _resumeButton, _stopButton, _updateButton
                  })
         {
             control.Enabled = enabled;

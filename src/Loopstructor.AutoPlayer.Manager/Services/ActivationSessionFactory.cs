@@ -16,8 +16,7 @@ public sealed class ActivationSessionFactory
 
     public ActivationSession Create(
         GameInstallValidation game,
-        string profileName,
-        bool cheatModeAllowed = false)
+        string profileName)
     {
         ArgumentNullException.ThrowIfNull(game);
         if (!game.IsValid || game.AssemblySha256.Length != 64)
@@ -32,9 +31,7 @@ public sealed class ActivationSessionFactory
         string profileRoot = BuildProfileRoot(
             Protocol.DataRoot,
             gameId,
-            safeProfile,
-            sessionId,
-            cheatModeAllowed);
+            safeProfile);
         Directory.CreateDirectory(profileRoot);
         Directory.CreateDirectory(artifactRoot);
 
@@ -48,7 +45,9 @@ public sealed class ActivationSessionFactory
             ProfileRoot = profileRoot,
             ArtifactRoot = artifactRoot,
             ExpectedAssemblySha256 = game.AssemblySha256.ToLowerInvariant(),
-            CheatModeAllowed = cheatModeAllowed
+            // Every trusted Manager session may opt into cheat mode after the
+            // runtime safety handshake. Enabling it remains an explicit action.
+            CheatModeAllowed = true
         };
 
         string ticketPath = Protocol.GetTicketPath(game.GameRoot);
@@ -61,7 +60,7 @@ public sealed class ActivationSessionFactory
             [Protocol.ProfileEnvironmentVariable] = ticket.ProfileRoot,
             [Protocol.ArtifactEnvironmentVariable] = ticket.ArtifactRoot,
             [Protocol.ExpectedAssemblySha256EnvironmentVariable] = ticket.ExpectedAssemblySha256,
-            [Protocol.CheatModeAllowedEnvironmentVariable] = cheatModeAllowed ? "1" : "0"
+            [Protocol.CheatModeAllowedEnvironmentVariable] = "1"
         };
 
         return new ActivationSession
@@ -79,12 +78,8 @@ public sealed class ActivationSessionFactory
     internal static string BuildProfileRoot(
         string dataRoot,
         string gameId,
-        string safeProfile,
-        string sessionId,
-        bool cheatModeAllowed) =>
-        cheatModeAllowed
-            ? Path.Combine(dataRoot, "profiles", gameId, "cheat", sessionId)
-            : Path.Combine(dataRoot, "profiles", gameId, safeProfile);
+        string safeProfile) =>
+        Path.Combine(dataRoot, "profiles", gameId, safeProfile);
 
     private static string SanitizeSegment(string? value, string fallback)
     {

@@ -19,8 +19,7 @@ public sealed class GameLauncher
 
     public GameLaunchResult Launch(
         GameInstallValidation game,
-        string profileName,
-        bool cheatModeAllowed = false)
+        string profileName)
     {
         if (!game.IsValid)
         {
@@ -31,7 +30,7 @@ public sealed class GameLauncher
         try
         {
             _configWriter.Write(game.GameRoot, game.AssemblySha256);
-            session = _sessionFactory.Create(game, profileName, cheatModeAllowed);
+            session = _sessionFactory.Create(game, profileName);
             ProcessStartInfo startInfo = CreateStartInfo(game, session);
 
             Process? process = Process.Start(startInfo);

@@ -46,20 +46,18 @@ public sealed class GameLauncherTests
     }
 
     [Fact]
-    public void BuildProfileRoot_CheatSessionUsesUniqueGameScopedDirectory()
+    public void BuildProfileRoot_AlwaysUsesNamedGameScopedQaProfile()
     {
         string dataRoot = Path.Combine(Path.GetTempPath(), "LoopstructorProfileTest");
 
-        string normal = ActivationSessionFactory.BuildProfileRoot(
-            dataRoot, "game-123", "qa-default", "session-a", cheatModeAllowed: false);
-        string cheatA = ActivationSessionFactory.BuildProfileRoot(
-            dataRoot, "game-123", "qa-default", "session-a", cheatModeAllowed: true);
-        string cheatB = ActivationSessionFactory.BuildProfileRoot(
-            dataRoot, "game-123", "qa-default", "session-b", cheatModeAllowed: true);
+        string first = ActivationSessionFactory.BuildProfileRoot(
+            dataRoot, "game-123", "qa-default");
+        string second = ActivationSessionFactory.BuildProfileRoot(
+            dataRoot, "game-123", "qa-default");
 
-        Assert.Equal(Path.Combine(dataRoot, "profiles", "game-123", "qa-default"), normal);
-        Assert.Equal(Path.Combine(dataRoot, "profiles", "game-123", "cheat", "session-a"), cheatA);
-        Assert.NotEqual(cheatA, cheatB);
-        Assert.DoesNotContain("qa-default", cheatA, StringComparison.Ordinal);
+        string expected = Path.Combine(dataRoot, "profiles", "game-123", "qa-default");
+        Assert.Equal(expected, first);
+        Assert.Equal(expected, second);
+        Assert.DoesNotContain(Path.DirectorySeparatorChar + "cheat" + Path.DirectorySeparatorChar, first, StringComparison.Ordinal);
     }
 }
