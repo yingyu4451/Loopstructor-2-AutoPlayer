@@ -32,6 +32,10 @@ internal sealed class ActivationContext
     public string ExpectedAssemblySha256 { get; }
     public bool CheatModeAllowed { get; }
     public string Source { get; }
+    public bool CheatProfileTainted => CheatProfileTaintMarker.IsTainted(ProfileRoot);
+
+    public bool TryMarkCheatProfileTainted(string requestId, string command, out string error) =>
+        CheatProfileTaintMarker.TryMark(ProfileRoot, requestId, command, out error);
 
     public static bool TryLoad(string gameRoot, out ActivationContext? context, out string reason)
     {
@@ -168,18 +172,6 @@ internal sealed class ActivationContext
         {
             reason = "自动游玩存档必须位于本工具的存档目录内。";
             return false;
-        }
-
-        if (cheatModeAllowed)
-        {
-            string gameId = Protocol.HashGameRoot(gameRoot)[..16];
-            string cheatRoot = Path.GetFullPath(Path.Combine(Protocol.DataRoot, "profiles", gameId, "cheat"));
-            string? parent = Directory.GetParent(fullProfile)?.FullName;
-            if (!string.Equals(parent, cheatRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                reason = "作弊调试会话必须使用当前游戏专属的一次性隔离档。";
-                return false;
-            }
         }
 
         string fullArtifact = Path.GetFullPath(artifactRoot);

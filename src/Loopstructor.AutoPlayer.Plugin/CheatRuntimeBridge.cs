@@ -2,8 +2,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using Loopstructor.AutoPlayer.Core;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -16,27 +18,39 @@ internal sealed class CheatRuntimeBridge
     private const float MaxCoordinateMagnitude = 10_000f;
     private const int MaxGrantCount = 20;
     private const int MaxSpawnCount = 10;
+    private const int MaxEnchantmentsPerVehicleFallback = 8;
+    private const int MaxEnchantmentLevel = 100;
+    private const int CatalogIconSize = 48;
+    private static readonly TimeSpan SpawnPointCaptureTimeout = TimeSpan.FromMinutes(2);
 
     private readonly List<string> _missingMembers = new();
     private readonly object _godModeSource = new();
+    private readonly Dictionary<int, CatalogIcon> _catalogIcons = new();
+    private string _artifactRoot = string.Empty;
     private GUIStyle? _enemyIdStyle;
     private object? _baseReceiver;
+    private SpawnPointCapture _spawnPointCapture = SpawnPointCapture.Idle();
 
     private Type? _vehicleManagerType;
     private Type? _vehicleControllerType;
-    private Type? _gameConfigManagerType;
-    private Type? _gameSoConfigType;
-    private Type? _mainRazorTypeSoType;
+    private Type? _cheatVehiclePanelCfgType;
     private Type? _fetterInfoCfgType;
+    private Type? _fetterDetailDataType;
+    private Type? _fetterModuleDataType;
     private Type? _vehicleType;
     private Type? _fetterType;
     private Type? _disposableManagerType;
+    private Type? _disposableDataType;
     private Type? _disposableType;
+    private Type? _infoManagerType;
+    private Type? _razorDescriptionType;
     private Type? _gameControllerType;
     private Type? _mainStationType;
     private Type? _waveControllerType;
     private Type? _agentCreatorType;
     private Type? _enemyConfigType;
+    private Type? _aiInformationDataSoType;
+    private Type? _aiInformationDataType;
     private Type? _aiIdType;
     private Type? _basicAiType;
     private Type? _basicAgentType;
@@ -53,8 +67,16 @@ internal sealed class CheatRuntimeBridge
     private Type? _rewardManagerType;
     private Type? _potionRewardType;
     private Type? _superModuleRewardType;
+    private Type? _superModuleDataType;
     private Type? _battleMemoryType;
     private Type? _healthMaxSyncModeType;
+    private Type? _inputManagerType;
+    private Type? _inputKeyType;
+    private Type? _mouseKeyType;
+    private Type? _pressStateRoType;
+    private Type? _defaultUiInteractionType;
+    private Type? _mapPosManagerType;
+    private Type? _pointDataUiType;
 
     public bool IsAvailable { get; private set; }
     public bool EnemyIdsVisible { get; set; }
@@ -62,24 +84,31 @@ internal sealed class CheatRuntimeBridge
     public IReadOnlyList<string> MissingMembers => _missingMembers;
     public IReadOnlyList<string> Capabilities => IsAvailable ? CheatCommands.All : Array.Empty<string>();
 
-    public void Initialize()
+    public void Initialize(string artifactRoot)
     {
+        _artifactRoot = Path.GetFullPath(artifactRoot);
         _missingMembers.Clear();
+        _catalogIcons.Clear();
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
-        _gameConfigManagerType = Require("MetroTD.GameConfigManager");
-        _gameSoConfigType = Require("MetroTD.GameSOConfig");
-        _mainRazorTypeSoType = Require("MetroTD.VehicleSystem.MainRazorTypeSO");
+        _cheatVehiclePanelCfgType = Require("MetroTD.CheatSystem.UI.CheatVehiclePanelCfg");
         _fetterInfoCfgType = Require("MetroTD.VehicleSystem.SO_FetterInfoCfg");
+        _fetterDetailDataType = Require("MetroTD.VehicleSystem.FetterDetailData");
+        _fetterModuleDataType = Require("MetroTD.BuffSystem.FetterModuleData");
         _vehicleType = Require("MetroTD.VehicleSystem.VehicleType");
         _fetterType = Require("FetterEnum");
         _disposableManagerType = Require("MetroTD.DisposableSystem.DisposableManager");
+        _disposableDataType = Require("MetroTD.DisposableSystem.DisposableData");
         _disposableType = Require("MetroTD.DisposableSystem.DisposableEnum");
+        _infoManagerType = Require("MetroTD.InfoSystem.InfoManager");
+        _razorDescriptionType = Require("MetroTD.InfoSystem.RazorDescription");
         _gameControllerType = Require("MetroTD.GameController");
         _mainStationType = Require("MetroTD.CatapultSystem.MainStation");
         _waveControllerType = Require("MetroTD.RoomSystem.WaveDurationController");
         _agentCreatorType = Require("MetroTD.AISystem.AgentCreator");
         _enemyConfigType = Require("MetroTD.AISystem.SO_EnemyCfg");
+        _aiInformationDataSoType = Require("MetroTD.AISystem.AIInformationDataSO");
+        _aiInformationDataType = Require("MetroTD.AISystem.AIInformationData");
         _aiIdType = Require("MetroTD.AISystem.AI_ID");
         _basicAiType = Require("BasicAI");
         _basicAgentType = Require("MetroTD.AISystem.BasicAgent");
@@ -96,10 +125,22 @@ internal sealed class CheatRuntimeBridge
         _rewardManagerType = Require("MetroTD.RewardSystem.RewardManager");
         _potionRewardType = Require("MetroTD.RewardSystem.PotionReward");
         _superModuleRewardType = Require("MetroTD.RewardSystem.SuperModuleReward");
+        _superModuleDataType = Require("MetroTD.SuperModuleSystem.SuperModuleData");
         _battleMemoryType = Require("MetroTD.BattleSystem.BattleMemoryEnum");
         _healthMaxSyncModeType = Require("MetroTD.BattleSystem.HealthMaxSyncMode");
+        _inputManagerType = Require("ActFramework_ByHZR.InputManager");
+        _inputKeyType = Require("UnityEngine.InputSystem.Key");
+        _mouseKeyType = Require("ActFramework_ByHZR.MouseKey");
+        _pressStateRoType = Require("ActFramework_ByHZR.PressStateRO");
+        _defaultUiInteractionType = Require("ActFramework_ByHZR.UI.DefaultUIInteraction");
+        _mapPosManagerType = Require("MapPosManager");
+        _pointDataUiType = Require("MetroTD.UISystem.DisposableInfo_Extension_PointDataUI");
         ValidateRuntimeContract();
         IsAvailable = _missingMembers.Count == 0;
+        if (IsAvailable)
+        {
+            SpawnPointCaptureInputPatch.Register(TickSpawnPointCapture);
+        }
     }
 
     public JObject QueryCatalog()
@@ -111,16 +152,20 @@ internal sealed class CheatRuntimeBridge
         IReadOnlyList<object> relics = ConfiguredRewardValues("AllSuperModuleRewards", "superModuleEnum", _superModuleType!);
         return new JObject
         {
-            ["vehicles"] = EnumItems(vehicles),
-            ["enchantments"] = EnumItems(enchantments),
-            ["disposables"] = EnumItems(disposables),
-            ["relics"] = EnumItems(relics),
-            ["enemies"] = SafeEnemyItems(),
+            ["catalogVersion"] = 2,
+            ["locale"] = "zh",
+            ["vehicles"] = CatalogItems(vehicles, BuildVehicleCatalogItem),
+            ["enchantments"] = CatalogItems(enchantments, BuildEnchantmentCatalogItem),
+            ["disposables"] = CatalogItems(disposables, BuildDisposableCatalogItem),
+            ["relics"] = CatalogItems(relics, BuildRelicCatalogItem),
+            ["enemies"] = SafeEnemyCatalogItems(),
+            ["catapultPoints"] = CatapultPointCatalogItems(),
             ["limits"] = new JObject
             {
                 ["maxGrantCount"] = MaxGrantCount,
                 ["maxSpawnCount"] = MaxSpawnCount,
-                ["maxEnchantmentLevel"] = 7,
+                ["maxEnchantmentsPerVehicle"] = MaxEnchantmentsPerVehicleFallback,
+                ["maxEnchantmentLevel"] = MaxEnchantmentLevel,
                 ["maxEnemyLevel"] = 200,
                 ["maxCoordinateMagnitude"] = MaxCoordinateMagnitude
             }
@@ -132,33 +177,82 @@ internal sealed class CheatRuntimeBridge
         EnsureAvailable();
         string vehicleId = RequiredText(arguments, "vehicleId", "必须选择战车类型。");
         int count = BoundedInt(arguments, "count", 1, MaxGrantCount, 1);
-        bool enchanted = arguments.Value<bool?>("enchanted") == true;
-        string enchantmentId = arguments.Value<string>("enchantmentId") ?? string.Empty;
-        int enchantmentLevel = BoundedInt(arguments, "enchantmentLevel", 1, 7, 1);
         object vehicleEnum = ParseEnum(_vehicleType!, vehicleId, "战车类型");
         if (!ContainsEnumValue(ConfiguredVehicleValues(), vehicleEnum))
         {
             return CheatExecutionResult.Fail("当前游戏配置中没有可生成的战车：" + vehicleId + "。", "VEHICLE_NOT_CONFIGURED");
         }
 
-        object? enchantmentEnum = null;
-        if (enchanted)
+        JToken? enchantmentsToken = arguments["enchantments"];
+        if (enchantmentsToken != null
+            && enchantmentsToken.Type != JTokenType.Null
+            && enchantmentsToken is not JArray)
         {
-            if (string.IsNullOrWhiteSpace(enchantmentId) || enchantmentId == "None")
+            return CheatExecutionResult.Fail("附魔列表格式无效。", "INVALID_ENCHANTMENT");
+        }
+
+        JArray requestedEnchantments = enchantmentsToken as JArray ?? new JArray();
+        if (requestedEnchantments.Count > MaxEnchantmentsPerVehicleFallback)
+        {
+            return CheatExecutionResult.Fail(
+                $"每辆战车最多添加 {MaxEnchantmentsPerVehicleFallback} 种附魔。",
+                "TOO_MANY_ENCHANTMENTS");
+        }
+
+        IList runtimeEnchantments = CreateRuntimeList(_fetterModuleDataType!);
+        HashSet<long> selectedEnchantments = new();
+        JArray appliedEnchantments = new();
+        foreach (JToken token in requestedEnchantments)
+        {
+            if (token is not JObject enchantment)
             {
-                return CheatExecutionResult.Fail("已勾选附魔，但没有选择有效附魔。", "INVALID_ENCHANTMENT");
+                return CheatExecutionResult.Fail("附魔列表格式无效。", "INVALID_ENCHANTMENT");
             }
 
-            enchantmentEnum = ParseEnum(_fetterType!, enchantmentId, "附魔类型");
+            string enchantmentId = RequiredText(enchantment, "enchantmentId", "必须选择附魔类型。");
+            if (string.Equals(enchantmentId, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                return CheatExecutionResult.Fail("None 不是可添加的附魔。", "INVALID_ENCHANTMENT");
+            }
+
+            int enchantmentLevel = BoundedInt(
+                enchantment,
+                "level",
+                1,
+                MaxEnchantmentLevel,
+                1);
+            object enchantmentEnum = ParseEnum(_fetterType!, enchantmentId, "附魔类型");
             if (!ContainsEnumValue(ConfiguredEnchantmentValues(), enchantmentEnum))
             {
-                return CheatExecutionResult.Fail("当前游戏配置中没有可用的基础附魔：" + enchantmentId + "。", "ENCHANTMENT_NOT_CONFIGURED");
+                return CheatExecutionResult.Fail(
+                    "当前游戏作弊配置中没有可用附魔：" + enchantmentId + "。",
+                    "ENCHANTMENT_NOT_CONFIGURED");
             }
+
+            long numeric = Convert.ToInt64(enchantmentEnum, CultureInfo.InvariantCulture);
+            if (!selectedEnchantments.Add(numeric))
+            {
+                return CheatExecutionResult.Fail("同一种附魔不能重复添加：" + enchantmentId + "。", "DUPLICATE_ENCHANTMENT");
+            }
+
+            object moduleData = Activator.CreateInstance(_fetterModuleDataType!)
+                                ?? throw new InvalidOperationException("无法创建附魔数据。");
+            SetMemberValue(moduleData, "fetterEnum", enchantmentEnum);
+            SetMemberValue(moduleData, "level", enchantmentLevel);
+            SetMemberValue(moduleData, "count", 1);
+            runtimeEnchantments.Add(moduleData);
+            appliedEnchantments.Add(new JObject
+            {
+                ["enchantmentId"] = enchantmentId,
+                ["level"] = enchantmentLevel
+            });
         }
 
         object manager = GetRequiredSingleton(_vehicleManagerType!, "VehicleManager");
-        MethodInfo? method = enchanted
-            ? FindMethod(manager.GetType(), "GetCustomNewMainRazor", _vehicleType!, _fetterType!, typeof(int))
+        bool hasEnchantments = runtimeEnchantments.Count > 0;
+        Type runtimeListType = runtimeEnchantments.GetType();
+        MethodInfo? method = hasEnchantments
+            ? FindMethod(manager.GetType(), "GetCustomNewMainRazor", _vehicleType!, runtimeListType)
             : FindMethod(manager.GetType(), "GetNewMainRazor", _vehicleType!);
         if (method == null)
         {
@@ -168,11 +262,30 @@ internal sealed class CheatRuntimeBridge
         JArray granted = new();
         for (int index = 0; index < count; index++)
         {
-            object? created = method.Invoke(
-                manager,
-                enchanted
-                    ? new[] { vehicleEnum, enchantmentEnum!, (object)enchantmentLevel }
-                    : new[] { vehicleEnum });
+            object? created;
+            try
+            {
+                created = method.Invoke(
+                    manager,
+                    hasEnchantments
+                        ? new object[] { vehicleEnum, runtimeEnchantments }
+                        : new[] { vehicleEnum });
+            }
+            finally
+            {
+                if (hasEnchantments)
+                {
+                    try
+                    {
+                        FindMethod(manager.GetType(), "EndVehicleGetMode")?.Invoke(manager, null);
+                    }
+                    catch
+                    {
+                        // Never let cleanup hide the original spawn failure.
+                    }
+                }
+            }
+
             if (created == null) break;
             granted.Add(BuildVehicleReference(created));
         }
@@ -181,10 +294,17 @@ internal sealed class CheatRuntimeBridge
         {
             ["requested"] = count,
             ["granted"] = granted.Count,
-            ["vehicles"] = granted
+            ["vehicles"] = granted,
+            ["enchantments"] = appliedEnchantments
         };
-        string message = $"已获取 {granted.Count}/{count} 辆战车 {vehicleId}" +
-                         (enchanted ? $"，附魔 {enchantmentId} 等级 {enchantmentLevel}。" : "。 ");
+        string enchantmentSummary = appliedEnchantments.Count == 0
+            ? string.Empty
+            : "，附魔 " + string.Join(
+                " + ",
+                appliedEnchantments
+                    .OfType<JObject>()
+                    .Select(item => $"{item.Value<string>("enchantmentId")} {item.Value<int>("level")}级"));
+        string message = $"已获取 {granted.Count}/{count} 辆战车 {vehicleId}{enchantmentSummary}。";
         if (granted.Count == count) return CheatExecutionResult.Changed(message.TrimEnd(), data);
         return granted.Count > 0
             ? CheatExecutionResult.Partial(message + " 部分战车未能生成，请检查配置或容量。", data)
@@ -224,6 +344,58 @@ internal sealed class CheatRuntimeBridge
         return granted > 0
             ? CheatExecutionResult.Partial(message + " 背包容量或配置阻止了剩余获取。", data)
             : CheatExecutionResult.Fail("未能获取消耗品，可能已达到容量上限或当前场景未初始化。", "DISPOSABLE_GRANT_FAILED");
+    }
+
+    public CheatExecutionResult GrantCatapultPoint(JObject arguments)
+    {
+        EnsureAvailable();
+        string disposableId = RequiredText(arguments, "disposableId", "必须选择弹射点类型。");
+        int count = BoundedInt(arguments, "count", 1, MaxGrantCount, 1);
+        if (!IsCatapultPointId(disposableId))
+        {
+            return CheatExecutionResult.Fail(
+                "弹射点只支持 FreePoint 或 FreePoint_Attribute。",
+                "INVALID_CATAPULT_POINT");
+        }
+
+        object disposableEnum = ParseEnum(_disposableType!, disposableId, "弹射点类型");
+        if (!TryGetDisposableData(disposableEnum, out _))
+        {
+            return CheatExecutionResult.Fail(
+                "当前游戏配置中没有该弹射点：" + disposableId + "。",
+                "CATAPULT_POINT_NOT_CONFIGURED");
+        }
+
+        object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
+        object pointDataUi = GetRequiredSingleton(_pointDataUiType!, "弹射点数据界面");
+        MethodInfo? grantMethod = FindMethod(manager.GetType(), "TryGetDisposable", _disposableType!);
+        MethodInfo? addPointMethod = FindMethod(pointDataUi.GetType(), "AddPointData", typeof(bool));
+        if (grantMethod == null || addPointMethod == null)
+        {
+            return CheatExecutionResult.Fail("当前游戏版本缺少弹射点获取入口。", "CATAPULT_POINT_API_MISSING");
+        }
+
+        bool isAttribute = string.Equals(disposableId, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase);
+        int granted = 0;
+        for (int index = 0; index < count; index++)
+        {
+            if (grantMethod.Invoke(manager, new[] { disposableEnum }) is not bool success || !success) break;
+            addPointMethod.Invoke(pointDataUi, new object[] { isAttribute });
+            granted++;
+        }
+
+        JObject data = new()
+        {
+            ["requested"] = count,
+            ["granted"] = granted,
+            ["disposableId"] = disposableId,
+            ["isAttribute"] = isAttribute
+        };
+        string message = $"已获取 {granted}/{count} 个{(isAttribute ? "能量" : "普通")}弹射点。";
+        if (granted == count) return CheatExecutionResult.Changed(message, data);
+        return granted > 0
+            ? CheatExecutionResult.Partial(message + " 容量限制阻止了剩余获取。", data)
+            : CheatExecutionResult.Fail("未能获取弹射点，请确认已进入对局且弹射点界面完成初始化。", "CATAPULT_POINT_GRANT_FAILED");
     }
 
     public CheatExecutionResult GrantRelic(JObject arguments)
@@ -449,6 +621,12 @@ internal sealed class CheatRuntimeBridge
         float x = BoundedCoordinate(arguments, "x");
         float y = BoundedCoordinate(arguments, "y");
         float z = BoundedCoordinate(arguments, "z");
+        Vector3 spawnPosition = new(x, y, z);
+        if (!TryValidateSpawnPosition(spawnPosition, out string positionReason))
+        {
+            return CheatExecutionResult.Fail(positionReason, "INVALID_SPAWN_POSITION");
+        }
+
         object aiId = ParseEnum(_aiIdType!, enemyId, "怪物类型");
         if (!IsSafeConfiguredEnemy(aiId, out string configurationReason))
         {
@@ -494,7 +672,7 @@ internal sealed class CheatRuntimeBridge
             object?[] invokeArgs =
             {
                 aiId,
-                new Vector3(x, y, z),
+                spawnPosition,
                 Quaternion.identity,
                 level,
                 battleGroup,
@@ -534,7 +712,7 @@ internal sealed class CheatRuntimeBridge
             ["requested"] = count,
             ["spawned"] = created.Count,
             ["enemyId"] = enemyId,
-            ["position"] = VectorData(new Vector3(x, y, z)),
+            ["position"] = VectorData(spawnPosition),
             ["enemies"] = created,
             ["countedInActiveWave"] = activeWave
         };
@@ -543,6 +721,94 @@ internal sealed class CheatRuntimeBridge
         return created.Count > 0
             ? CheatExecutionResult.Partial(message + " 其余生成请求被容量或配置拒绝。", data)
             : CheatExecutionResult.Fail("怪物生成失败，请确认当前对局、怪物配置和数量上限。", "SPAWN_FAILED");
+    }
+
+    public CheatExecutionResult SetSpawnPointCapture(JObject arguments)
+    {
+        EnsureAvailable();
+        bool enabled = arguments.Value<bool?>("enabled") == true;
+        if (enabled && !SpawnPointCaptureInputPatch.IsInstalled)
+        {
+            return CheatExecutionResult.Fail(
+                "怪物生成位置捕获未接入游戏输入流水线，无法安全拦截点击。",
+                "INPUT_CAPTURE_UNAVAILABLE");
+        }
+
+        _spawnPointCapture = enabled
+            ? SpawnPointCapture.Armed(
+                DateTime.UtcNow.Add(SpawnPointCaptureTimeout),
+                "已等待定位：请在两分钟内切换到游戏，按住左 Alt 并点击鼠标左键。")
+            : SpawnPointCapture.Idle("已取消怪物生成位置定位。");
+        return CheatExecutionResult.Ok(_spawnPointCapture.Message, SpawnPointCaptureData());
+    }
+
+    public void TickSpawnPointCapture()
+    {
+        // CheatController.Tick is hosted by an unrelated MonoBehaviour whose Update
+        // order is not defined relative to the game. Only accept calls dispatched by
+        // the Harmony hook inside DefaultInputHandler.Update.
+        if (!SpawnPointCaptureInputPatch.IsDispatching) return;
+        ExpireSpawnPointCaptureIfNeeded();
+        if (!_spawnPointCapture.IsArmed) return;
+
+        try
+        {
+            object? input = TryGetSingleton(_inputManagerType!);
+            if (input == null) return;
+
+            object leftAlt = ParseEnum(_inputKeyType!, "LeftAlt", "定位快捷键");
+            object leftMouse = ParseEnum(_mouseKeyType!, "left", "鼠标按键");
+            object? altState = FindMethod(input.GetType(), "GetKeyPressStateRO", _inputKeyType!)
+                ?.Invoke(input, new[] { leftAlt });
+            if (altState == null || !GetBool(altState, "isPressed")) return;
+
+            object? mouseState = FindMethod(input.GetType(), "GetMousePressStateRO", _mouseKeyType!)
+                ?.Invoke(input, new[] { leftMouse });
+            if (mouseState == null || !GetBool(mouseState, "wasPressedThisFrame")) return;
+
+            if (GetBool(input, "hasUsed")) return;
+            object? uiInteraction = GetStaticMember(_defaultUiInteractionType!, "Current");
+            if (uiInteraction != null && GetBool(uiInteraction, "isInUI")) return;
+
+            if (GetMember(input, "currentWorldMousePosition") is not Vector3 position)
+            {
+                _spawnPointCapture = SpawnPointCapture.Failed("无法读取鼠标世界坐标，请重新定位。");
+                return;
+            }
+
+            position.z = 0f;
+            if (!TryValidateSpawnPosition(position, out string reason))
+            {
+                _spawnPointCapture = SpawnPointCapture.Failed(reason);
+                return;
+            }
+
+            FindMethod(input.GetType(), "UseInputOnly")?.Invoke(input, null);
+            _spawnPointCapture = SpawnPointCapture.Captured(
+                position,
+                $"已固定生成位置：({position.x:0.##}, {position.y:0.##})。");
+        }
+        catch (Exception exception)
+        {
+            _spawnPointCapture = SpawnPointCapture.Failed(
+                "定位失败：" + Unwrap(exception).Message);
+        }
+    }
+
+    public JObject SpawnPointCaptureData()
+    {
+        ExpireSpawnPointCaptureIfNeeded();
+        return _spawnPointCapture.ToData();
+    }
+
+    private void ExpireSpawnPointCaptureIfNeeded()
+    {
+        if (_spawnPointCapture.IsArmed
+            && _spawnPointCapture.ExpiresAtUtc.HasValue
+            && DateTime.UtcNow >= _spawnPointCapture.ExpiresAtUtc.Value)
+        {
+            _spawnPointCapture = SpawnPointCapture.Expired("定位请求已超过两分钟，已自动取消。");
+        }
     }
 
     public void DrawEnemyIds()
@@ -571,6 +837,7 @@ internal sealed class CheatRuntimeBridge
     public void ResetTransientFeatures()
     {
         EnemyIdsVisible = false;
+        _spawnPointCapture = SpawnPointCapture.Idle();
         if (_baseReceiver != null)
         {
             try
@@ -931,19 +1198,40 @@ internal sealed class CheatRuntimeBridge
         RequireSingletonAccessor(_vehicleManagerType);
         RequireMember(_vehicleManagerType, "MainVehicles");
         RequireMethodContract(_vehicleManagerType, "GetNewMainRazor", _vehicleType);
-        RequireMethodContract(_vehicleManagerType, "GetCustomNewMainRazor", _vehicleType, _fetterType, typeof(int));
+        Type? fetterListType = _fetterModuleDataType == null
+            ? null
+            : typeof(List<>).MakeGenericType(_fetterModuleDataType);
+        RequireMethodContract(_vehicleManagerType, "GetCustomNewMainRazor", _vehicleType, fetterListType);
+        RequireMethodContract(_vehicleManagerType, "EndVehicleGetMode");
         RequireMember(_vehicleControllerType, "ID");
         RequireMember(_vehicleControllerType, "vehicleType");
         RequireMember(_vehicleControllerType, "level");
-        RequireSingletonAccessor(_gameConfigManagerType);
-        RequireMember(_gameConfigManagerType, "gameConfig");
-        RequireMember(_gameSoConfigType, "mainRazorTypeSo");
-        RequireMember(_mainRazorTypeSoType, "mainRazorComponents");
+        RequireMember(_cheatVehiclePanelCfgType, "vehicleTypes");
+        RequireMember(_cheatVehiclePanelCfgType, "fetterEnums");
         RequireSingletonAccessor(_fetterInfoCfgType);
-        RequireMethodContract(_fetterInfoCfgType, "GetAllBasicFetter");
+        RequireMethodContract(
+            _fetterInfoCfgType,
+            "TryGetDetailData",
+            _fetterType,
+            _fetterDetailDataType?.MakeByRefType());
+        RequireMember(_fetterDetailDataType, "enchantmentWordTextName");
+        RequireMember(_fetterDetailDataType, "icon");
+        RequireMember(_fetterModuleDataType, "fetterEnum");
+        RequireMember(_fetterModuleDataType, "level");
+        RequireMember(_fetterModuleDataType, "count");
 
         RequireSingletonAccessor(_disposableManagerType);
         RequireMethodContract(_disposableManagerType, "TryGetDisposable", _disposableType);
+        RequireSingletonAccessor(_infoManagerType);
+        RequireMethodContract(_infoManagerType, "GetVehicleDescription", _vehicleType);
+        RequireMethodContract(_infoManagerType, "GetDisposableData", _disposableType);
+        RequireMethodContract(_infoManagerType, "GetSuperModuleData", _superModuleType);
+        RequireMember(_razorDescriptionType, "name");
+        RequireMember(_razorDescriptionType, "sprite");
+        RequireMember(_disposableDataType, "name");
+        RequireMember(_disposableDataType, "icon");
+        RequireMember(_superModuleDataType, "name");
+        RequireMember(_superModuleDataType, "icon");
         RequireSingletonAccessor(_superModuleManagerType);
         RequireMember(_superModuleManagerType, "superModules");
         RequireMethodContract(_superModuleManagerType, "GetSuperModule", _superModuleType, typeof(bool));
@@ -956,6 +1244,7 @@ internal sealed class CheatRuntimeBridge
 
         RequireSingletonAccessor(_gameControllerType);
         RequireMember(_gameControllerType, "MainBase");
+        RequireMember(_gameControllerType, "GameIsOver");
         RequireMember(_mainStationType, "mainStationDamageReceiver");
         RequireMethodContract(_damageReceiverType, "AddGodModeSource", typeof(object));
         RequireMethodContract(_damageReceiverType, "RemoveGodModeSource", typeof(object));
@@ -998,6 +1287,10 @@ internal sealed class CheatRuntimeBridge
 
         RequireSingletonAccessor(_enemyConfigType);
         RequireMember(_enemyConfigType, "datas");
+        RequireSingletonAccessor(_aiInformationDataSoType);
+        RequireMethodContract(_aiInformationDataSoType, "GetAIInformationData", _aiIdType);
+        RequireMember(_aiInformationDataType, "name");
+        RequireMember(_aiInformationDataType, "icon");
         RequireMember(_basicAiType, "aiID");
         RequireMember(_basicAiType, "IsBoss");
         RequireMember(_basicAiType, "SendsDeathMessage");
@@ -1018,6 +1311,21 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_generalIntParameterType, "Value");
         RequireMethodContract(_generalIntParameterType, "GetRealValue");
         RequireMethodContract(_generalIntParameterType, "SetValue", typeof(int));
+
+        RequireSingletonAccessor(_inputManagerType);
+        RequireMember(_inputManagerType, "hasUsed");
+        RequireMember(_inputManagerType, "currentWorldMousePosition");
+        RequireMethodContract(_inputManagerType, "GetKeyPressStateRO", _inputKeyType);
+        RequireMethodContract(_inputManagerType, "GetMousePressStateRO", _mouseKeyType);
+        RequireMethodContract(_inputManagerType, "UseInputOnly");
+        RequireMember(_pressStateRoType, "isPressed");
+        RequireMember(_pressStateRoType, "wasPressedThisFrame");
+        RequireStaticMember(_defaultUiInteractionType, "Current");
+        RequireMember(_defaultUiInteractionType, "isInUI");
+        RequireSingletonAccessor(_mapPosManagerType);
+        RequireMember(_mapPosManagerType, "rect");
+        RequireStaticMember(_pointDataUiType, "Instance");
+        RequireMethodContract(_pointDataUiType, "AddPointData", typeof(bool));
     }
 
     private void RequireSingletonAccessor(Type? type)
@@ -1038,6 +1346,14 @@ internal sealed class CheatRuntimeBridge
     {
         if (type == null) return;
         const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
+        if (type.GetProperty(name, flags) != null || type.GetField(name, flags) != null) return;
+        AddMissing((type.FullName ?? type.Name) + "." + name);
+    }
+
+    private void RequireStaticMember(Type? type, string name)
+    {
+        if (type == null) return;
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy;
         if (type.GetProperty(name, flags) != null || type.GetField(name, flags) != null) return;
         AddMissing((type.FullName ?? type.Name) + "." + name);
     }
@@ -1104,6 +1420,37 @@ internal sealed class CheatRuntimeBridge
         return field?.GetValue(target);
     }
 
+    private static object? GetStaticMember(Type type, string name)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+        PropertyInfo? property = type.GetProperty(name, flags);
+        if (property != null) return property.GetValue(null, null);
+        return type.GetField(name, flags)?.GetValue(null);
+    }
+
+    private static void SetMemberValue(object target, string name, object value)
+    {
+        Type type = target.GetType();
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
+        PropertyInfo? property = type.GetProperty(name, flags);
+        if (property?.CanWrite == true)
+        {
+            property.SetValue(target, value, null);
+            return;
+        }
+
+        FieldInfo? field = type.GetField(name, flags);
+        if (field == null) throw new MissingMemberException(type.FullName, name);
+        field.SetValue(target, value);
+    }
+
+    private static IList CreateRuntimeList(Type itemType)
+    {
+        Type listType = typeof(List<>).MakeGenericType(itemType);
+        return (IList)(Activator.CreateInstance(listType)
+                       ?? throw new InvalidOperationException("无法创建运行时列表：" + listType.FullName));
+    }
+
     private static MethodInfo? FindMethod(Type? type, string name, params Type[] parameters) =>
         type?.GetMethod(
             name,
@@ -1126,46 +1473,34 @@ internal sealed class CheatRuntimeBridge
 
     private IReadOnlyList<object> ConfiguredVehicleValues()
     {
-        object manager = GetRequiredSingleton(_gameConfigManagerType!, "GameConfigManager");
-        object? gameConfig = GetMember(manager, "gameConfig");
-        object? vehicleConfig = GetMember(gameConfig, "mainRazorTypeSo");
-        if (GetMember(vehicleConfig, "mainRazorComponents") is not IDictionary entries)
-        {
-            throw new InvalidOperationException("战车预制体配置尚未初始化。");
-        }
-
-        List<object> result = new();
-        foreach (DictionaryEntry entry in entries)
-        {
-            if (entry.Key == null || entry.Key.GetType() != _vehicleType) continue;
-            if (entry.Value == null) continue;
-            if (entry.Value is UnityEngine.Object unityObject && unityObject == null) continue;
-            string id = entry.Key.ToString() ?? string.Empty;
-            if (id == "None" || id == "Train_Head") continue;
-            result.Add(entry.Key);
-        }
-
-        return DistinctEnumValues(result);
+        return ConfiguredCheatValues("vehicleTypes", _vehicleType!, "战车")
+            .Where(value => !string.Equals(value.ToString(), "Train_Head", StringComparison.Ordinal))
+            .ToArray();
     }
 
     private IReadOnlyList<object> ConfiguredEnchantmentValues()
     {
-        object configuration = GetRequiredSingleton(_fetterInfoCfgType!, "SO_FetterInfoCfg");
-        MethodInfo method = FindMethod(configuration.GetType(), "GetAllBasicFetter")
-                            ?? throw new InvalidOperationException("基础附魔配置入口不可用。");
-        if (method.Invoke(configuration, null) is not IEnumerable values)
+        return ConfiguredCheatValues("fetterEnums", _fetterType!, "附魔");
+    }
+
+    private IReadOnlyList<object> ConfiguredCheatValues(string memberName, Type enumType, string displayName)
+    {
+        UnityEngine.Object[] configurations = Resources.FindObjectsOfTypeAll(_cheatVehiclePanelCfgType!);
+        foreach (UnityEngine.Object configuration in configurations)
         {
-            throw new InvalidOperationException("基础附魔配置尚未初始化。");
+            if (configuration == null || GetMember(configuration, memberName) is not IEnumerable values) continue;
+            List<object> result = new();
+            foreach (object? value in values)
+            {
+                if (value == null || value.GetType() != enumType) continue;
+                if (string.Equals(value.ToString(), "None", StringComparison.OrdinalIgnoreCase)) continue;
+                result.Add(value);
+            }
+
+            if (result.Count > 0) return DistinctEnumValues(result);
         }
 
-        List<object> result = new();
-        foreach (object? value in values)
-        {
-            if (value == null || value.GetType() != _fetterType || string.Equals(value.ToString(), "None", StringComparison.Ordinal)) continue;
-            result.Add(value);
-        }
-
-        return DistinctEnumValues(result);
+        throw new InvalidOperationException("官方作弊面板的" + displayName + "目录尚未加载。");
     }
 
     private IReadOnlyList<object> ConfiguredRewardValues(string collectionName, string enumMember, Type enumType)
@@ -1212,40 +1547,122 @@ internal sealed class CheatRuntimeBridge
     private static bool ContainsEnumValue(IEnumerable<object> values, object expected) =>
         values.Any(value => Equals(value, expected));
 
-    private static JArray EnumItems(IEnumerable<object> values)
+    private static JArray CatalogItems(IEnumerable<object> values, Func<object, JObject> builder)
     {
         JArray result = new();
         foreach (object value in values)
         {
-            string id = value.ToString() ?? string.Empty;
-            result.Add(new JObject
-            {
-                ["id"] = id,
-                ["name"] = id,
-                ["value"] = Convert.ToInt64(value, CultureInfo.InvariantCulture)
-            });
+            result.Add(builder(value));
         }
 
         return result;
     }
 
-    private JArray SafeEnemyItems()
+    private JObject BuildVehicleCatalogItem(object value)
+    {
+        object? data = InvokeInfoManager("GetVehicleDescription", _vehicleType!, value);
+        return BuildCatalogItem(value, data, "name", "sprite", "战车");
+    }
+
+    private JObject BuildEnchantmentCatalogItem(object value)
+    {
+        object configuration = GetRequiredSingleton(_fetterInfoCfgType!, "SO_FetterInfoCfg");
+        MethodInfo? method = FindMethod(
+            configuration.GetType(),
+            "TryGetDetailData",
+            _fetterType!,
+            _fetterDetailDataType!.MakeByRefType());
+        object?[] invokeArguments = { value, null };
+        object? data = method?.Invoke(configuration, invokeArguments) is true ? invokeArguments[1] : null;
+        return BuildCatalogItem(value, data, "enchantmentWordTextName", "icon", "附魔");
+    }
+
+    private JObject BuildDisposableCatalogItem(object value)
+    {
+        TryGetDisposableData(value, out object? data);
+        return BuildCatalogItem(value, data, "name", "icon", "消耗品");
+    }
+
+    private JObject BuildRelicCatalogItem(object value)
+    {
+        object? data = InvokeInfoManager("GetSuperModuleData", _superModuleType!, value);
+        return BuildCatalogItem(value, data, "name", "icon", "遗物");
+    }
+
+    private JObject BuildEnemyCatalogItem(object value)
+    {
+        object? configuration = TryGetSingleton(_aiInformationDataSoType!);
+        object? data = configuration == null
+            ? null
+            : FindMethod(configuration.GetType(), "GetAIInformationData", _aiIdType!)?.Invoke(configuration, new[] { value });
+        return BuildCatalogItem(value, data, "name", "icon", "怪物");
+    }
+
+    private JObject BuildCatalogItem(
+        object value,
+        object? data,
+        string nameMember,
+        string iconMember,
+        string category)
+    {
+        string id = value.ToString() ?? string.Empty;
+        string name = ResolveChineseLocalizedString(GetMember(data, nameMember));
+        CatalogIcon icon = ExportCatalogIcon(GetMember(data, iconMember) as Sprite);
+        return new JObject
+        {
+            ["id"] = id,
+            ["name"] = string.IsNullOrWhiteSpace(name) ? id : name,
+            ["fallbackName"] = id,
+            ["iconFile"] = icon.RelativeFile,
+            ["iconSha256"] = icon.Sha256,
+            ["tags"] = new JArray(category, id),
+            ["value"] = Convert.ToInt64(value, CultureInfo.InvariantCulture)
+        };
+    }
+
+    private object? InvokeInfoManager(string methodName, Type argumentType, object value)
+    {
+        object? manager = TryGetSingleton(_infoManagerType!);
+        return manager == null
+            ? null
+            : FindMethod(manager.GetType(), methodName, argumentType)?.Invoke(manager, new[] { value });
+    }
+
+    private bool TryGetDisposableData(object disposableEnum, out object? data)
+    {
+        data = InvokeInfoManager("GetDisposableData", _disposableType!, disposableEnum);
+        return data != null && (!(data is UnityEngine.Object unityObject) || unityObject != null);
+    }
+
+    private JArray SafeEnemyCatalogItems()
     {
         JArray result = new();
         foreach (object value in Enum.GetValues(_aiIdType!))
         {
             string id = value.ToString() ?? string.Empty;
             if (!IsSafeSpawnId(id) || !IsSafeConfiguredEnemy(value, out _)) continue;
-            result.Add(new JObject
-            {
-                ["id"] = id,
-                ["name"] = id,
-                ["value"] = Convert.ToInt64(value, CultureInfo.InvariantCulture)
-            });
+            result.Add(BuildEnemyCatalogItem(value));
         }
 
         return result;
     }
+
+    private JArray CatapultPointCatalogItems()
+    {
+        JArray result = new();
+        foreach (string id in new[] { "FreePoint", "FreePoint_Attribute" })
+        {
+            object value = ParseEnum(_disposableType!, id, "弹射点类型");
+            if (!TryGetDisposableData(value, out object? data)) continue;
+            result.Add(BuildCatalogItem(value, data, "name", "icon", "弹射点"));
+        }
+
+        return result;
+    }
+
+    private static bool IsCatapultPointId(string id) =>
+        string.Equals(id, "FreePoint", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(id, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase);
 
     private bool IsSafeConfiguredEnemy(object aiId, out string reason)
     {
@@ -1301,6 +1718,162 @@ internal sealed class CheatRuntimeBridge
                && !value.StartsWith("friendly_", StringComparison.Ordinal)
                && !value.StartsWith("environmentalobject_", StringComparison.Ordinal)
                && !value.StartsWith("deadenemy_", StringComparison.Ordinal);
+    }
+
+    private bool TryValidateSpawnPosition(Vector3 position, out string reason)
+    {
+        if (float.IsNaN(position.x) || float.IsInfinity(position.x)
+            || float.IsNaN(position.y) || float.IsInfinity(position.y)
+            || float.IsNaN(position.z) || float.IsInfinity(position.z))
+        {
+            reason = "怪物生成坐标必须是有限数字。";
+            return false;
+        }
+
+        object? gameController = TryGetSingleton(_gameControllerType!);
+        if (gameController == null)
+        {
+            reason = "当前对局尚未初始化，无法固定怪物生成位置。";
+            return false;
+        }
+
+        if (GetBool(gameController, "GameIsOver"))
+        {
+            reason = "对局已经结束，不能再生成怪物。";
+            return false;
+        }
+
+        object? map = TryGetSingleton(_mapPosManagerType!);
+        if (map == null || GetMember(map, "rect") is not Rect bounds)
+        {
+            reason = "地图边界尚未初始化，无法固定怪物生成位置。";
+            return false;
+        }
+
+        if (!bounds.Contains(new Vector2(position.x, position.y)))
+        {
+            reason = "所选位置超出当前地图边界，请在地图内重新定位。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private string ResolveChineseLocalizedString(object? localizedString)
+    {
+        if (localizedString == null) return string.Empty;
+        try
+        {
+            Type? settingsType = FindType("UnityEngine.Localization.Settings.LocalizationSettings");
+            if (settingsType == null) return string.Empty;
+
+            object? initialization = GetStaticMember(settingsType, "InitializationOperation");
+            if (initialization != null && !GetBool(initialization, "IsDone")) return string.Empty;
+
+            object? availableLocales = GetStaticMember(settingsType, "AvailableLocales");
+            object? locale = availableLocales == null
+                ? null
+                : FindMethod(availableLocales.GetType(), "GetLocale", typeof(string))
+                    ?.Invoke(availableLocales, new object[] { "zh" });
+            object? database = GetStaticMember(settingsType, "StringDatabase");
+            object? tableReference = GetMember(localizedString, "TableReference");
+            object? entryReference = GetMember(localizedString, "TableEntryReference");
+            if (locale == null || database == null || tableReference == null || entryReference == null)
+            {
+                return string.Empty;
+            }
+
+            MethodInfo? method = database.GetType()
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+                .FirstOrDefault(candidate =>
+                {
+                    if (!string.Equals(candidate.Name, "GetLocalizedString", StringComparison.Ordinal)) return false;
+                    ParameterInfo[] parameters = candidate.GetParameters();
+                    return parameters.Length == 5
+                           && parameters[0].ParameterType.Name == "TableReference"
+                           && parameters[1].ParameterType.Name == "TableEntryReference"
+                           && parameters[4].ParameterType == typeof(object[]);
+                });
+            if (method == null) return string.Empty;
+
+            ParameterInfo[] methodParameters = method.GetParameters();
+            object fallbackBehavior = Enum.ToObject(methodParameters[3].ParameterType, 0);
+            string? value = method.Invoke(
+                database,
+                new[] { tableReference, entryReference, locale, fallbackBehavior, Array.Empty<object>() }) as string;
+            return value?.Trim() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private CatalogIcon ExportCatalogIcon(Sprite? sprite)
+    {
+        if (sprite == null || string.IsNullOrWhiteSpace(_artifactRoot)) return CatalogIcon.None;
+        int instanceId = sprite.GetInstanceID();
+        if (_catalogIcons.TryGetValue(instanceId, out CatalogIcon? cached)) return cached;
+
+        RenderTexture? renderTexture = null;
+        RenderTexture? previousActive = RenderTexture.active;
+        Texture2D? readableTexture = null;
+        try
+        {
+            Texture2D source = sprite.texture;
+            Rect sourceRect = sprite.textureRect;
+            if (source == null || source.width <= 0 || source.height <= 0
+                || sourceRect.width <= 0f || sourceRect.height <= 0f)
+            {
+                return CatalogIcon.None;
+            }
+
+            renderTexture = RenderTexture.GetTemporary(
+                CatalogIconSize,
+                CatalogIconSize,
+                0,
+                RenderTextureFormat.ARGB32,
+                RenderTextureReadWrite.sRGB);
+            renderTexture.filterMode = FilterMode.Bilinear;
+            RenderTexture.active = renderTexture;
+            GL.Clear(true, true, Color.clear);
+            Vector2 scale = new(sourceRect.width / source.width, sourceRect.height / source.height);
+            Vector2 offset = new(sourceRect.x / source.width, sourceRect.y / source.height);
+            Graphics.Blit(source, renderTexture, scale, offset);
+
+            readableTexture = new Texture2D(CatalogIconSize, CatalogIconSize, TextureFormat.RGBA32, false);
+            readableTexture.ReadPixels(new Rect(0f, 0f, CatalogIconSize, CatalogIconSize), 0, 0, false);
+            readableTexture.Apply(false, false);
+            byte[] png = readableTexture.EncodeToPNG();
+            if (png == null || png.Length == 0) return CatalogIcon.None;
+
+            string hash;
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                hash = BitConverter.ToString(sha256.ComputeHash(png))
+                    .Replace("-", string.Empty)
+                    .ToLowerInvariant();
+            }
+
+            string relativeFile = Path.Combine("cheat-icons", "2", hash + ".png");
+            string fullPath = Path.Combine(_artifactRoot, relativeFile);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllBytes(fullPath, png);
+            CatalogIcon icon = new(relativeFile.Replace('\\', '/'), hash);
+            _catalogIcons[instanceId] = icon;
+            return icon;
+        }
+        catch
+        {
+            return CatalogIcon.None;
+        }
+        finally
+        {
+            RenderTexture.active = previousActive;
+            if (renderTexture != null) RenderTexture.ReleaseTemporary(renderTexture);
+            if (readableTexture != null) UnityEngine.Object.Destroy(readableTexture);
+        }
     }
 
     private static string RequiredText(JObject arguments, string name, string error)
@@ -1407,6 +1980,72 @@ internal sealed class CheatRuntimeBridge
         exception is TargetInvocationException target && target.InnerException != null
             ? target.InnerException
             : exception;
+
+    private sealed class CatalogIcon
+    {
+        public static readonly CatalogIcon None = new(string.Empty, string.Empty);
+
+        public CatalogIcon(string relativeFile, string sha256)
+        {
+            RelativeFile = relativeFile;
+            Sha256 = sha256;
+        }
+
+        public string RelativeFile { get; }
+        public string Sha256 { get; }
+    }
+
+    private sealed class SpawnPointCapture
+    {
+        private SpawnPointCapture(
+            string state,
+            bool isArmed,
+            Vector3? position,
+            string message,
+            DateTime? expiresAtUtc = null)
+        {
+            State = state;
+            IsArmed = isArmed;
+            Position = position;
+            Message = message;
+            ExpiresAtUtc = expiresAtUtc;
+        }
+
+        public string State { get; }
+        public bool IsArmed { get; }
+        public Vector3? Position { get; }
+        public string Message { get; }
+        public DateTime? ExpiresAtUtc { get; }
+
+        public static SpawnPointCapture Idle(string message = "未启用怪物生成位置定位。") =>
+            new("idle", false, null, message);
+
+        public static SpawnPointCapture Armed(DateTime expiresAtUtc, string message) =>
+            new("armed", true, null, message, expiresAtUtc);
+
+        public static SpawnPointCapture Captured(Vector3 position, string message) =>
+            new("captured", false, position, message);
+
+        public static SpawnPointCapture Failed(string message) =>
+            new("failed", false, null, message);
+
+        public static SpawnPointCapture Expired(string message) =>
+            new("expired", false, null, message);
+
+        public JObject ToData()
+        {
+            JObject data = new()
+            {
+                ["state"] = State,
+                ["message"] = Message,
+                ["expiresAtUtc"] = ExpiresAtUtc,
+                ["x"] = Position?.x,
+                ["y"] = Position?.y,
+                ["z"] = Position?.z
+            };
+            return data;
+        }
+    }
 
     private sealed class NumericParameter
     {

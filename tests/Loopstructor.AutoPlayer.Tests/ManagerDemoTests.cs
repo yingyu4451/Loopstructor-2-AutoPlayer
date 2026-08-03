@@ -82,8 +82,8 @@ public sealed class ManagerDemoTests
         Assert.True(hello.CheatAvailable);
         Assert.Equal(CheatCommands.All.Count, hello.CheatCapabilities.Count);
         Assert.True(status.CheatModeEnabled);
-        Assert.Equal("cheat-session", status.RunIntegrity);
-        Assert.Contains(Path.DirectorySeparatorChar + "cheat" + Path.DirectorySeparatorChar, status.IsolatedSaveRoot);
+        Assert.Equal("clean", status.RunIntegrity);
+        Assert.Contains(Path.DirectorySeparatorChar + "qa-default", status.IsolatedSaveRoot);
     }
 
     [Fact]
@@ -147,20 +147,18 @@ public sealed class ManagerDemoTests
     }
 
     [Theory]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(false, false, true)]
-    public void RunControls_CheatSessionOrPriorCheatUse_DisablesNormalStart(
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void RunControls_EnabledCheatOrPriorCheatUse_DisablesNormalStart(
         bool enabled,
-        bool used,
-        bool authorized)
+        bool used)
     {
         AutoPlayerStatus status = new()
         {
             RunState = AutoPlayerRunState.Standby,
             CheatModeEnabled = enabled,
             CheatUsed = used,
-            CheatSessionAuthorized = authorized
+            CheatSessionAuthorized = true
         };
 
         RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
@@ -169,6 +167,22 @@ public sealed class ManagerDemoTests
         Assert.False(availability.CanPause);
         Assert.False(availability.CanResume);
         Assert.False(availability.CanStop);
+    }
+
+    [Fact]
+    public void RunControls_AuthorizedButUnusedCheatCapability_AllowsNormalStart()
+    {
+        AutoPlayerStatus status = new()
+        {
+            RunState = AutoPlayerRunState.Standby,
+            CheatSessionAuthorized = true,
+            CheatModeEnabled = false,
+            CheatUsed = false
+        };
+
+        RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
+
+        Assert.True(availability.CanStart);
     }
 
     [Theory]

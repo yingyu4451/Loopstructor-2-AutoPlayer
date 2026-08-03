@@ -85,8 +85,7 @@ internal readonly record struct RunControlAvailability(
 
         AutoPlayerRunState state = status?.RunState ?? AutoPlayerRunState.Standby;
         bool needsProcessRestart = status?.NeedsProcessRestart == true;
-        bool cheatBlocksNormalRun = status?.CheatSessionAuthorized == true
-                                    || status?.CheatModeEnabled == true
+        bool cheatBlocksNormalRun = status?.CheatModeEnabled == true
                                     || status?.CheatUsed == true;
         return new RunControlAvailability(
             CanStart: !needsProcessRestart

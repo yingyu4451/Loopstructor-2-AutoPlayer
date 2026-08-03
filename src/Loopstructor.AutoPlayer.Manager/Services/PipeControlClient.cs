@@ -59,16 +59,15 @@ public sealed class PipeControlClient
             request,
             usedLegacyEndpoint: false,
             cancellationToken);
-        if (first.TransportSuccess
-            || !first.RequestMayHaveExecuted
-            || !CheatCommands.IsMutationCommand(command))
+        if (first.TransportSuccess || !first.RequestMayHaveExecuted)
         {
             return first;
         }
 
-        // A response can be lost after the Unity main thread has already
-        // performed the write. Retry once with the same request id; the plugin
-        // caches completed ids and will return the result without re-executing.
+        // A response can be lost after the Unity main thread has already handled
+        // any command, including transient input-capture commands. Retry once with
+        // the same request id; the plugin returns its cached result without
+        // executing the command again.
         return await SendCoreAsync(
             session.Ticket.PipeName,
             request,

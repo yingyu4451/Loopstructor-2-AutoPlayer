@@ -57,6 +57,10 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _evidence = new EvidenceRecorder(activation.ArtifactRoot);
         _controller = new AutoPlayController(bridge, settings, fingerprint, activation, _evidence, Logger);
         _cheatController = new CheatController(_controller, activation, Logger, baseContractAccepted);
+        if (baseContractAccepted && !SpawnPointCaptureInputPatch.Install(_harmony, Logger.LogInfo))
+        {
+            Logger.LogWarning("怪物生成位置捕获未能接入游戏输入流水线；该功能将保持不可用。");
+        }
         _controlServer = new PipeControlServer(_controller, _cheatController, activation);
         _controlServer.Start();
         _statusPath = Path.Combine(activation.ArtifactRoot, "status.json");
@@ -94,6 +98,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _controlServer = null;
         _cheatController?.Dispose();
         _cheatController = null;
+        SpawnPointCaptureInputPatch.Detach();
         WriteStatus();
         _controller = null;
         _harmony?.UnpatchSelf();

@@ -32,7 +32,7 @@ internal sealed class CheatController : IDisposable
         _activation = activation;
         _log = log;
         _baseContractAccepted = baseContractAccepted;
-        _runtime.Initialize();
+        _runtime.Initialize(_activation.ArtifactRoot);
         _sceneHandle = SceneManager.GetActiveScene().handle;
         _lastManagerHeartbeatUtcTicks = DateTime.UtcNow.Ticks;
 
@@ -53,7 +53,7 @@ internal sealed class CheatController : IDisposable
             long lastHeartbeat = Interlocked.Read(ref _lastManagerHeartbeatUtcTicks);
             if (DateTime.UtcNow - new DateTime(lastHeartbeat, DateTimeKind.Utc) > ManagerLeaseTimeout)
             {
-                DisableAndReset("Manager 心跳已中断，作弊模式、基地无敌和敌人 ID 显示已自动关闭。");
+                DisableAndReset("Manager 心跳已中断，作弊模式、基地无敌、敌人 ID 显示和位置捕获已自动关闭。");
                 return;
             }
         }
@@ -65,7 +65,7 @@ internal sealed class CheatController : IDisposable
         _runtime.ResetTransientFeatures();
         _autoPlay.SetEnemyIdsVisible(false);
         _autoPlay.SetBaseGodModeEnabled(false);
-        _log.LogInfo("作弊工具已在场景切换后关闭基地无敌与敌人 ID 显示。");
+        _log.LogInfo("作弊工具已在场景切换后关闭基地无敌、敌人 ID 显示与位置捕获。");
     }
 
     public void DrawEnemyIds()
@@ -80,6 +80,17 @@ internal sealed class CheatController : IDisposable
     {
         JObject args = arguments ?? new JObject();
         bool mutationAttempt = Enabled && CheatCommands.IsMutationCommand(command);
+        if (mutationAttempt && !_activation.TryMarkCheatProfileTainted(requestId, command, out string markerError))
+        {
+            CheatExecutionResult blocked = CheatExecutionResult.Fail(
+                "无法在当前 QA 配置中持久化作弊污染标记；为避免产生未标记的修改，已拒绝执行该写命令。" +
+                (string.IsNullOrWhiteSpace(markerError) ? string.Empty : " 原因：" + markerError),
+                "CHEAT_PROFILE_TAINT_MARKER_FAILED");
+            _log.LogError(blocked.Message);
+            AppendAudit(requestId, command, args, blocked);
+            return blocked;
+        }
+
         CheatExecutionResult result;
         try
         {
@@ -137,6 +148,7 @@ internal sealed class CheatController : IDisposable
         {
             "cheat.grantvehicle" => _runtime.GrantVehicle(arguments),
             "cheat.grantdisposable" => _runtime.GrantDisposable(arguments),
+            "cheat.grantcatapultpoint" => _runtime.GrantCatapultPoint(arguments),
             "cheat.setbasegodmode" => SetBaseGodMode(arguments),
             "cheat.endwave" => _runtime.EndWave(),
             "cheat.clearenemies" => _runtime.ClearEnemies(),
@@ -147,6 +159,7 @@ internal sealed class CheatController : IDisposable
             "cheat.setenemyidoverlay" => SetEnemyIdOverlay(arguments),
             "cheat.grantrelic" => _runtime.GrantRelic(arguments),
             "cheat.spawnenemy" => _runtime.SpawnEnemy(arguments),
+            "cheat.setspawnpointcapture" => _runtime.SetSpawnPointCapture(arguments),
             _ => CheatExecutionResult.Fail("未知的作弊命令：" + command, "UNKNOWN_CHEAT_COMMAND")
         };
     }
@@ -224,6 +237,7 @@ internal sealed class CheatController : IDisposable
         ["enabled"] = Enabled,
         ["enemyIdsVisible"] = _runtime.EnemyIdsVisible,
         ["baseGodMode"] = _runtime.BaseGodModeRequested,
+        ["spawnPointCapture"] = _runtime.SpawnPointCaptureData(),
         ["protocolVersion"] = Protocol.CheatCurrentVersion,
         ["availabilityReason"] = BuildAvailabilityReason(),
         ["capabilities"] = JArray.FromObject(_runtime.Capabilities)
@@ -233,7 +247,7 @@ internal sealed class CheatController : IDisposable
     {
         if (!_activation.CheatModeAllowed)
         {
-            return "本次游戏进程以正常测试会话启动，未授权作弊工具。请关闭游戏，勾选 Manager 的“作弊调试会话”后重新启动。";
+            return "本次游戏进程未由可信 Manager 会话授权作弊控制，请由 Manager 重新启动游戏。";
         }
 
         if (!_baseContractAccepted)
