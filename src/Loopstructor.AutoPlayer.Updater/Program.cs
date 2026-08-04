@@ -255,9 +255,13 @@ internal static class Program
             7,
             "正在验证当前安装目录...",
             canCancel: true);
-        await Task.Run(
+        ReleaseMarker installedMarker = await Task.Run(
             () => packageValidator.Validate(options.TargetRoot, validateTargetSafety: true),
             cancellationToken);
+        ResolvedDeltaPackage? selectedDelta = SelectDeltaPackage(update, installedMarker.Version);
+        GitHubReleaseAsset selectedAsset = selectedDelta?.PackageAsset ?? update.PackageAsset;
+        long selectedSize = selectedDelta?.Manifest.Size ?? update.Manifest.Size;
+        string packageKind = selectedDelta is null ? "完整安装包" : "增量更新包";
         TransactionalInstaller installer = new(
             packageValidator,
             TransactionalInstaller.GetDefaultJournalPath(options.TargetRoot));
@@ -266,7 +270,8 @@ internal static class Program
             "LoopstructorAutoPlayerUpdater",
             "download-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryRoot);
-        string packagePath = Path.Combine(temporaryRoot, update.Manifest.AssetName);
+        string packagePath = Path.Combine(temporaryRoot, selectedAsset.Name);
+        string deltaExtractionRoot = Path.Combine(temporaryRoot, "delta");
         string stagingRoot = installer.CreateStagingRoot(options.TargetRoot);
         bool replacementStarted = false;
         try
@@ -274,46 +279,107 @@ internal static class Program
             progress.Report(
                 UpdateProgressStage.Downloading,
                 10,
-                $"正在下载 {update.PackageAsset.Name}...",
+                $"正在下载{packageKind} {selectedAsset.Name}...",
                 canCancel: true,
                 downloadedBytes: 0,
-                totalBytes: update.Manifest.Size);
+                totalBytes: selectedSize);
             IProgress<PackageDownloadProgress> downloadProgress = new CallbackProgress<PackageDownloadProgress>(value =>
                 progress.Report(
                     UpdateProgressStage.Downloading,
                     UpdateProgressMath.DownloadOverallPercent(value.DownloadedBytes, value.TotalBytes),
-                    $"正在下载 {update.PackageAsset.Name}...",
+                    $"正在下载{packageKind} {selectedAsset.Name}...",
                     canCancel: true,
                     downloadedBytes: value.DownloadedBytes,
                     totalBytes: value.TotalBytes,
                     bytesPerSecond: value.BytesPerSecond));
-            await releaseClient.DownloadVerifiedPackageAsync(
-                update,
-                packagePath,
-                downloadProgress,
-                cancellationToken);
+            if (selectedDelta is null)
+            {
+                await releaseClient.DownloadVerifiedPackageAsync(
+                    update,
+                    packagePath,
+                    downloadProgress,
+                    cancellationToken);
+            }
+            else
+            {
+                try
+                {
+                    await releaseClient.DownloadVerifiedDeltaPackageAsync(
+                        update,
+                        selectedDelta,
+                        packagePath,
+                        downloadProgress,
+                        cancellationToken);
+                }
+                catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+                {
+                    selectedDelta = null;
+                    selectedAsset = update.PackageAsset;
+                    selectedSize = update.Manifest.Size;
+                    packageKind = "完整安装包";
+                    packagePath = Path.Combine(temporaryRoot, selectedAsset.Name);
+                    progress.Report(
+                        UpdateProgressStage.Downloading,
+                        10,
+                        "增量更新包不存在，正在改用完整安装包...",
+                        canCancel: true,
+                        downloadedBytes: 0,
+                        totalBytes: selectedSize);
+                    await releaseClient.DownloadVerifiedPackageAsync(
+                        update,
+                        packagePath,
+                        downloadProgress,
+                        cancellationToken);
+                }
+            }
 
             progress.Report(
                 UpdateProgressStage.Verifying,
                 64,
-                "下载完成，安装包 SHA-256 校验通过。",
+                $"下载完成，{packageKind} SHA-256 校验通过。",
                 canCancel: true,
-                downloadedBytes: update.Manifest.Size,
-                totalBytes: update.Manifest.Size);
+                downloadedBytes: selectedSize,
+                totalBytes: selectedSize);
             SecureZipExtractor extractor = new();
             IProgress<ArchiveExtractionProgress> extractionProgress = new CallbackProgress<ArchiveExtractionProgress>(value =>
                 progress.Report(
                     UpdateProgressStage.Extracting,
                     UpdateProgressMath.ExtractionOverallPercent(value.ExtractedBytes, value.TotalBytes),
-                    $"正在解压安装文件（{value.ExtractedFiles}/{value.TotalFiles}）...",
+                    selectedDelta is null
+                        ? $"正在解压安装文件（{value.ExtractedFiles}/{value.TotalFiles}）..."
+                        : $"正在重建增量更新文件（{value.ExtractedFiles}/{value.TotalFiles}）...",
                     canCancel: true));
-            await Task.Run(
-                () => extractor.ExtractReleasePackage(
-                    packagePath,
-                    stagingRoot,
-                    extractionProgress,
-                    cancellationToken),
-                cancellationToken);
+            if (selectedDelta is null)
+            {
+                await Task.Run(
+                    () => extractor.ExtractReleasePackage(
+                        packagePath,
+                        stagingRoot,
+                        extractionProgress,
+                        cancellationToken),
+                    cancellationToken);
+            }
+            else
+            {
+                await Task.Run(
+                    () => extractor.ExtractDeltaPackage(
+                        packagePath,
+                        deltaExtractionRoot,
+                        progress: null,
+                        cancellationToken),
+                    cancellationToken);
+                DeltaPackageReconstructor reconstructor = new(packageValidator);
+                await Task.Run(
+                    () => reconstructor.Reconstruct(
+                        deltaExtractionRoot,
+                        options.TargetRoot,
+                        stagingRoot,
+                        selectedDelta.Manifest.FromVersion,
+                        update.Manifest.Version,
+                        extractionProgress,
+                        cancellationToken),
+                    cancellationToken);
+            }
 
             progress.Report(
                 UpdateProgressStage.Verifying,
@@ -362,6 +428,23 @@ internal static class Program
                 progress.Report(UpdateProgressStage.Installing, 92, recovery, canCancel: false);
             }
 
+            if (selectedDelta is not null)
+            {
+                ReleaseMarker commitMarker = await Task.Run(
+                    () => packageValidator.Validate(
+                        options.TargetRoot,
+                        selectedDelta.Manifest.FromVersion,
+                        validateTargetSafety: true),
+                    CancellationToken.None);
+                if (!string.Equals(
+                        commitMarker.Version,
+                        selectedDelta.Manifest.FromVersion,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("提交增量更新前，当前安装版本已经发生变化。");
+                }
+            }
+
             replacementStarted = true;
             string backup = await Task.Run(
                 () => installer.Apply(
@@ -376,8 +459,11 @@ internal static class Program
                 UpdateAvailable = false,
                 CurrentVersion = options.CurrentVersion,
                 LatestVersion = update.Manifest.Version,
-                Message = $"AutoPlayer 已更新到 {update.Manifest.Version}。",
-                BackupDirectory = backup
+                Message = selectedDelta is null
+                    ? $"AutoPlayer 已通过完整安装包更新到 {update.Manifest.Version}。"
+                    : $"AutoPlayer 已通过增量更新包更新到 {update.Manifest.Version}。",
+                BackupDirectory = backup,
+                UsedIncrementalUpdate = selectedDelta is not null
             };
             if (options.RestartManager)
             {
@@ -427,6 +513,17 @@ internal static class Program
             _ => (92, "正在安装更新...")
         };
         progress.Report(UpdateProgressStage.Installing, percent, message, canCancel: false);
+    }
+
+    internal static ResolvedDeltaPackage? SelectDeltaPackage(
+        ResolvedUpdate update,
+        string installedVersion)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        if (string.IsNullOrWhiteSpace(installedVersion)) return null;
+        return update.DeltaPackages.SingleOrDefault(delta =>
+            string.Equals(delta.Manifest.FromVersion, installedVersion, StringComparison.Ordinal)
+            && delta.Manifest.Size < update.Manifest.Size);
     }
 
     private static UpdaterResult Failure(

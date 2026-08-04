@@ -51,6 +51,77 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Fact]
+    public async Task PublicReleaseResolution_ResolvesAndDownloadsVerifiedDeltaAsset()
+    {
+        byte[] packageBytes = Encoding.UTF8.GetBytes("full package");
+        byte[] deltaBytes = Encoding.UTF8.GetBytes("small delta");
+        UpdateManifest manifest = CreateManifest("0.5.3", packageBytes);
+        UpdateDeltaAsset delta = new()
+        {
+            FromVersion = "0.5.2",
+            AssetName = "Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip",
+            Sha256 = Convert.ToHexString(SHA256.HashData(deltaBytes)).ToLowerInvariant(),
+            Size = deltaBytes.Length
+        };
+        manifest.DeltaAssets.Add(delta);
+        byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        RecordingHandler handler = new(request => request.RequestUri!.ToString() switch
+        {
+            "https://github.com/yingyu4451/gui2/releases/latest" => Redirect(
+                "https://github.com/yingyu4451/gui2/releases/tag/v0.5.3"),
+            "https://github.com/yingyu4451/gui2/releases/download/v0.5.3/autoplayer-update-manifest.json" => Redirect(
+                "https://release-assets.githubusercontent.com/delta-manifest"),
+            "https://release-assets.githubusercontent.com/delta-manifest" => BytesResponse(manifestBytes),
+            var value when value == "https://github.com/yingyu4451/gui2/releases/download/v0.5.3/" + delta.AssetName => Redirect(
+                "https://release-assets.githubusercontent.com/delta-package"),
+            "https://release-assets.githubusercontent.com/delta-package" => BytesResponse(deltaBytes),
+            _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
+        });
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+        string root = Path.Combine(Path.GetTempPath(), "autoplayer-delta-download-" + Guid.NewGuid().ToString("N"));
+        string destination = Path.Combine(root, delta.AssetName);
+        try
+        {
+            ResolvedUpdate update = await client.ResolveLatestAsync();
+            ResolvedDeltaPackage resolvedDelta = Assert.Single(update.DeltaPackages);
+
+            await client.DownloadVerifiedDeltaPackageAsync(update, resolvedDelta, destination);
+
+            Assert.Equal(deltaBytes, File.ReadAllBytes(destination));
+            Assert.Equal(delta.AssetName, resolvedDelta.PackageAsset.Name);
+            Assert.Equal(delta.Size, resolvedDelta.PackageAsset.Size);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("0.5.3", "Loopstructor.AutoPlayer-0.5.3-to-0.5.3-win-x64.delta.zip")]
+    [InlineData("0.5.2", "wrong.delta.zip")]
+    [InlineData("v0.5.2", "Loopstructor.AutoPlayer-v0.5.2-to-0.5.3-win-x64.delta.zip")]
+    public async Task ReleaseResolution_RejectsInvalidDeltaDescriptor(string fromVersion, string assetName)
+    {
+        byte[] packageBytes = Encoding.UTF8.GetBytes("full package data");
+        UpdateManifest manifest = CreateManifest("0.5.3", packageBytes);
+        manifest.DeltaAssets.Add(new UpdateDeltaAsset
+        {
+            FromVersion = fromVersion,
+            AssetName = assetName,
+            Sha256 = new string('a', 64),
+            Size = 1
+        });
+        byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        RecordingHandler handler = new(request => PublicManifestResponse(request, "v0.5.3", manifestBytes));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.ResolveLatestAsync());
+    }
+
+    [Fact]
     public async Task PublicReleaseResolution_RejectsTagManifestVersionMismatch()
     {
         byte[] packageBytes = Encoding.UTF8.GetBytes("package");
@@ -274,7 +345,16 @@ public sealed class GitHubReleaseClientTests
     {
         const string token = "test-token-not-a-secret";
         byte[] packageBytes = Encoding.UTF8.GetBytes("private package bytes");
+        byte[] deltaBytes = new byte[] { 1 };
         UpdateManifest manifest = CreateManifest("0.1.4", packageBytes);
+        UpdateDeltaAsset delta = new()
+        {
+            FromVersion = "0.1.3",
+            AssetName = "Loopstructor.AutoPlayer-0.1.3-to-0.1.4-win-x64.delta.zip",
+            Sha256 = Convert.ToHexString(SHA256.HashData(deltaBytes)).ToLowerInvariant(),
+            Size = deltaBytes.Length
+        };
+        manifest.DeltaAssets.Add(delta);
         byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
         string releaseJson = $$"""
         {
@@ -292,6 +372,12 @@ public sealed class GitHubReleaseClientTests
               "url": "https://api.github.com/repos/{{Owner}}/{{Repository}}/releases/assets/1002",
               "browser_download_url": "https://evil.example/ignored-package",
               "size": {{packageBytes.Length}}
+            },
+            {
+              "name": "{{delta.AssetName}}",
+              "url": "https://api.github.com/repos/{{Owner}}/{{Repository}}/releases/assets/1003",
+              "browser_download_url": "https://evil.example/ignored-delta",
+              "size": {{delta.Size}}
             }
           ]
         }
@@ -305,17 +391,24 @@ public sealed class GitHubReleaseClientTests
             "https://api.github.com/repos/yingyu4451/gui2/releases/assets/1002" => Redirect(
                 "https://release-assets.githubusercontent.com/private-package?signature=package"),
             "https://release-assets.githubusercontent.com/private-package?signature=package" => BytesResponse(packageBytes),
+            "https://api.github.com/repos/yingyu4451/gui2/releases/assets/1003" => Redirect(
+                "https://release-assets.githubusercontent.com/private-delta?signature=delta"),
+            "https://release-assets.githubusercontent.com/private-delta?signature=delta" => BytesResponse(deltaBytes),
             _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
         });
         using HttpClient httpClient = new(handler);
         GitHubReleaseClient client = new(httpClient, CreateSettings(), token);
 
         ResolvedUpdate update = await client.ResolveLatestAsync();
+        ResolvedDeltaPackage resolvedDelta = Assert.Single(update.DeltaPackages);
         string destination = Path.Combine(Path.GetTempPath(), "autoplayer-private-download-" + Guid.NewGuid().ToString("N"), "package.zip");
+        string deltaDestination = Path.Combine(Path.GetDirectoryName(destination)!, delta.AssetName);
         try
         {
             await client.DownloadVerifiedPackageAsync(update, destination);
             Assert.Equal(packageBytes, File.ReadAllBytes(destination));
+            await client.DownloadVerifiedDeltaPackageAsync(update, resolvedDelta, deltaDestination);
+            Assert.Equal(deltaBytes, File.ReadAllBytes(deltaDestination));
         }
         finally
         {
@@ -330,6 +423,9 @@ public sealed class GitHubReleaseClientTests
             handler.Requests.Where(item => item.Uri.Host == "release-assets.githubusercontent.com"),
             item => Assert.Null(item.Authorization));
         Assert.DoesNotContain(handler.Requests, item => item.Uri.Host == "evil.example");
+        Assert.Equal(
+            "https://api.github.com/repos/yingyu4451/gui2/releases/assets/1003",
+            resolvedDelta.PackageAsset.DownloadUri.ToString());
     }
 
     private static HttpResponseMessage PublicReleaseResponse(

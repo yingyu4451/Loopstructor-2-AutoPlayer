@@ -12,6 +12,7 @@ public sealed class GitHubReleaseClient
 {
     private const int MaximumManifestBytes = 1024 * 1024;
     private const long MaximumPackageBytes = 2L * 1024 * 1024 * 1024;
+    private const int MaximumDeltaAssets = 16;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly Regex CanonicalSemanticVersionPattern = new(
         @"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
@@ -49,6 +50,45 @@ public sealed class GitHubReleaseClient
     {
         ArgumentNullException.ThrowIfNull(update);
         ValidateResolvedPackage(update);
+        await DownloadVerifiedAssetAsync(
+            update.PackageAsset,
+            update.Manifest.Sha256,
+            update.Manifest.Size,
+            destinationPath,
+            progress,
+            "下载安装包",
+            cancellationToken);
+    }
+
+    public async Task DownloadVerifiedDeltaPackageAsync(
+        ResolvedUpdate update,
+        ResolvedDeltaPackage delta,
+        string destinationPath,
+        IProgress<PackageDownloadProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        ArgumentNullException.ThrowIfNull(delta);
+        ValidateResolvedDeltaPackage(update, delta);
+        await DownloadVerifiedAssetAsync(
+            delta.PackageAsset,
+            delta.Manifest.Sha256,
+            delta.Manifest.Size,
+            destinationPath,
+            progress,
+            "下载增量更新包",
+            cancellationToken);
+    }
+
+    private async Task DownloadVerifiedAssetAsync(
+        GitHubReleaseAsset asset,
+        string expectedSha256,
+        long expectedSize,
+        string destinationPath,
+        IProgress<PackageDownloadProgress>? progress,
+        string operation,
+        CancellationToken cancellationToken)
+    {
         if (File.Exists(destinationPath))
         {
             throw new IOException("安装包目标文件已存在：" + destinationPath);
@@ -56,12 +96,12 @@ public sealed class GitHubReleaseClient
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destinationPath))!);
         using HttpResponseMessage response = await SendDownloadWithRedirectsAsync(
-            update.PackageAsset.DownloadUri,
-            "下载安装包",
+            asset.DownloadUri,
+            operation,
             cancellationToken);
-        if (response.Content.Headers.ContentLength is long contentLength && contentLength != update.Manifest.Size)
+        if (response.Content.Headers.ContentLength is long contentLength && contentLength != expectedSize)
         {
-            throw new InvalidDataException($"下载内容长度 {contentLength} 与清单大小 {update.Manifest.Size} 不一致。");
+            throw new InvalidDataException($"下载内容长度 {contentLength} 与清单大小 {expectedSize} 不一致。");
         }
 
         await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -79,7 +119,7 @@ public sealed class GitHubReleaseClient
         TimeSpan lastReportedAt = TimeSpan.Zero;
         double smoothedBytesPerSecond = 0;
         Stopwatch downloadClock = Stopwatch.StartNew();
-        ReportProgressSafely(progress, new PackageDownloadProgress(0, update.Manifest.Size, 0));
+        ReportProgressSafely(progress, new PackageDownloadProgress(0, expectedSize, 0));
         try
         {
             while (true)
@@ -87,7 +127,7 @@ public sealed class GitHubReleaseClient
                 int read = await input.ReadAsync(buffer, cancellationToken);
                 if (read == 0) break;
                 total += read;
-                if (total > update.Manifest.Size || total > MaximumPackageBytes)
+                if (total > expectedSize || total > MaximumPackageBytes)
                 {
                     throw new InvalidDataException("下载的安装包超过清单声明的大小。");
                 }
@@ -96,7 +136,7 @@ public sealed class GitHubReleaseClient
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 TimeSpan elapsed = downloadClock.Elapsed;
                 TimeSpan sampleDuration = elapsed - lastReportedAt;
-                bool completed = total == update.Manifest.Size;
+                bool completed = total == expectedSize;
                 if (completed || sampleDuration >= TimeSpan.FromMilliseconds(200))
                 {
                     double seconds = Math.Max(sampleDuration.TotalSeconds, 0.001d);
@@ -106,20 +146,20 @@ public sealed class GitHubReleaseClient
                         : (smoothedBytesPerSecond * 0.7d) + (sampleSpeed * 0.3d);
                     ReportProgressSafely(
                         progress,
-                        new PackageDownloadProgress(total, update.Manifest.Size, smoothedBytesPerSecond));
+                        new PackageDownloadProgress(total, expectedSize, smoothedBytesPerSecond));
                     lastReportedBytes = total;
                     lastReportedAt = elapsed;
                 }
             }
 
             await output.FlushAsync(cancellationToken);
-            if (total != update.Manifest.Size)
+            if (total != expectedSize)
             {
-                throw new InvalidDataException($"实际下载 {total} 字节，预期为 {update.Manifest.Size} 字节。");
+                throw new InvalidDataException($"实际下载 {total} 字节，预期为 {expectedSize} 字节。");
             }
 
             byte[] actual = hash.GetHashAndReset();
-            byte[] expected = Convert.FromHexString(update.Manifest.Sha256);
+            byte[] expected = Convert.FromHexString(expectedSha256);
             if (!CryptographicOperations.FixedTimeEquals(actual, expected))
             {
                 throw new InvalidDataException("下载的安装包 SHA-256 与发布清单不一致。");
@@ -130,7 +170,7 @@ public sealed class GitHubReleaseClient
                 double averageSpeed = total / Math.Max(downloadClock.Elapsed.TotalSeconds, 0.001d);
                 ReportProgressSafely(
                     progress,
-                    new PackageDownloadProgress(total, update.Manifest.Size, averageSpeed));
+                    new PackageDownloadProgress(total, expectedSize, averageSpeed));
             }
         }
         catch
@@ -194,6 +234,23 @@ public sealed class GitHubReleaseClient
                 DownloadUri = packageUri,
                 Size = manifest.Size
             },
+            DeltaPackages = manifest.DeltaAssets
+                .Select(delta =>
+                {
+                    Uri deltaUri = BuildReleaseAssetUri(releaseTag, delta.AssetName);
+                    ValidateReleaseAssetUri(deltaUri, releaseTag, delta.AssetName);
+                    return new ResolvedDeltaPackage
+                    {
+                        Manifest = delta,
+                        PackageAsset = new GitHubReleaseAsset
+                        {
+                            Name = delta.AssetName,
+                            DownloadUri = deltaUri,
+                            Size = delta.Size
+                        }
+                    };
+                })
+                .ToArray(),
             ReleaseTag = releaseTag,
             ReleasePageUrl = releasePageUri.ToString()
         };
@@ -250,6 +307,29 @@ public sealed class GitHubReleaseClient
             throw new InvalidDataException($"GitHub 资源大小 {package.Size} 与清单大小 {manifest.Size} 不一致。");
         }
 
+        List<ResolvedDeltaPackage> deltaPackages = new();
+        foreach (UpdateDeltaAsset delta in manifest.DeltaAssets)
+        {
+            GitHubAssetResponse? deltaAsset = release.Assets.SingleOrDefault(asset =>
+                string.Equals(asset.Name, delta.AssetName, StringComparison.Ordinal));
+            if (deltaAsset is null || deltaAsset.Size != delta.Size)
+            {
+                // A missing optional delta must not prevent older or skipped versions from using the full package.
+                continue;
+            }
+
+            deltaPackages.Add(new ResolvedDeltaPackage
+            {
+                Manifest = delta,
+                PackageAsset = new GitHubReleaseAsset
+                {
+                    Name = deltaAsset.Name,
+                    DownloadUri = ValidateApiAssetUri(deltaAsset.ApiUrl),
+                    Size = deltaAsset.Size
+                }
+            });
+        }
+
         return new ResolvedUpdate
         {
             Manifest = manifest,
@@ -259,6 +339,7 @@ public sealed class GitHubReleaseClient
                 DownloadUri = ValidateApiAssetUri(package.ApiUrl),
                 Size = package.Size
             },
+            DeltaPackages = deltaPackages,
             ReleaseTag = release.TagName,
             ReleasePageUrl = BuildReleasePageUri(release.TagName).ToString()
         };
@@ -449,6 +530,50 @@ public sealed class GitHubReleaseClient
         }
 
         manifest.Sha256 = manifest.Sha256.ToLowerInvariant();
+        manifest.DeltaAssets ??= new List<UpdateDeltaAsset>();
+        if (manifest.DeltaAssets.Count > MaximumDeltaAssets)
+        {
+            throw new InvalidDataException("清单中的增量更新包数量超出允许范围。");
+        }
+
+        SemanticVersion.TryParse(manifest.Version, out SemanticVersion? targetVersion);
+        HashSet<string> sourceVersions = new(StringComparer.Ordinal);
+        HashSet<string> deltaNames = new(StringComparer.Ordinal);
+        foreach (UpdateDeltaAsset delta in manifest.DeltaAssets)
+        {
+            if (string.IsNullOrWhiteSpace(delta.FromVersion)
+                || delta.FromVersion.Length > 128
+                || !CanonicalSemanticVersionPattern.IsMatch(delta.FromVersion)
+                || !SemanticVersion.TryParse(delta.FromVersion, out SemanticVersion? fromVersion)
+                || fromVersion!.CompareTo(targetVersion) >= 0)
+            {
+                throw new InvalidDataException("增量更新包的起始版本不是早于目标版本的规范 SemVer。");
+            }
+
+            string expectedDeltaName =
+                $"Loopstructor.AutoPlayer-{delta.FromVersion}-to-{manifest.Version}-win-x64.delta.zip";
+            if (!string.Equals(Path.GetFileName(delta.AssetName), delta.AssetName, StringComparison.Ordinal)
+                || !string.Equals(delta.AssetName, expectedDeltaName, StringComparison.Ordinal)
+                || !sourceVersions.Add(delta.FromVersion)
+                || !deltaNames.Add(delta.AssetName))
+            {
+                throw new InvalidDataException("增量更新包名称、起始版本或唯一性无效。");
+            }
+
+            if (string.IsNullOrWhiteSpace(delta.Sha256)
+                || delta.Sha256.Length != 64
+                || delta.Sha256.Any(character => !Uri.IsHexDigit(character)))
+            {
+                throw new InvalidDataException("增量更新包 SHA-256 必须正好包含 64 个十六进制字符。");
+            }
+
+            if (delta.Size <= 0 || delta.Size >= manifest.Size || delta.Size > MaximumPackageBytes)
+            {
+                throw new InvalidDataException("增量更新包必须小于完整安装包且大小处于允许范围内。");
+            }
+
+            delta.Sha256 = delta.Sha256.ToLowerInvariant();
+        }
     }
 
     private void ValidateResolvedPackage(ResolvedUpdate update)
@@ -472,6 +597,36 @@ public sealed class GitHubReleaseClient
         else
         {
             throw new InvalidDataException("解析出的安装包 URL 必须指向 GitHub，不能直接指向 Release CDN。");
+        }
+    }
+
+    private void ValidateResolvedDeltaPackage(ResolvedUpdate update, ResolvedDeltaPackage delta)
+    {
+        ValidateManifest(update.Manifest);
+        ValidateReleaseTag(update.ReleaseTag, update.Manifest.Version);
+        UpdateDeltaAsset manifestDelta = update.Manifest.DeltaAssets.SingleOrDefault(candidate =>
+            string.Equals(candidate.FromVersion, delta.Manifest.FromVersion, StringComparison.Ordinal)
+            && string.Equals(candidate.AssetName, delta.Manifest.AssetName, StringComparison.Ordinal))
+            ?? throw new InvalidDataException("解析出的增量更新包不属于当前发布清单。");
+        if (!string.Equals(manifestDelta.Sha256, delta.Manifest.Sha256, StringComparison.Ordinal)
+            || manifestDelta.Size != delta.Manifest.Size
+            || !string.Equals(delta.PackageAsset.Name, delta.Manifest.AssetName, StringComparison.Ordinal)
+            || delta.PackageAsset.Size != delta.Manifest.Size)
+        {
+            throw new InvalidDataException("解析出的增量更新包元数据与发布清单不匹配。");
+        }
+
+        if (IsGitHubWebHost(delta.PackageAsset.DownloadUri.Host))
+        {
+            ValidateReleaseAssetUri(delta.PackageAsset.DownloadUri, update.ReleaseTag, delta.Manifest.AssetName);
+        }
+        else if (IsGitHubApiHost(delta.PackageAsset.DownloadUri.Host))
+        {
+            ValidateApiAssetUri(delta.PackageAsset.DownloadUri.ToString());
+        }
+        else
+        {
+            throw new InvalidDataException("解析出的增量更新包 URL 必须指向 GitHub，不能直接指向 Release CDN。");
         }
     }
 

@@ -76,25 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.2
+.\scripts\package.ps1 -Version 0.5.3
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.2 -SkipBuild
+.\scripts\package.ps1 -Version 0.5.3 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.5.2-win-x64.zip
-  Loopstructor.AutoPlayer-0.5.2-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.3-win-x64.zip
+  Loopstructor.AutoPlayer-0.5.3-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip        可选
+  Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.2-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.5.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -124,13 +126,23 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.5.2",
+  "version": "0.5.3",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.5.2-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.5.3-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
-  "size": 12345678
+  "size": 63851739,
+  "deltaAssets": [
+    {
+      "fromVersion": "0.5.2",
+      "assetName": "Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip",
+      "sha256": "<64-lowercase-hex>",
+      "size": 1275090
+    }
+  ]
 }
 ```
+
+`deltaAssets` 是 schema 2 的可选扩展。协议版本有意保持为 2，使旧 Updater 可以忽略未知字段并继续下载完整包。增量资产只为精确的相邻基准版本生成；没有上一正式 Release、旧包校验失败或增量包不小于完整包时，发布仍然成功，但不包含增量资产。
 
 公开仓库且未提供 token 时，更新器不调用匿名 GitHub REST API。它先访问 `https://github.com/<owner>/<repository>/releases/latest`，只接受跳转到同一仓库的精确版本 tag；随后通过该 tag 的 `releases/download/<tag>/...` Release 资产地址下载清单和 ZIP。这样不会消耗匿名 REST API 每个出口 IP 每小时 60 次的配额，也避免在清单下载后继续使用可变化的 `latest` 地址。
 
@@ -139,15 +151,17 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 1. `schemaVersion` 支持；
 2. `version` 是比当前版本新的 SemVer；
 3. `runtimeIdentifier` 为 `win-x64`；
-4. 下载字节数与 `size` 相同；
-5. zip SHA-256 与 `sha256` 相同；
-6. ZIP 中只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录；
-7. 安全移除该包装目录后，staging 根存在 `autoplayer-release.json`，其 version 与清单一致；
-8. 包内 `checksums.sha256` 全部通过。
+4. 当前安装 marker 的版本与增量 `fromVersion` 精确一致，否则使用完整包；
+5. 下载字节数与所选资产的 `size` 相同；
+6. zip SHA-256 与所选资产的 `sha256` 相同；
+7. 完整 ZIP 只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录；
+8. 增量 ZIP 只有固定的 `Loopstructor 2.AutoPlayer.delta/` 顶层目录、目标版 `checksums.sha256` 和发生变化的 `files/`；
+9. 增量更新在空 staging 中复制当前安装的未变文件、写入增量文件并自然排除已删除文件；
+10. staging 根存在目标版 `autoplayer-release.json`，且全部文件通过目标版 `checksums.sha256` 和完整发布包结构校验。
 
-验证完成后在 staging 目录解压，退出管理器，再由独立 Updater 替换工具目录。任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
+验证完成后退出管理器，再由独立 Updater 使用现有事务安装器替换工具目录。更新开始提交前会再次核对基准版本；任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
 
-当前 Updater 只处理 schema 2 和当前固定包装目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，包含旧 `updater/` 兼容目录的发布包会被拒绝；旧目录版本需要手动安装当前发布包。
+当前 Updater 只处理 schema 2 和当前固定包装目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，包含旧 `updater/` 兼容目录的发布包会被拒绝；旧目录版本需要手动安装当前发布包。`v0.5.3` 是首个支持增量更新的客户端，因此 `v0.5.2 → v0.5.3` 仍需完整下载一次；安装 `v0.5.3` 后，后续相邻版本才会选择增量包。跳过版本时使用完整包，不串联多个历史增量。
 
 `v0.1.3` 的无 token 更新检查仍调用匿名 REST API。如果它正报告 `403 (rate limit exceeded)`，可等待配额恢复、仅在当前 Manager 进程环境中临时提供只读 token，或手动下载并安装 `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 一次。安装 `v0.1.4` 后，公开仓库的无 token 更新改用网页端 `releases/latest` 和精确 tag 的 Release 资产地址。
 
@@ -164,9 +178,11 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 
 1. 从 tag 提取 SemVer；
 2. 构建和测试；
-3. 生成带固定 `Loopstructor 2.AutoPlayer/` 顶层目录的唯一 Release ZIP、SHA-256 与 schema 2 更新清单；
-4. 上传未压缩目录作为 workflow artifact，并重新下载验证根部 EXE、marker、checksums 且不存在内嵌产品 ZIP；
-5. 创建 GitHub Release，重跑时覆盖同名 assets。
+3. 生成带固定 `Loopstructor 2.AutoPlayer/` 顶层目录的完整 Release ZIP、SHA-256 与 schema 2 更新清单；
+4. 下载并严格验证上一正式版本的已发布完整包，生成可选的文件级增量 ZIP 和 SHA-256；
+5. 对完整包和增量重建结果执行逐文件、结构、marker 与安全验证；
+6. 上传未压缩目录作为 workflow artifact，并重新下载验证根部 EXE、marker、checksums 且不存在内嵌产品 ZIP；
+7. 先创建草稿 Release，上传完整包与增量资产，最后上传清单并公开；失败草稿重跑时从空资产集合重建，已经公开的同 tag Release 不允许自动覆盖。
 
 手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；与 Release ZIP 不同，解开 Actions artifact 后应直接得到扁平的程序文件和根部 Manager EXE，不应出现 `Loopstructor 2.AutoPlayer/` 包装目录或第二层产品 ZIP。
 
@@ -191,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.5.2
-git push origin v0.5.2
+git tag v0.5.3
+git push origin v0.5.3
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -213,8 +229,8 @@ git push origin v0.5.2
 - 验证地图跳关允许当前地图界面已加载阶段中的已通过、当前和未来节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
-- 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
-- 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；
+- 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
+- 验证 schema 2 更新清单的完整包资产名、大小和 SHA-256 正确；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
 - 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
 - 发布后续版本时，用采用当前目录结构的前一版本执行一次完整自更新与失败回滚测试；旧 `updater\` 目录结构不在兼容范围内；

@@ -137,6 +137,15 @@ public sealed class UpdateManifest
     public string Sha256 { get; set; } = string.Empty;
     public long Size { get; set; }
     public string ReleaseNotesUrl { get; set; } = string.Empty;
+    public List<UpdateDeltaAsset> DeltaAssets { get; set; } = new();
+}
+
+public sealed class UpdateDeltaAsset
+{
+    public string FromVersion { get; set; } = string.Empty;
+    public string AssetName { get; set; } = string.Empty;
+    public string Sha256 { get; set; } = string.Empty;
+    public long Size { get; set; }
 }
 
 public sealed class GitHubReleaseAsset
@@ -150,8 +159,15 @@ public sealed class ResolvedUpdate
 {
     public required UpdateManifest Manifest { get; init; }
     public required GitHubReleaseAsset PackageAsset { get; init; }
+    public IReadOnlyList<ResolvedDeltaPackage> DeltaPackages { get; init; } = Array.Empty<ResolvedDeltaPackage>();
     public string ReleaseTag { get; init; } = string.Empty;
     public string ReleasePageUrl { get; init; } = string.Empty;
+}
+
+public sealed class ResolvedDeltaPackage
+{
+    public required UpdateDeltaAsset Manifest { get; init; }
+    public required GitHubReleaseAsset PackageAsset { get; init; }
 }
 
 public sealed class UpdaterResult
@@ -163,6 +179,7 @@ public sealed class UpdaterResult
     public string Message { get; set; } = string.Empty;
     public string BackupDirectory { get; set; } = string.Empty;
     public bool ManagerRestartFailed { get; set; }
+    public bool UsedIncrementalUpdate { get; set; }
 }
 
 public sealed class ReleaseMarker

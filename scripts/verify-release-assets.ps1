@@ -5,7 +5,9 @@ param(
 
     [string]$ReleaseDirectory,
 
-    [string]$PackageDirectory
+    [string]$PackageDirectory,
+
+    [string[]]$DeltaBaseArchive = @()
 )
 
 Set-StrictMode -Version Latest
@@ -16,12 +18,11 @@ $ProgressPreference = 'SilentlyContinue'
 
 $repositoryRoot = Get-RepositoryRoot
 $runtimeIdentifier = 'win-x64'
-$semanticVersionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
 $packageVersion = $Version.Trim()
 if ($packageVersion.StartsWith('v', [StringComparison]::OrdinalIgnoreCase)) {
     $packageVersion = $packageVersion.Substring(1)
 }
-if ($packageVersion -notmatch $semanticVersionPattern) {
+if (-not (Test-CanonicalSemanticVersion -Value $packageVersion)) {
     throw "Version '$Version' is not a valid semantic version."
 }
 
@@ -70,7 +71,11 @@ function Get-ZipFileIndex {
 
     $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
     try {
+        if ($archive.Entries.Count -eq 0 -or $archive.Entries.Count -gt 10000) {
+            throw "ZIP entry count is outside the allowed range: $Path"
+        }
         $files = @()
+        [long]$expandedTotal = 0
         foreach ($entry in $archive.Entries) {
             $entryName = $entry.FullName
             $isDirectory = $entryName.EndsWith('/', [StringComparison]::Ordinal)
@@ -86,11 +91,28 @@ function Get-ZipFileIndex {
             if (-not [StringComparer]::Ordinal.Equals($segments[0], $RequiredRootDirectory)) {
                 throw "ZIP entry is outside the exact '$RequiredRootDirectory' root directory: $entryName"
             }
+            $unixType = ($entry.ExternalAttributes -shr 16) -band 0xF000
+            $windowsAttributes = [System.IO.FileAttributes]($entry.ExternalAttributes -band 0xFFFF)
+            if ($unixType -eq 0xA000 -or $windowsAttributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+                throw "ZIP contains a link or reparse point: $entryName"
+            }
             if ($isDirectory) {
                 if ($segments.Count -ne 1) {
                     throw "ZIP contains an unexpected explicit directory entry: $entryName"
                 }
                 continue
+            }
+            if ($entry.Length -lt 0 -or $entry.Length -gt 536870912) {
+                throw "ZIP entry is too large: $entryName"
+            }
+            if ($expandedTotal -gt 2147483648 - [long]$entry.Length) {
+                throw "ZIP expanded size exceeds the allowed limit: $Path"
+            }
+            $expandedTotal += [long]$entry.Length
+            if ($entry.Length -gt 1048576 -and
+                $entry.CompressedLength -gt 0 -and
+                [long]($entry.Length / $entry.CompressedLength) -gt 500) {
+                throw "ZIP entry compression ratio is unsafe: $entryName"
             }
             if ($entryName.EndsWith('.zip', [StringComparison]::OrdinalIgnoreCase)) {
                 throw "ZIP contains a nested archive: $entryName"
@@ -132,6 +154,11 @@ function Get-DirectoryFileIndex {
     $root = [System.IO.Path]::GetFullPath($Path).TrimEnd(
         [System.IO.Path]::DirectorySeparatorChar,
         [System.IO.Path]::AltDirectorySeparatorChar)
+    foreach ($directory in Get-ChildItem -LiteralPath $root -Recurse -Directory -Force) {
+        if ($directory.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            throw "Package directory contains a reparse point: $($directory.FullName)"
+        }
+    }
     return @(
         Get-ChildItem -LiteralPath $root -Recurse -File -Force |
             ForEach-Object {
@@ -143,6 +170,42 @@ function Get-DirectoryFileIndex {
             } |
             Sort-Object Path
     )
+}
+
+function Get-ChecksumCatalog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    $catalog = @{}
+    foreach ($rawLine in $Text -split "`r?`n") {
+        if ([string]::IsNullOrEmpty($rawLine)) { continue }
+        if ($rawLine -notmatch '^([0-9a-fA-F]{64})  (.+)$') {
+            throw "checksums.sha256 contains an invalid line: $rawLine"
+        }
+        $relative = $Matches[2]
+        $segments = @($relative -split '/')
+        if ($relative.Contains('\') -or
+            $relative.StartsWith('/', [StringComparison]::Ordinal) -or
+            $relative.Contains(':') -or
+            $segments.Count -eq 0 -or
+            @($segments | Where-Object { [string]::IsNullOrWhiteSpace($_) -or $_ -eq '.' -or $_ -eq '..' }).Count -ne 0) {
+            throw "checksums.sha256 contains an unsafe path: $relative"
+        }
+        $key = $relative.ToLowerInvariant()
+        if ($catalog.ContainsKey($key)) {
+            throw "checksums.sha256 contains a duplicate or case-colliding path: $relative"
+        }
+        $catalog[$key] = [pscustomobject]@{
+            Path = $relative
+            Sha256 = $Matches[1].ToLowerInvariant()
+        }
+    }
+    if ($catalog.Count -eq 0 -or $catalog.Count -gt 10000) {
+        throw 'checksums.sha256 entry count is outside the allowed range.'
+    }
+    return $catalog
 }
 
 function Assert-FileIndexesEqual {
@@ -221,13 +284,25 @@ function Assert-Sidecar {
 }
 
 $topLevelDirectory = 'Loopstructor 2.AutoPlayer'
+$deltaTopLevelDirectory = 'Loopstructor 2.AutoPlayer.delta'
 $archiveName = "Loopstructor.AutoPlayer-$packageVersion-$runtimeIdentifier.zip"
 $manifestName = 'autoplayer-update-manifest.json'
+$manifestPath = Join-Path $ReleaseDirectory $manifestName
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$deltaAssets = @()
+if (($manifest.PSObject.Properties.Name -contains 'deltaAssets') -and $null -ne $manifest.deltaAssets) {
+    $deltaAssets = @($manifest.deltaAssets)
+}
 $expectedReleaseFiles = @(
     $archiveName
     "$archiveName.sha256"
     $manifestName
-) | Sort-Object
+)
+foreach ($delta in $deltaAssets) {
+    $expectedReleaseFiles += [string]$delta.assetName
+    $expectedReleaseFiles += ([string]$delta.assetName + '.sha256')
+}
+$expectedReleaseFiles = @($expectedReleaseFiles | Sort-Object)
 
 $unexpectedDirectories = @(Get-ChildItem -LiteralPath $ReleaseDirectory -Directory -Force)
 if ($unexpectedDirectories.Count -ne 0) {
@@ -242,11 +317,9 @@ if ($releaseDifferences.Count -ne 0) {
 }
 
 $archivePath = Join-Path $ReleaseDirectory $archiveName
-$manifestPath = Join-Path $ReleaseDirectory $manifestName
 $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 Assert-Sidecar -ArchivePath $archivePath -ExpectedHash $archiveHash
 
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $archiveFile = Get-Item -LiteralPath $archivePath
 if ([int]$manifest.schemaVersion -ne 2 -or
     -not [StringComparer]::Ordinal.Equals([string]$manifest.version, $packageVersion) -or
@@ -277,6 +350,143 @@ foreach ($file in $archiveFiles) {
 $unwrappedArchiveFiles = @($unwrappedArchiveFiles | Sort-Object Path)
 $packageFiles = @(Get-DirectoryFileIndex -Path $PackageDirectory)
 Assert-FileIndexesEqual -Expected $packageFiles -Actual $unwrappedArchiveFiles
+
+$packageFilesByPath = @{}
+foreach ($file in $packageFiles) {
+    $packageFilesByPath[$file.Path.ToLowerInvariant()] = $file
+}
+$targetChecksumText = [System.IO.File]::ReadAllText((Join-Path $PackageDirectory 'checksums.sha256'))
+$targetChecksumCatalog = Get-ChecksumCatalog -Text $targetChecksumText
+if ($packageFiles.Count -ne $targetChecksumCatalog.Count + 1) {
+    throw 'Target checksums.sha256 does not describe every target package file.'
+}
+foreach ($entry in $targetChecksumCatalog.Values) {
+    $key = $entry.Path.ToLowerInvariant()
+    if (-not $packageFilesByPath.ContainsKey($key) -or
+        -not [StringComparer]::Ordinal.Equals($packageFilesByPath[$key].Path, $entry.Path) -or
+        -not [StringComparer]::Ordinal.Equals($packageFilesByPath[$key].Sha256, $entry.Sha256)) {
+        throw "Target checksum catalog differs from the package directory: $($entry.Path)"
+    }
+}
+
+if ($deltaAssets.Count -gt 16) {
+    throw 'Update manifest contains too many incremental assets.'
+}
+$baseArchivesByVersion = @{}
+$baseArchivePathsByVersion = @{}
+foreach ($baseArchiveInput in $DeltaBaseArchive) {
+    $baseArchivePath = [System.IO.Path]::GetFullPath($baseArchiveInput)
+    if (-not (Test-Path -LiteralPath $baseArchivePath -PathType Leaf)) {
+        throw "Delta base archive not found: $baseArchivePath"
+    }
+    $baseMarker = Read-ZipEntryText `
+        -Path $baseArchivePath `
+        -EntryName "$topLevelDirectory/autoplayer-release.json" | ConvertFrom-Json
+    $baseVersion = [string]$baseMarker.version
+    if (-not (Test-CanonicalSemanticVersion -Value $baseVersion) -or
+        $baseArchivesByVersion.ContainsKey($baseVersion)) {
+        throw "Delta base archive has an invalid or duplicate version: $baseVersion"
+    }
+    $baseArchiveFiles = @(Get-ZipFileIndex -Path $baseArchivePath -RequiredRootDirectory $topLevelDirectory)
+    $baseFilesByPath = @{}
+    foreach ($file in $baseArchiveFiles) {
+        if (-not $file.Path.StartsWith($prefix, [StringComparison]::Ordinal)) {
+            throw "Base release file is outside the fixed root: $($file.Path)"
+        }
+        $relative = $file.Path.Substring($prefix.Length)
+        $baseFilesByPath[$relative.ToLowerInvariant()] = [pscustomobject]@{
+            Path = $relative
+            Length = $file.Length
+            Sha256 = $file.Sha256
+        }
+    }
+    $baseArchivesByVersion[$baseVersion] = $baseFilesByPath
+    $baseArchivePathsByVersion[$baseVersion] = $baseArchivePath
+}
+
+$seenDeltaVersions = @{}
+$seenDeltaNames = @{}
+foreach ($delta in $deltaAssets) {
+    $fromVersion = [string]$delta.fromVersion
+    $deltaName = [string]$delta.assetName
+    $expectedDeltaName = "Loopstructor.AutoPlayer-$fromVersion-to-$packageVersion-$runtimeIdentifier.delta.zip"
+    if (-not (Test-CanonicalSemanticVersion -Value $fromVersion) -or
+        (Compare-CanonicalSemanticVersion -Left $fromVersion -Right $packageVersion) -ge 0 -or
+        -not [StringComparer]::Ordinal.Equals($deltaName, $expectedDeltaName) -or
+        $seenDeltaVersions.ContainsKey($fromVersion) -or
+        $seenDeltaNames.ContainsKey($deltaName)) {
+        throw "Update manifest contains an invalid incremental descriptor: $deltaName"
+    }
+    $seenDeltaVersions[$fromVersion] = $true
+    $seenDeltaNames[$deltaName] = $true
+    if (-not $baseArchivesByVersion.ContainsKey($fromVersion)) {
+        throw "No verified base archive was supplied for incremental asset from $fromVersion."
+    }
+
+    $deltaPath = Join-Path $ReleaseDirectory $deltaName
+    $deltaFile = Get-Item -LiteralPath $deltaPath
+    $deltaHash = (Get-FileHash -LiteralPath $deltaPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ([long]$delta.size -ne [long]$deltaFile.Length -or
+        [long]$deltaFile.Length -ge [long]$archiveFile.Length -or
+        -not [StringComparer]::OrdinalIgnoreCase.Equals([string]$delta.sha256, $deltaHash)) {
+        throw "Incremental asset metadata does not match $deltaName."
+    }
+    Assert-Sidecar -ArchivePath $deltaPath -ExpectedHash $deltaHash
+
+    $deltaArchiveFiles = @(Get-ZipFileIndex -Path $deltaPath -RequiredRootDirectory $deltaTopLevelDirectory)
+    $deltaPrefix = "$deltaTopLevelDirectory/"
+    $deltaFilesByPath = @{}
+    foreach ($file in $deltaArchiveFiles) {
+        if (-not $file.Path.StartsWith($deltaPrefix, [StringComparison]::Ordinal)) {
+            throw "Incremental ZIP file is outside the fixed root: $($file.Path)"
+        }
+        $relative = $file.Path.Substring($deltaPrefix.Length)
+        $key = $relative.ToLowerInvariant()
+        $deltaFilesByPath[$key] = [pscustomobject]@{
+            Path = $relative
+            Length = $file.Length
+            Sha256 = $file.Sha256
+        }
+    }
+    if (-not $deltaFilesByPath.ContainsKey('checksums.sha256')) {
+        throw "Incremental ZIP is missing checksums.sha256: $deltaName"
+    }
+    $deltaChecksumText = Read-ZipEntryText `
+        -Path $deltaPath `
+        -EntryName "$deltaTopLevelDirectory/checksums.sha256"
+    if (-not [StringComparer]::Ordinal.Equals($deltaChecksumText, $targetChecksumText)) {
+        throw "Incremental ZIP does not carry the exact target checksum catalog: $deltaName"
+    }
+
+    $baseFilesByPath = $baseArchivesByVersion[$fromVersion]
+    $expectedChanged = @{}
+    foreach ($entry in $targetChecksumCatalog.Values) {
+        $key = $entry.Path.ToLowerInvariant()
+        if (-not $baseFilesByPath.ContainsKey($key) -or
+            -not [StringComparer]::Ordinal.Equals($baseFilesByPath[$key].Sha256, $entry.Sha256)) {
+            $expectedChanged[$key] = $entry
+        }
+    }
+    $payloadFiles = @($deltaFilesByPath.Values | Where-Object {
+        $_.Path.StartsWith('files/', [StringComparison]::Ordinal)
+    })
+    if ($payloadFiles.Count -ne $expectedChanged.Count -or
+        $deltaFilesByPath.Count -ne $payloadFiles.Count + 1) {
+        throw "Incremental ZIP contains missing or extra files: $deltaName"
+    }
+    foreach ($payload in $payloadFiles) {
+        $targetRelative = $payload.Path.Substring('files/'.Length)
+        $key = $targetRelative.ToLowerInvariant()
+        if (-not $expectedChanged.ContainsKey($key) -or
+            -not [StringComparer]::Ordinal.Equals($expectedChanged[$key].Path, $targetRelative) -or
+            -not $packageFilesByPath.ContainsKey($key) -or
+            -not [StringComparer]::Ordinal.Equals($payload.Sha256, $packageFilesByPath[$key].Sha256) -or
+            [long]$payload.Length -ne [long]$packageFilesByPath[$key].Length) {
+            throw "Incremental payload differs from the target package: $targetRelative"
+        }
+    }
+    Write-Host "Verified incremental ZIP: $deltaName ($($expectedChanged.Count) changed files)"
+}
 
 $packagePaths = @($unwrappedArchiveFiles | ForEach-Object { $_.Path })
 foreach ($requiredFile in @(
@@ -334,3 +544,18 @@ Invoke-DotNet -Arguments @(
     '--verify-release-package', $archivePath
     '--expected-version', $packageVersion
 )
+foreach ($delta in $deltaAssets) {
+    $fromVersion = [string]$delta.fromVersion
+    Invoke-DotNet -Arguments @(
+        'run'
+        '--project', $verificationProject
+        '--configuration', 'Release'
+        '--no-restore'
+        '--no-build'
+        '--'
+        '--verify-delta-package', (Join-Path $ReleaseDirectory ([string]$delta.assetName))
+        '--base-package', [string]$baseArchivePathsByVersion[$fromVersion]
+        '--expected-base-version', $fromVersion
+        '--expected-version', $packageVersion
+    )
+}

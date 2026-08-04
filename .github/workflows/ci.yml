@@ -45,6 +45,27 @@ jobs:
         shell: pwsh
         run: ./scripts/test.ps1 -Configuration Release -NoRestore -NoBuild
 
+      - name: Validate release scripts
+        shell: pwsh
+        run: |
+          foreach ($script in @('scripts/common.ps1', 'scripts/package-delta.ps1', 'scripts/verify-release-assets.ps1')) {
+            $tokens = $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) {
+              throw "PowerShell parse failed for $script`: $($errors -join '; ')"
+            }
+          }
+          . ./scripts/common.ps1
+          if ((Compare-CanonicalSemanticVersion -Left '0.5.2' -Right '0.5.3') -ne -1 -or
+              (Compare-CanonicalSemanticVersion -Left '1.0.0-alpha.2' -Right '1.0.0-alpha.10') -ne -1 -or
+              (Compare-CanonicalSemanticVersion -Left '1.0.0+build.1' -Right '1.0.0+build.2') -ne 0 -or
+              (Test-CanonicalSemanticVersion -Value '1.0.0-alpha.01')) {
+            throw 'Release script semantic-version validation failed.'
+          }
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

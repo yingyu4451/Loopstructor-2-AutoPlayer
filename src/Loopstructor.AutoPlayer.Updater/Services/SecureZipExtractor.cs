@@ -7,6 +7,7 @@ namespace Loopstructor.AutoPlayer.Updater.Services;
 public sealed class SecureZipExtractor
 {
     public const string ReleaseArchiveRootDirectory = "Loopstructor 2.AutoPlayer";
+    public const string DeltaArchiveRootDirectory = "Loopstructor 2.AutoPlayer.delta";
     public const int MaximumEntryCount = 10_000;
     public const long MaximumExpandedBytes = 2L * 1024 * 1024 * 1024;
     public const long MaximumSingleFileBytes = 512L * 1024 * 1024;
@@ -28,6 +29,13 @@ public sealed class SecureZipExtractor
         IProgress<ArchiveExtractionProgress>? progress,
         CancellationToken cancellationToken = default) =>
         ExtractCore(archivePath, destinationRoot, ReleaseArchiveRootDirectory, progress, cancellationToken);
+
+    public void ExtractDeltaPackage(
+        string archivePath,
+        string destinationRoot,
+        IProgress<ArchiveExtractionProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        ExtractCore(archivePath, destinationRoot, DeltaArchiveRootDirectory, progress, cancellationToken);
 
     private static void ExtractCore(
         string archivePath,

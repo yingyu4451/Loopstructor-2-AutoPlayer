@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   package-and-release:
     runs-on: windows-2022
@@ -66,9 +70,102 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1 -Version '${{ steps.version.outputs.version }}' -SkipBuild
 
+      - name: Resolve previous published release for incremental package
+        if: github.event_name == 'push'
+        id: delta_base
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./scripts/common.ps1
+          if (-not (Test-CanonicalSemanticVersion -Value $env:CURRENT_VERSION)) {
+            throw "Current tag is not a canonical semantic version: $env:CURRENT_VERSION"
+          }
+          $candidates = @(
+            git tag --list 'v*' --sort=-version:refname |
+              ForEach-Object {
+                $tag = $_
+                $text = $tag.TrimStart('v')
+                if ((Test-CanonicalSemanticVersion -Value $text) -and
+                    (Compare-CanonicalSemanticVersion -Left $text -Right $env:CURRENT_VERSION) -lt 0) {
+                  [pscustomobject]@{ Tag = $tag; Text = $text }
+                }
+              }
+          )
+          foreach ($candidate in $candidates) {
+            $releaseJson = gh release view $candidate.Tag --json isDraft,isPrerelease
+            if ($LASTEXITCODE -ne 0) {
+              continue
+            }
+            $releaseState = $releaseJson | ConvertFrom-Json
+            if ([bool]$releaseState.isDraft -or [bool]$releaseState.isPrerelease) {
+              continue
+            }
+            $directory = Join-Path $env:GITHUB_WORKSPACE "artifacts\delta-base\$($candidate.Text)"
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            $asset = "Loopstructor.AutoPlayer-$($candidate.Text)-win-x64.zip"
+            gh release download $candidate.Tag --pattern $asset --pattern 'autoplayer-update-manifest.json' --dir $directory --clobber
+            if ($LASTEXITCODE -ne 0) {
+              continue
+            }
+            try {
+              $archive = Join-Path $directory $asset
+              $manifestPath = Join-Path $directory 'autoplayer-update-manifest.json'
+              $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+              $archiveFile = Get-Item -LiteralPath $archive
+              $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ([int]$manifest.schemaVersion -ne 2 -or
+                  -not [StringComparer]::Ordinal.Equals([string]$manifest.version, $candidate.Text) -or
+                  -not [StringComparer]::Ordinal.Equals([string]$manifest.runtimeIdentifier, 'win-x64') -or
+                  -not [StringComparer]::Ordinal.Equals([string]$manifest.assetName, $asset) -or
+                  [long]$manifest.size -ne [long]$archiveFile.Length -or
+                  -not [StringComparer]::OrdinalIgnoreCase.Equals([string]$manifest.sha256, $archiveHash)) {
+                throw "Published manifest does not exactly describe $asset."
+              }
+              Invoke-DotNet -Arguments @(
+                'run',
+                '--project', 'src/Loopstructor.AutoPlayer.Updater/Verification/Verification.csproj',
+                '--configuration', 'Release',
+                '--no-build',
+                '--',
+                '--verify-release-package', $archive,
+                '--expected-version', $candidate.Text)
+              "available=true" >> $env:GITHUB_OUTPUT
+              "base_archive=$archive" >> $env:GITHUB_OUTPUT
+              "base_manifest=$manifestPath" >> $env:GITHUB_OUTPUT
+              "base_version=$($candidate.Text)" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            catch {
+              Write-Warning "Skipping invalid incremental base $($candidate.Tag): $($_.Exception.Message)"
+            }
+          }
+          "available=false" >> $env:GITHUB_OUTPUT
+          Write-Host 'No earlier published release with a full package was found; this release will use full-package updates only.'
+
+      - name: Create incremental package
+        if: github.event_name == 'push' && steps.delta_base.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          ./scripts/package-delta.ps1 `
+            -BaseArchive '${{ steps.delta_base.outputs.base_archive }}' `
+            -BaseManifest '${{ steps.delta_base.outputs.base_manifest }}' `
+            -TargetPackageDirectory 'artifacts/package/Loopstructor 2.AutoPlayer' `
+            -TargetVersion '${{ steps.version.outputs.version }}' `
+            -ReleaseDirectory 'artifacts/release'
+
       - name: Verify release archive layouts
         shell: pwsh
-        run: ./scripts/verify-release-assets.ps1 -Version '${{ steps.version.outputs.version }}'
+        run: |
+          $arguments = @{
+            Version = '${{ steps.version.outputs.version }}'
+          }
+          if ('${{ steps.delta_base.outputs.available }}' -eq 'true') {
+            $arguments.DeltaBaseArchive = '${{ steps.delta_base.outputs.base_archive }}'
+          }
+          ./scripts/verify-release-assets.ps1 @arguments
 
       - name: Upload runnable program artifact
         uses: actions/upload-artifact@v4
@@ -140,13 +237,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = @(Get-ChildItem -LiteralPath artifacts/release -File | ForEach-Object { $_.FullName })
-          gh release view $env:GITHUB_REF_NAME *> $null
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'artifacts\release\autoplayer-update-manifest.json'
+          $assets = @(
+            Get-ChildItem -LiteralPath artifacts/release -File |
+              Where-Object { -not [StringComparer]::Ordinal.Equals($_.FullName, $manifest) } |
+              Sort-Object Name |
+              ForEach-Object { $_.FullName }
+          )
+          $releaseJson = gh release view $env:GITHUB_REF_NAME --json isDraft 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:GITHUB_REF_NAME @assets --clobber
-          } else {
-            gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --title "Loopstructor AutoPlayer $env:GITHUB_REF_NAME"
+            $releaseState = $releaseJson | ConvertFrom-Json
+            if (-not [bool]$releaseState.isDraft) {
+              throw "Release $env:GITHUB_REF_NAME is already published and will not be overwritten."
+            }
+            gh release delete $env:GITHUB_REF_NAME --yes
+            if ($LASTEXITCODE -ne 0) {
+              throw "GitHub stale draft deletion failed with exit code $LASTEXITCODE."
+            }
           }
+          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --generate-notes --title "Loopstructor AutoPlayer $env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub draft release creation failed with exit code $LASTEXITCODE."
+          }
+          gh release upload $env:GITHUB_REF_NAME @assets
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release asset upload failed with exit code $LASTEXITCODE."
+          }
+          gh release upload $env:GITHUB_REF_NAME $manifest
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release manifest upload failed with exit code $LASTEXITCODE."
+          }
+          gh release edit $env:GITHUB_REF_NAME --draft=false
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub release publishing failed with exit code $LASTEXITCODE."
           }

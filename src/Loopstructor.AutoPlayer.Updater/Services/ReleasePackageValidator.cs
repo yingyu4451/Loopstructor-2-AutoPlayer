@@ -193,16 +193,19 @@ public sealed class ReleasePackageValidator
         }
     }
 
-    private static void ValidateChecksums(string root)
+    internal static IReadOnlyDictionary<string, ReleaseChecksumEntry> ReadChecksumCatalog(string checksumPath)
     {
-        string checksumPath = Path.Combine(root, "checksums.sha256");
-        if (!File.Exists(checksumPath) || new FileInfo(checksumPath).Length > 2 * 1024 * 1024)
+        FileInfo checksum = new(checksumPath);
+        if (!checksum.Exists
+            || checksum.Attributes.HasFlag(FileAttributes.ReparsePoint)
+            || checksum.Length > 2 * 1024 * 1024)
         {
             throw new InvalidDataException("发布目录缺少大小合理的 checksums.sha256 文件。");
         }
 
-        Dictionary<string, string> expected = new(StringComparer.OrdinalIgnoreCase);
-        string rootPrefix = root + Path.DirectorySeparatorChar;
+        Dictionary<string, ReleaseChecksumEntry> expected = new(StringComparer.OrdinalIgnoreCase);
+        string validationRoot = Path.Combine(Path.GetTempPath(), "LoopstructorChecksumPathValidation");
+        string validationPrefix = validationRoot + Path.DirectorySeparatorChar;
         foreach (string rawLine in File.ReadLines(checksumPath))
         {
             string line = rawLine.TrimEnd();
@@ -212,36 +215,75 @@ public sealed class ReleasePackageValidator
             }
 
             string hash = line[..64];
-            string relative = line[66..].Replace('/', Path.DirectorySeparatorChar);
+            string portableRelative = line[66..];
             if (hash.Any(character => !Uri.IsHexDigit(character))
-                || Path.IsPathRooted(relative)
-                || string.IsNullOrWhiteSpace(relative))
+                || portableRelative.Contains('\\')
+                || Path.IsPathRooted(portableRelative)
+                || string.IsNullOrWhiteSpace(portableRelative))
             {
                 throw new InvalidDataException("checksums.sha256 包含不安全的条目。");
             }
 
-            string fullPath = Path.GetFullPath(Path.Combine(root, relative));
-            if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-                || !File.Exists(fullPath)
-                || !expected.TryAdd(Path.GetRelativePath(root, fullPath), hash.ToLowerInvariant()))
+            string[] segments = portableRelative.Split('/');
+            if (segments.Any(segment => segment.Length == 0
+                                        || segment is "." or ".."
+                                        || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
             {
-                throw new InvalidDataException("checksums.sha256 引用了缺失、重复或超出发布目录的文件：" + relative);
+                throw new InvalidDataException("checksums.sha256 包含不安全的路径段：" + portableRelative);
+            }
+
+            string relative = Path.Combine(segments);
+            string fullPath = Path.GetFullPath(Path.Combine(validationRoot, relative));
+            if (!fullPath.StartsWith(validationPrefix, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "checksums.sha256", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "autoplayer-update.json", StringComparison.OrdinalIgnoreCase)
+                || !expected.TryAdd(relative, new ReleaseChecksumEntry(relative, hash.ToLowerInvariant())))
+            {
+                throw new InvalidDataException("checksums.sha256 引用了重复或不允许的文件：" + portableRelative);
+            }
+
+            if (expected.Count > SecureZipExtractor.MaximumEntryCount)
+            {
+                throw new InvalidDataException("checksums.sha256 的文件数量超出允许范围。");
             }
         }
 
-        foreach ((string relative, string expectedHash) in expected)
+        if (expected.Count == 0)
         {
-            string fullPath = Path.Combine(root, relative);
+            throw new InvalidDataException("checksums.sha256 不能为空。");
+        }
+
+        return expected;
+    }
+
+    private static void ValidateChecksums(string root)
+    {
+        string checksumPath = Path.Combine(root, "checksums.sha256");
+        IReadOnlyDictionary<string, ReleaseChecksumEntry> expected = ReadChecksumCatalog(checksumPath);
+        string rootPrefix = root + Path.DirectorySeparatorChar;
+        _ = EnumerateRegularFiles(root);
+
+        foreach (ReleaseChecksumEntry entry in expected.Values)
+        {
+            string fullPath = Path.GetFullPath(Path.Combine(root, entry.RelativePath));
+            if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
+            {
+                throw new InvalidDataException(
+                    "checksums.sha256 引用了缺失或超出发布目录的文件：" + entry.RelativePath.Replace('\\', '/'));
+            }
+
             using FileStream stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using SHA256 sha256 = SHA256.Create();
             string actual = Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
-            if (!string.Equals(actual, expectedHash, StringComparison.Ordinal))
+            if (!string.Equals(actual, entry.Sha256, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("发布文件校验和不匹配：" + relative.Replace('\\', '/'));
+                throw new InvalidDataException("发布文件校验和不匹配：" + entry.RelativePath.Replace('\\', '/'));
             }
         }
 
-        foreach (string file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+        IReadOnlyList<string> finalReleaseFiles = EnumerateRegularFiles(root);
+        int catalogedFileCount = 0;
+        foreach (string file in finalReleaseFiles)
         {
             string relative = Path.GetRelativePath(root, file);
             if (string.Equals(relative, "checksums.sha256", StringComparison.OrdinalIgnoreCase)
@@ -250,11 +292,62 @@ public sealed class ReleasePackageValidator
                 continue;
             }
 
-            if (!expected.ContainsKey(relative))
+            if (!expected.TryGetValue(relative, out ReleaseChecksumEntry? entry)
+                || !string.Equals(relative, entry.RelativePath, StringComparison.Ordinal))
             {
                 throw new InvalidDataException("发布目录包含未列入校验清单的文件：" + relative.Replace('\\', '/'));
             }
+
+            catalogedFileCount++;
         }
+
+        if (catalogedFileCount != expected.Count)
+        {
+            throw new InvalidDataException("发布目录在校验过程中发生变化或缺少清单文件。");
+        }
+    }
+
+    internal static IReadOnlyList<string> EnumerateRegularFiles(string root)
+    {
+        if (File.GetAttributes(root).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidDataException("发布目录不能是重解析点。");
+        }
+
+        List<string> files = new();
+        Stack<string> pending = new();
+        int entryCount = 0;
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                entryCount++;
+                if (entryCount > SecureZipExtractor.MaximumEntryCount * 2)
+                {
+                    throw new InvalidDataException("发布目录的文件系统条目数量超出允许范围。");
+                }
+
+                FileAttributes attributes = File.GetAttributes(entry);
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw new InvalidDataException(
+                        "发布目录不能包含符号链接或重解析点：" + Path.GetRelativePath(root, entry).Replace('\\', '/'));
+                }
+
+                if (attributes.HasFlag(FileAttributes.Directory))
+                {
+                    pending.Push(entry);
+                }
+                else
+                {
+                    files.Add(entry);
+                }
+            }
+        }
+
+        return files;
     }
 
     private static bool VersionsEqual(string left, string right)
@@ -264,3 +357,5 @@ public sealed class ReleasePackageValidator
                && leftVersion!.CompareTo(rightVersion) == 0;
     }
 }
+
+internal sealed record ReleaseChecksumEntry(string RelativePath, string Sha256);

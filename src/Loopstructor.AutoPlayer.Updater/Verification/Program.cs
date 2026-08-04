@@ -7,17 +7,30 @@ using Loopstructor.AutoPlayer.Updater.Services;
 
 if (args.Length > 0)
 {
-    if (args.Length != 4
-        || !string.Equals(args[0], "--verify-release-package", StringComparison.Ordinal)
-        || !string.Equals(args[2], "--expected-version", StringComparison.Ordinal))
+    if (args.Length == 4
+        && string.Equals(args[0], "--verify-release-package", StringComparison.Ordinal)
+        && string.Equals(args[2], "--expected-version", StringComparison.Ordinal))
     {
-        throw new ArgumentException(
-            "Usage: --verify-release-package <zip-path> --expected-version <version>");
+        VerifyPackagedRelease(args[1], args[3]);
+        Console.WriteLine("Packaged release verification passed.");
+        return;
     }
 
-    VerifyPackagedRelease(args[1], args[3]);
-    Console.WriteLine("Packaged release verification passed.");
-    return;
+    if (args.Length == 8
+        && string.Equals(args[0], "--verify-delta-package", StringComparison.Ordinal)
+        && string.Equals(args[2], "--base-package", StringComparison.Ordinal)
+        && string.Equals(args[4], "--expected-base-version", StringComparison.Ordinal)
+        && string.Equals(args[6], "--expected-version", StringComparison.Ordinal))
+    {
+        VerifyPackagedDelta(args[1], args[3], args[5], args[7]);
+        Console.WriteLine("Packaged incremental release verification passed.");
+        return;
+    }
+
+    throw new ArgumentException(
+        "Usage: --verify-release-package <zip-path> --expected-version <version> " +
+        "or --verify-delta-package <zip-path> --base-package <zip-path> " +
+        "--expected-base-version <version> --expected-version <version>");
 }
 
 string verificationRoot = Path.Combine(Path.GetTempPath(), "LoopstructorUpdaterVerification-" + Guid.NewGuid().ToString("N"));
@@ -78,6 +91,48 @@ static void VerifyPackagedRelease(string archivePath, string expectedVersion)
         {
             Directory.Delete(extractionRoot, recursive: true);
         }
+    }
+}
+
+static void VerifyPackagedDelta(
+    string deltaArchivePath,
+    string baseArchivePath,
+    string expectedBaseVersion,
+    string expectedVersion)
+{
+    string deltaArchive = Path.GetFullPath(deltaArchivePath);
+    string baseArchive = Path.GetFullPath(baseArchivePath);
+    if (!File.Exists(deltaArchive))
+    {
+        throw new FileNotFoundException("Packaged incremental ZIP was not found.", deltaArchive);
+    }
+    if (!File.Exists(baseArchive))
+    {
+        throw new FileNotFoundException("Packaged incremental base ZIP was not found.", baseArchive);
+    }
+
+    string root = Path.Combine(
+        Path.GetTempPath(),
+        "LoopstructorPackagedDeltaVerification-" + Guid.NewGuid().ToString("N"));
+    string current = Path.Combine(root, "current", SecureZipExtractor.ReleaseArchiveRootDirectory);
+    string extractedDelta = Path.Combine(root, "delta");
+    string staging = Path.Combine(root, "staging");
+    try
+    {
+        new SecureZipExtractor().ExtractReleasePackage(baseArchive, current);
+        new ReleasePackageValidator().Validate(current, expectedBaseVersion, validateTargetSafety: true);
+        new SecureZipExtractor().ExtractDeltaPackage(deltaArchive, extractedDelta);
+        new DeltaPackageReconstructor().Reconstruct(
+            extractedDelta,
+            current,
+            staging,
+            expectedBaseVersion,
+            expectedVersion);
+        new ReleasePackageValidator().Validate(staging, expectedVersion);
+    }
+    finally
+    {
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
 }
 

@@ -85,3 +85,102 @@ function Assert-SolutionExists {
         throw "Solution not found: $script:SolutionPath"
     }
 }
+
+function ConvertTo-CanonicalSemanticVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    $pattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
+    $match = [regex]::Match($Value, $pattern, [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    [int]$major = 0
+    [int]$minor = 0
+    [int]$patch = 0
+    if (-not $match.Success -or
+        -not [int]::TryParse($match.Groups[1].Value, [ref]$major) -or
+        -not [int]::TryParse($match.Groups[2].Value, [ref]$minor) -or
+        -not [int]::TryParse($match.Groups[3].Value, [ref]$patch)) {
+        throw "Version '$Value' is not a canonical semantic version."
+    }
+
+    $preRelease = if ($match.Groups[4].Success) {
+        @($match.Groups[4].Value -split '\.')
+    }
+    else {
+        @()
+    }
+    return [pscustomobject]@{
+        Text = $Value
+        Major = $major
+        Minor = $minor
+        Patch = $patch
+        PreRelease = $preRelease
+    }
+}
+
+function Test-CanonicalSemanticVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    try {
+        $null = ConvertTo-CanonicalSemanticVersion -Value $Value
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Compare-CanonicalSemanticVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Left,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Right
+    )
+
+    $leftVersion = ConvertTo-CanonicalSemanticVersion -Value $Left
+    $rightVersion = ConvertTo-CanonicalSemanticVersion -Value $Right
+    foreach ($property in @('Major', 'Minor', 'Patch')) {
+        if ($leftVersion.$property -lt $rightVersion.$property) { return -1 }
+        if ($leftVersion.$property -gt $rightVersion.$property) { return 1 }
+    }
+
+    $leftPreRelease = @($leftVersion.PreRelease)
+    $rightPreRelease = @($rightVersion.PreRelease)
+    if ($leftPreRelease.Count -eq 0 -and $rightPreRelease.Count -eq 0) { return 0 }
+    if ($leftPreRelease.Count -eq 0) { return 1 }
+    if ($rightPreRelease.Count -eq 0) { return -1 }
+
+    $count = [Math]::Max($leftPreRelease.Count, $rightPreRelease.Count)
+    for ($index = 0; $index -lt $count; $index++) {
+        if ($index -ge $leftPreRelease.Count) { return -1 }
+        if ($index -ge $rightPreRelease.Count) { return 1 }
+        $leftIdentifier = [string]$leftPreRelease[$index]
+        $rightIdentifier = [string]$rightPreRelease[$index]
+        $leftNumeric = $leftIdentifier -match '^(0|[1-9][0-9]*)$'
+        $rightNumeric = $rightIdentifier -match '^(0|[1-9][0-9]*)$'
+        if ($leftNumeric -and $rightNumeric) {
+            $leftNumber = [System.Numerics.BigInteger]::Parse($leftIdentifier)
+            $rightNumber = [System.Numerics.BigInteger]::Parse($rightIdentifier)
+            $comparison = $leftNumber.CompareTo($rightNumber)
+        }
+        elseif ($leftNumeric) {
+            $comparison = -1
+        }
+        elseif ($rightNumeric) {
+            $comparison = 1
+        }
+        else {
+            $comparison = [StringComparer]::Ordinal.Compare($leftIdentifier, $rightIdentifier)
+        }
+        if ($comparison -lt 0) { return -1 }
+        if ($comparison -gt 0) { return 1 }
+    }
+
+    return 0
+}

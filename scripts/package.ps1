@@ -550,6 +550,7 @@ $updateManifest = [ordered]@{
     assetName = $zipName
     sha256 = $zipHash
     size = [long]$zipFile.Length
+    deltaAssets = @()
 }
 $manifestPath = Join-Path $releaseRoot 'autoplayer-update-manifest.json'
 Write-Utf8NoBom -Path $manifestPath -Content ($updateManifest | ConvertTo-Json -Depth 4)
