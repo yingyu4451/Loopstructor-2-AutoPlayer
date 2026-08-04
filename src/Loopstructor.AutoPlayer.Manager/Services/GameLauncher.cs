@@ -60,6 +60,14 @@ public sealed class GameLauncher
             }
 
             session.ProcessId = process.Id;
+            try
+            {
+                session.ProcessStartTimeUtc = process.StartTime.ToUniversalTime();
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                session.ProcessStartTimeUtc = null;
+            }
             WriteLaunchMetadata(session, game);
             return new GameLaunchResult
             {

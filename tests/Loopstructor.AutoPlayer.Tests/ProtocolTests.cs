@@ -1,4 +1,5 @@
 using Loopstructor.AutoPlayer.Core;
+using Loopstructor.AutoPlayer.Manager.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -7,18 +8,21 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class ProtocolTests
 {
     [Fact]
-    public void BridgeHello_GameProcessIdIsBackwardCompatibleWithoutProtocolChange()
+    public void BridgeHello_GameProcessIdRoundTripsWithCurrentProtocol()
     {
         BridgeHello legacy = JsonConvert.DeserializeObject<BridgeHello>("{\"ProtocolVersion\":1,\"PluginVersion\":\"0.1.0\"}")!;
         string current = JsonConvert.SerializeObject(new BridgeHello
         {
             ProtocolVersion = Protocol.CurrentVersion,
-            GameProcessId = 4321
+            GameProcessId = 4321,
+            ProcessInstanceId = "0123456789abcdef0123456789abcdef"
         });
 
-        Assert.Equal(1, Protocol.CurrentVersion);
+        Assert.Equal(2, Protocol.CurrentVersion);
         Assert.Equal(0, legacy.GameProcessId);
+        Assert.Empty(legacy.ProcessInstanceId);
         Assert.Contains("\"GameProcessId\":4321", current, StringComparison.Ordinal);
+        Assert.Contains("\"ProcessInstanceId\"", current, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -27,6 +31,8 @@ public sealed class ProtocolTests
         ControlRequest legacy = JsonConvert.DeserializeObject<ControlRequest>("{\"command\":\"status\"}")!;
         ControlRequest current = new()
         {
+            TargetGameProcessId = 4321,
+            TargetProcessInstanceId = "0123456789abcdef0123456789abcdef",
             Command = CheatCommands.SpawnEnemy,
             Arguments = new JObject
             {
@@ -42,6 +48,8 @@ public sealed class ProtocolTests
         Assert.Null(legacy.Arguments);
         Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
         Assert.Equal(4, Protocol.CheatCurrentVersion);
+        Assert.Equal(4321, roundTrip.TargetGameProcessId);
+        Assert.Equal(current.TargetProcessInstanceId, roundTrip.TargetProcessInstanceId);
         Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
         Assert.Equal("CommonMonster", roundTrip.Arguments!.Value<string>("enemyId"));
         Assert.Equal(12.5, roundTrip.Arguments.Value<double>("x"));
@@ -94,7 +102,7 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void ActivationMode_RoundTripsWithoutChangingBaseProtocolVersion()
+    public void ActivationMode_RoundTripsWithCurrentBaseProtocolVersion()
     {
         BridgeHello hello = new() { ActivationMode = AutoPlayerActivationMode.ResidentPlayer };
         AutoPlayerStatus status = new() { ActivationMode = AutoPlayerActivationMode.ResidentPlayer };
@@ -102,9 +110,53 @@ public sealed class ProtocolTests
         BridgeHello helloRoundTrip = JsonConvert.DeserializeObject<BridgeHello>(JsonConvert.SerializeObject(hello))!;
         AutoPlayerStatus statusRoundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(JsonConvert.SerializeObject(status))!;
 
-        Assert.Equal(1, Protocol.CurrentVersion);
+        Assert.Equal(2, Protocol.CurrentVersion);
         Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, helloRoundTrip.ActivationMode);
         Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, statusRoundTrip.ActivationMode);
+    }
+
+    [Fact]
+    public void ControlPipeName_IsProcessScopedOnlyForResidentPlayerMode()
+    {
+        const string basePipeName = "Loopstructor.AutoPlayer.Player.test";
+
+        Assert.Equal(
+            basePipeName + ".pid-4321",
+            Protocol.GetControlPipeName(basePipeName, AutoPlayerActivationMode.ResidentPlayer, 4321));
+        Assert.Equal(
+            basePipeName,
+            Protocol.GetControlPipeName(basePipeName, AutoPlayerActivationMode.IsolatedQa, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Protocol.GetControlPipeName(basePipeName, AutoPlayerActivationMode.ResidentPlayer, 0));
+        Assert.Throws<ArgumentException>(() =>
+            Protocol.GetControlPipeName("invalid/pipe", AutoPlayerActivationMode.IsolatedQa, 0));
+    }
+
+    [Theory]
+    [InlineData("0123456789abcdef0123456789abcdef", true)]
+    [InlineData("01234567-89ab-cdef-0123-456789abcdef", false)]
+    [InlineData("", false)]
+    [InlineData("not-a-request-id", false)]
+    public void RequestId_RequiresCompactGuid(string value, bool expected)
+    {
+        Assert.Equal(expected, Protocol.IsValidRequestId(value));
+    }
+
+    [Fact]
+    public void CheatWindowSessionKey_ChangesWhenPidIsReusedByNewPluginInstance()
+    {
+        BridgeHello first = new()
+        {
+            GameProcessId = 4321,
+            ProcessInstanceId = "0123456789abcdef0123456789abcdef",
+            BuildGuid = "build",
+            AssemblySha256 = new string('a', 64),
+            ArtifactRoot = "artifact"
+        };
+        BridgeHello second = JsonConvert.DeserializeObject<BridgeHello>(JsonConvert.SerializeObject(first))!;
+        second.ProcessInstanceId = "fedcba9876543210fedcba9876543210";
+
+        Assert.NotEqual(CheatForm.BuildSessionKey(first), CheatForm.BuildSessionKey(second));
     }
 
     [Theory]

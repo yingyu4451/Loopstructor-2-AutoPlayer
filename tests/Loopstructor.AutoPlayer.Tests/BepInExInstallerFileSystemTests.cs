@@ -140,6 +140,31 @@ public sealed class BepInExInstallerFileSystemTests
         Assert.Empty(Directory.GetDirectories(pluginParent, ".Loopstructor.AutoPlayer.*", SearchOption.TopDirectoryOnly));
     }
 
+    [Fact]
+    public void GetStatus_MarksOutdatedInstalledPluginAsIncomplete()
+    {
+        using TemporaryDirectory temporary = new();
+        string distributionRoot = Path.Combine(temporary.Root, "distribution");
+        string gameRoot = Path.Combine(temporary.Root, "game");
+        CreateRuntimePayload(distributionRoot);
+        CreatePluginPayload(distributionRoot, includeCore: true);
+        foreach (string relative in RuntimeFiles)
+        {
+            string payload = Path.Combine(distributionRoot, "payload", "bepinex", relative);
+            WriteBytes(Path.Combine(gameRoot, relative), File.ReadAllBytes(payload));
+        }
+
+        string pluginDirectory = Path.Combine(gameRoot, "BepInEx", "plugins", "Loopstructor.AutoPlayer");
+        WriteBytes(Path.Combine(pluginDirectory, "Loopstructor.AutoPlayer.Plugin.dll"), Encoding.UTF8.GetBytes("old-plugin"));
+        WriteBytes(Path.Combine(pluginDirectory, "Loopstructor.AutoPlayer.Core.dll"), Encoding.UTF8.GetBytes("old-core"));
+        BepInExInstaller installer = new(CreateLayout(distributionRoot));
+
+        PluginInstallStatus status = installer.GetStatus(gameRoot);
+
+        Assert.Equal(PluginState.Incomplete, status.State);
+        Assert.Contains("重新安装插件", status.Detail, StringComparison.Ordinal);
+    }
+
     private static DistributionLayout CreateLayout(string distributionRoot)
     {
         ConstructorInfo constructor = typeof(DistributionLayout).GetConstructor(

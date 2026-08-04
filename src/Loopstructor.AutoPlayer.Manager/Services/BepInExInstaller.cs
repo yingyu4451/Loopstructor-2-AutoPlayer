@@ -41,27 +41,37 @@ public sealed class BepInExInstaller
 
         if (File.Exists(enabledAssembly))
         {
-            bool complete = runtime.Compatible
-                            && RequiredPluginFiles.All(file => File.Exists(Path.Combine(pluginDirectory, file)));
+            bool currentPayload = InstalledPluginMatchesPayload(pluginDirectory, enabledAssembly);
+            bool complete = runtime.Compatible && currentPayload;
             return new PluginInstallStatus
             {
                 State = complete ? PluginState.Enabled : PluginState.Incomplete,
                 BepInExPresent = runtime.Present,
                 BepInExCompatible = runtime.Compatible,
                 PluginVersion = ReadVersion(enabledAssembly),
-                Detail = complete ? "插件已启用，固定版本的 BepInEx 运行时已验证" : runtime.Detail
+                Detail = complete
+                    ? "插件已启用，插件载荷与固定版本的 BepInEx 运行时均已验证"
+                    : runtime.Compatible
+                        ? "游戏目录中的 AutoPlayer 插件不是当前 Manager 携带的版本，请重新安装插件。"
+                        : runtime.Detail
             };
         }
 
         if (File.Exists(disabledAssembly))
         {
+            bool currentPayload = InstalledPluginMatchesPayload(pluginDirectory, disabledAssembly);
+            bool complete = runtime.Compatible && currentPayload;
             return new PluginInstallStatus
             {
-                State = runtime.Compatible ? PluginState.Disabled : PluginState.Incomplete,
+                State = complete ? PluginState.Disabled : PluginState.Incomplete,
                 BepInExPresent = runtime.Present,
                 BepInExCompatible = runtime.Compatible,
                 PluginVersion = ReadVersion(disabledAssembly),
-                Detail = runtime.Compatible ? "插件已停用" : runtime.Detail
+                Detail = complete
+                    ? "插件已停用"
+                    : runtime.Compatible
+                        ? "游戏目录中的已停用插件不是当前 Manager 携带的版本，请重新安装插件。"
+                        : runtime.Detail
             };
         }
 
@@ -379,6 +389,23 @@ public sealed class BepInExInstaller
         {
             return string.Empty;
         }
+    }
+
+    private bool InstalledPluginMatchesPayload(string pluginDirectory, string pluginAssemblyPath)
+    {
+        foreach (string file in RequiredPluginFiles)
+        {
+            string installed = string.Equals(file, PluginAssemblyName, StringComparison.OrdinalIgnoreCase)
+                ? pluginAssemblyPath
+                : Path.Combine(pluginDirectory, file);
+            string payload = Path.Combine(_layout.PluginPayloadRoot, file);
+            if (!File.Exists(installed) || !File.Exists(payload) || !HashesEqual(installed, payload))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private RuntimeValidation ValidateRuntime(string gameRoot)

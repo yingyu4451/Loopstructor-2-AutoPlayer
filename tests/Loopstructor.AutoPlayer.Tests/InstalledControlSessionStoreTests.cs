@@ -60,6 +60,29 @@ public sealed class InstalledControlSessionStoreTests
     }
 
     [Fact]
+    public void Ensure_UpgradesV1RegistrationWithoutRotatingLocalCredential()
+    {
+        using TemporaryDirectory temporary = new();
+        string dataRoot = Path.Combine(temporary.Root, "data");
+        string gameRoot = Path.Combine(temporary.Root, "Skyspine");
+        Directory.CreateDirectory(gameRoot);
+        GameInstallValidation game = ValidGame(gameRoot);
+        InstalledControlSessionStore store = new(dataRoot);
+        ActivationSession original = store.Ensure(game, "player-default", selectProfile: true);
+        string path = InstalledControlSessionStore.RegistrationPath(dataRoot, gameRoot);
+        JObject registration = JObject.Parse(File.ReadAllText(path));
+        registration["protocol"] = 1;
+        File.WriteAllText(path, registration.ToString(Formatting.Indented));
+
+        ActivationSession upgraded = store.Ensure(game, "player-default", selectProfile: false);
+        JObject persisted = JObject.Parse(File.ReadAllText(path));
+
+        Assert.Equal(original.Ticket.PipeName, upgraded.Ticket.PipeName);
+        Assert.Equal(original.Ticket.Token, upgraded.Ticket.Token);
+        Assert.Equal(Protocol.CurrentVersion, persisted.Value<int>("protocol"));
+    }
+
+    [Fact]
     public void Delete_RemovesOnlyTheSelectedGameRegistration()
     {
         using TemporaryDirectory temporary = new();

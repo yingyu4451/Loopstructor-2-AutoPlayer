@@ -174,6 +174,8 @@ public sealed class ActivationSession
     public bool IsPersistent { get; init; }
     public AutoPlayerActivationMode ActivationMode { get; init; } = AutoPlayerActivationMode.IsolatedQa;
     public int? ProcessId { get; internal set; }
+    public DateTime? ProcessStartTimeUtc { get; internal set; }
+    public string ProcessInstanceId { get; internal set; } = string.Empty;
     public string LogPath => Path.Combine(Ticket.ArtifactRoot, "Player.log");
 
     public void DeleteTicket()

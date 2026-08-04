@@ -41,7 +41,7 @@ flowchart LR
 6. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。失败时不安装操作补丁，也不接受控制。
 7. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Manager 拒绝握手。玩家原存档和平台行为保持游戏默认语义。
 8. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
-9. 插件在 `hello` 中回传自身真实 PID、激活模式、指纹、运行时契约和隔离状态。Manager 只在该 PID 仍存活、可执行文件路径等于所选游戏且模式门禁相符时接受握手。
+9. 插件在 `hello` 中回传自身真实 PID、随机进程实例标识、激活模式、指纹、运行时契约和隔离状态。Manager 只在该 PID 仍存活、启动时间未变化、可执行文件路径等于所选游戏且模式门禁相符时接受握手；后续每条请求都必须继续匹配 PID 与进程实例标识。
 10. 连接成功后插件保持 Standby；只有用户发送 `start` 才开始自动决策。作弊能力随可信会话提供，但仍必须在独立作弊窗口中显式开启。
 
 支持的环境变量由共享协议定义：
@@ -62,7 +62,7 @@ LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED=1  # 可信 Manager 会话固定提供能�
 
 ## IPC 协议
 
-IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象，服务只允许一个连接。玩家模式的 pipe 与 token 对同一已安装游戏保持稳定，使手动启动也能被发现；隔离 QA 模式每次启动重新生成。每个请求都应携带请求 ID 和对应 token：
+IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响应。玩家模式对同一已安装游戏保存稳定的 pipe 基础名与 token，插件按当前 PID 派生进程专属端点；Manager 没有既有绑定且发现多个同目录游戏进程时拒绝任意选择。隔离 QA 模式每次启动重新生成端点与 token。协议 v2 的每个请求都携带请求 ID、对应 token、目标 PID；`hello` 返回随机进程实例标识，后续请求还必须携带并匹配该标识：
 
 ```json
 {"id":"request-1","token":"<session-token>","command":"status"}
@@ -79,7 +79,7 @@ IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象，服务只允许�
 | `resume` | 恢复决策循环 |
 | `stop` | 回到待机状态，不再调用游戏动作 |
 
-控制请求由 pipe 后台线程读取，改变 Unity 状态的命令排队到游戏主线程执行。请求在主线程未及时处理时返回超时，不能从 pipe 线程直接操作 Unity 对象。
+控制服务最多维持四个并发监听，半开连接的首行读取有明确期限。改变 Unity 状态的命令仍排队到游戏主线程执行，不能从 pipe 线程直接操作 Unity 对象；主线程命令超过等待窗口时返回“仍在执行”并释放监听，但 pending 请求和结果缓存继续保留。Manager 在总期限内用同一请求 ID 轮询最终结果，超出期限的写操作按结果未知处理并冻结继续写入，不会用新 ID 自动重试。
 
 作弊协议在基础命令之外使用独立版本号和固定命令集：
 
@@ -180,7 +180,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.0-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.1-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

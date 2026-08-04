@@ -44,7 +44,7 @@ public sealed class InstalledControlSessionStore
         InstalledControlRegistration? existing = TryRead(path);
 
         bool reusableIdentity = existing != null
-                                && existing.Protocol == Protocol.CurrentVersion
+                                && existing.Protocol is >= 1 and <= Protocol.CurrentVersion
                                 && string.Equals(existing.GameRootSha256, rootHash, StringComparison.OrdinalIgnoreCase)
                                 && IsPipeName(existing.PipeName)
                                 && IsToken(existing.Token);

@@ -30,10 +30,9 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
 
         _residentPlayerMode = activation.IsPlayerMode;
 
-        if (!activation.IsPlayerMode)
-        {
-            ProtectActivatedManagerObject();
-        }
+        // Both activation modes must survive menu, map and battle scene loads.
+        // This only preserves the BepInEx host; player mode still installs no QA isolation patches.
+        ProtectActivatedManagerObject(hideFromSceneSerialization: !activation.IsPlayerMode);
 
         PluginSettings settings = new(Config);
         RuntimeBridge bridge = new();
@@ -86,10 +85,13 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} 已通过{ActivationSourceLabel(activation.Source)}激活，当前处于待命模式。");
     }
 
-    private void ProtectActivatedManagerObject()
+    private void ProtectActivatedManagerObject(bool hideFromSceneSerialization)
     {
         UnityEngine.Object.DontDestroyOnLoad(gameObject);
-        gameObject.hideFlags |= UnityEngine.HideFlags.HideAndDontSave;
+        if (hideFromSceneSerialization)
+        {
+            gameObject.hideFlags |= UnityEngine.HideFlags.HideAndDontSave;
+        }
         Logger.LogInfo("已保护激活的 BepInEx 管理器对象，避免其被场景清理。");
     }
 
@@ -114,6 +116,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        Logger.LogInfo("AutoPlayer 插件宿主正在退出；本机控制通道已关闭。");
         _controlServer?.Dispose();
         _controlServer = null;
         _cheatController?.Dispose();

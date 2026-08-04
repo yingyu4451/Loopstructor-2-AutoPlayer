@@ -448,6 +448,7 @@ internal sealed class AutoPlayController
                 ActivationMode = _activation.ActivationMode,
                 ProtocolVersion = Protocol.CurrentVersion,
                 GameProcessId = GetCurrentProcessId(),
+                ProcessInstanceId = _activation.ProcessInstanceId,
                 PluginVersion = PluginInfo.Version,
                 GameVersion = _fingerprint.ProductVersion,
                 UnityVersion = _fingerprint.UnityVersion,

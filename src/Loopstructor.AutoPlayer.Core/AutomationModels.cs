@@ -181,6 +181,7 @@ public sealed class BridgeHello
 {
     public int ProtocolVersion { get; set; }
     public int GameProcessId { get; set; }
+    public string ProcessInstanceId { get; set; } = string.Empty;
     public string PluginVersion { get; set; } = string.Empty;
     public AutoPlayerActivationMode ActivationMode { get; set; } = AutoPlayerActivationMode.IsolatedQa;
     public string GameVersion { get; set; } = string.Empty;
@@ -214,6 +215,8 @@ public sealed class ControlRequest
 {
     public string Id { get; set; } = string.Empty;
     public string Token { get; set; } = string.Empty;
+    public int TargetGameProcessId { get; set; }
+    public string TargetProcessInstanceId { get; set; } = string.Empty;
     public string Command { get; set; } = "status";
     public AutomationRunOptions? Options { get; set; }
     public JObject? Arguments { get; set; }
@@ -244,7 +247,7 @@ public sealed class LaunchTicket
 
 public static class Protocol
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
     public const int CheatCurrentVersion = 4;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
@@ -253,6 +256,9 @@ public static class Protocol
     public const string ArtifactEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ARTIFACT_ROOT";
     public const string ExpectedAssemblySha256EnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ASSEMBLY_SHA256";
     public const string CheatModeAllowedEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED";
+
+    public static bool IsValidRequestId(string? requestId) =>
+        Guid.TryParseExact(requestId, "N", out _);
 
     public static string DataRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -278,6 +284,37 @@ public static class Protocol
     {
         string id = HashGameRoot(gameRoot).Substring(0, 16);
         return Path.Combine(DataRoot, "tickets", "launch-" + id + ".json");
+    }
+
+    public static string GetControlPipeName(
+        string basePipeName,
+        AutoPlayerActivationMode activationMode,
+        int gameProcessId)
+    {
+        if (string.IsNullOrWhiteSpace(basePipeName)
+            || basePipeName.Length > 220
+            || basePipeName.IndexOfAny(new[] { '\\', '/', ':', '\0' }) >= 0)
+        {
+            throw new ArgumentException("控制管道基础名称无效。", nameof(basePipeName));
+        }
+
+        if (activationMode != AutoPlayerActivationMode.ResidentPlayer)
+        {
+            return basePipeName;
+        }
+
+        if (gameProcessId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(gameProcessId), "玩家模式需要有效的游戏进程 PID。");
+        }
+
+        string processPipeName = basePipeName + ".pid-" + gameProcessId;
+        if (processPipeName.Length > 240)
+        {
+            throw new ArgumentException("进程专属控制管道名称过长。", nameof(basePipeName));
+        }
+
+        return processPipeName;
     }
 }
 

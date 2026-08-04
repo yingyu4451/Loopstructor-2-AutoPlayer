@@ -92,9 +92,7 @@ internal sealed partial class CheatForm : Window
             return;
         }
 
-        string nextSessionKey = hello == null
-            ? string.Empty
-            : $"{hello.GameProcessId}|{hello.BuildGuid}|{hello.AssemblySha256}|{hello.ArtifactRoot}";
+        string nextSessionKey = BuildSessionKey(hello);
         if (!string.Equals(_sessionKey, nextSessionKey, StringComparison.Ordinal))
         {
             _sessionKey = nextSessionKey;
@@ -129,6 +127,10 @@ internal sealed partial class CheatForm : Window
         _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v{Display(pluginVersion)}   /   作弊协议 v{hello?.CheatProtocolVersion ?? Protocol.CheatCurrentVersion}";
         ApplyAvailability();
     }
+
+    internal static string BuildSessionKey(BridgeHello? hello) => hello == null
+        ? string.Empty
+        : $"{hello.GameProcessId}|{hello.ProcessInstanceId}|{hello.BuildGuid}|{hello.AssemblySha256}|{hello.ArtifactRoot}";
 
     internal void SelectDemoTab(int index)
     {

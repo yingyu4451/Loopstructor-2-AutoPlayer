@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -15,16 +16,27 @@ internal sealed class PipeControlServer : IDisposable
 {
     private const int MaxRequestCharacters = 65536;
     private const int MaxCachedResponses = 256;
+    private const int ListenerWorkerCount = 4;
+    private static readonly TimeSpan QueueWaitTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ConnectionReadTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectionWriteTimeout = TimeSpan.FromSeconds(5);
 
     private readonly AutoPlayController _controller;
     private readonly CheatController _cheatController;
     private readonly ActivationContext _activation;
+    private readonly int _gameProcessId;
+    private readonly string _pipeName;
     private readonly ConcurrentQueue<QueuedControl> _requests = new();
+    private readonly object _requestSync = new();
+    private readonly Dictionary<string, QueuedControl> _pendingRequests = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CachedControlResponse> _responseCache = new(StringComparer.Ordinal);
     private readonly Queue<string> _responseCacheOrder = new();
-    private readonly Thread _thread;
+    private readonly object _serverSync = new();
+    private readonly HashSet<NamedPipeServerStream> _activeServers = new();
+    private readonly ManualResetEvent _shutdown = new(false);
+    private readonly Thread[] _workers;
     private volatile bool _stopping;
-    private NamedPipeServerStream? _activeServer;
+    private int _disposeState;
 
     public PipeControlServer(
         AutoPlayController controller,
@@ -34,14 +46,29 @@ internal sealed class PipeControlServer : IDisposable
         _controller = controller;
         _cheatController = cheatController;
         _activation = activation;
-        _thread = new Thread(Run)
+        using (Process process = Process.GetCurrentProcess())
         {
-            IsBackground = true,
-            Name = "LoopstructorAutoPlayerControl"
-        };
+            _gameProcessId = process.Id;
+        }
+        _pipeName = Protocol.GetControlPipeName(
+            activation.PipeName,
+            activation.ActivationMode,
+            _gameProcessId);
+        _workers = new Thread[ListenerWorkerCount];
+        for (int index = 0; index < _workers.Length; index++)
+        {
+            _workers[index] = new Thread(RunWorker)
+            {
+                IsBackground = true,
+                Name = "LoopstructorAutoPlayerControl-" + (index + 1)
+            };
+        }
     }
 
-    public void Start() => _thread.Start();
+    public void Start()
+    {
+        foreach (Thread worker in _workers) worker.Start();
+    }
 
     public void Pump()
     {
@@ -94,31 +121,65 @@ internal sealed class PipeControlServer : IDisposable
             }
             finally
             {
-                request.Done.Set();
+                _cheatController.NotifyManagerCommandCompleted();
+                CompleteRequest(request, BuildCompletedResponse(request));
             }
         }
     }
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0) return;
         _stopping = true;
-        try { _activeServer?.Dispose(); } catch { }
-        if (_thread.IsAlive) _thread.Join(1500);
+        _shutdown.Set();
+
+        QueuedControl[] pending;
+        lock (_requestSync)
+        {
+            pending = new QueuedControl[_pendingRequests.Count];
+            _pendingRequests.Values.CopyTo(pending, 0);
+        }
+
+        foreach (QueuedControl request in pending)
+        {
+            if (Interlocked.CompareExchange(ref request.State, 2, 0) == 0)
+            {
+                CompleteRequest(request, BuildCanceledBeforeExecutionResponse(request.Id));
+            }
+        }
+
+        NamedPipeServerStream[] servers;
+        lock (_serverSync)
+        {
+            servers = new NamedPipeServerStream[_activeServers.Count];
+            _activeServers.CopyTo(servers);
+        }
+
+        foreach (NamedPipeServerStream server in servers)
+        {
+            try { server.Dispose(); } catch { }
+        }
+
+        foreach (Thread worker in _workers)
+        {
+            if (worker.IsAlive) worker.Join(1500);
+        }
     }
 
-    private void Run()
+    private void RunWorker()
     {
         while (!_stopping)
         {
+            NamedPipeServerStream? server = null;
             try
             {
-                using NamedPipeServerStream server = new(
-                    _activation.PipeName,
+                server = new NamedPipeServerStream(
+                    _pipeName,
                     PipeDirection.InOut,
-                    1,
+                    ListenerWorkerCount,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.None);
-                _activeServer = server;
+                    PipeOptions.Asynchronous);
+                if (!RegisterActiveServer(server)) return;
                 server.WaitForConnection();
                 if (_stopping) return;
                 ProcessConnection(server);
@@ -137,8 +198,22 @@ internal sealed class PipeControlServer : IDisposable
             }
             finally
             {
-                _activeServer = null;
+                if (server != null)
+                {
+                    lock (_serverSync) _activeServers.Remove(server);
+                    try { server.Dispose(); } catch { }
+                }
             }
+        }
+    }
+
+    private bool RegisterActiveServer(NamedPipeServerStream server)
+    {
+        lock (_serverSync)
+        {
+            if (_stopping) return false;
+            _activeServers.Add(server);
+            return true;
         }
     }
 
@@ -146,20 +221,26 @@ internal sealed class PipeControlServer : IDisposable
     {
         using StreamReader reader = new(server, Encoding.UTF8, false, 4096, true);
         using StreamWriter writer = new(server, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
-        string? line;
-        while (!_stopping && (line = reader.ReadLine()) != null)
+        Task<string?> readTask = reader.ReadLineAsync();
+        if (!readTask.Wait(ConnectionReadTimeout))
         {
-            ControlResponse response;
-            if (line.Length > MaxRequestCharacters)
-            {
-                response = Error(string.Empty, "控制请求过大。");
-            }
-            else
-            {
-                response = ProcessLine(line);
-            }
+            // A connected client that never sends a line must not own a listener forever.
+            try { server.Dispose(); } catch { }
+            try { readTask.Wait(TimeSpan.FromMilliseconds(250)); } catch { }
+            return;
+        }
 
-            writer.WriteLine(JsonConvert.SerializeObject(response));
+        string? line = readTask.GetAwaiter().GetResult();
+        if (_stopping || line == null) return;
+        ControlResponse response = line.Length > MaxRequestCharacters
+            ? Error(string.Empty, "控制请求过大。")
+            : ProcessLine(line);
+        Task writeTask = WriteResponseAsync(writer, JsonConvert.SerializeObject(response));
+        if (!writeTask.Wait(ConnectionWriteTimeout))
+        {
+            // A client that stops reading must not own a listener forever.
+            try { server.Dispose(); } catch { }
+            try { writeTask.Wait(TimeSpan.FromMilliseconds(250)); } catch { }
         }
     }
 
@@ -176,11 +257,37 @@ internal sealed class PipeControlServer : IDisposable
         }
 
         if (input == null) return Error(string.Empty, "控制请求为空。");
-        string id = string.IsNullOrWhiteSpace(input.Id) ? Guid.NewGuid().ToString("N") : input.Id;
+        string id;
+        if (string.IsNullOrWhiteSpace(input.Id))
+        {
+            id = Guid.NewGuid().ToString("N");
+        }
+        else if (!Protocol.IsValidRequestId(input.Id))
+        {
+            return Error(string.Empty, "控制请求标识无效。");
+        }
+        else
+        {
+            id = input.Id;
+        }
         if (!TokensEqual(input.Token, _activation.Token)) return Error(id, "控制令牌无效。");
+        string command = string.IsNullOrWhiteSpace(input.Command) ? "status" : input.Command.Trim();
+        bool targetPidMissing = input.TargetGameProcessId <= 0;
+        bool targetPidMismatch = !targetPidMissing && input.TargetGameProcessId != _gameProcessId;
+        if ((_activation.IsPlayerMode && targetPidMissing) || targetPidMismatch)
+        {
+            return Error(id, $"控制请求目标 PID {input.TargetGameProcessId} 与当前游戏 PID {_gameProcessId} 不一致。");
+        }
+        if (!string.Equals(command, "hello", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(
+                input.TargetProcessInstanceId,
+                _activation.ProcessInstanceId,
+                StringComparison.Ordinal))
+        {
+            return Error(id, "控制请求的游戏进程实例标识无效，请重新握手。");
+        }
         _cheatController.NotifyManagerHeartbeat();
 
-        string command = string.IsNullOrWhiteSpace(input.Command) ? "status" : input.Command.Trim();
         if (string.Equals(command, "hello", StringComparison.OrdinalIgnoreCase))
         {
             return new ControlResponse
@@ -206,49 +313,88 @@ internal sealed class PipeControlServer : IDisposable
         }
 
         string fingerprint = BuildRequestFingerprint(command, input.Options, input.Arguments);
-        if (_responseCache.TryGetValue(id, out CachedControlResponse? cached))
+        QueuedControl request;
+        bool enqueue = false;
+        lock (_requestSync)
         {
-            return string.Equals(cached.Fingerprint, fingerprint, StringComparison.Ordinal)
-                ? cached.Response
-                : Error(id, "请求标识已用于另一条控制命令，拒绝重复执行。");
-        }
-
-        QueuedControl request = new(id, command, input.Options, input.Arguments);
-        _requests.Enqueue(request);
-        bool completed = request.Done.Wait(TimeSpan.FromSeconds(8));
-        bool canceledBeforeExecution = false;
-        if (!completed)
-        {
-            int previousState = Interlocked.CompareExchange(ref request.State, 2, 0);
-            if (previousState == 0)
+            if (_responseCache.TryGetValue(id, out CachedControlResponse? cached))
             {
-                canceledBeforeExecution = true;
+                return string.Equals(cached.Fingerprint, fingerprint, StringComparison.Ordinal)
+                    ? cached.Response
+                    : Error(id, "请求标识已用于另一条控制命令，拒绝重复执行。");
             }
-            else if (previousState == 1)
+
+            if (_pendingRequests.TryGetValue(id, out QueuedControl? pending))
             {
-                while (!_stopping && !(completed = request.Done.Wait(TimeSpan.FromMilliseconds(250))))
+                if (!string.Equals(pending.Fingerprint, fingerprint, StringComparison.Ordinal))
                 {
+                    return Error(id, "请求标识正在执行另一条控制命令，拒绝重复执行。");
                 }
+
+                if (Volatile.Read(ref pending.State) == 1)
+                {
+                    return BuildInProgressResponse(id);
+                }
+
+                request = pending;
+            }
+            else
+            {
+                request = new QueuedControl(id, fingerprint, command, input.Options, input.Arguments);
+                _pendingRequests.Add(id, request);
+                enqueue = true;
             }
         }
 
-        ControlResponse response = new()
-        {
-            Id = id,
-            Success = completed && request.Success,
-            Message = completed
-                ? request.Message
-                : canceledBeforeExecution
-                    ? "游戏主线程未能及时处理控制命令；该请求已在执行前取消。"
-                    : "游戏正在退出，控制命令未能返回结果。",
-            Status = request.Status,
-            Data = request.Data
-        };
-        CacheResponse(id, fingerprint, response);
-        return response;
+        if (enqueue) _requests.Enqueue(request);
+        return WaitForResponse(request);
     }
 
-    private void CacheResponse(string id, string fingerprint, ControlResponse response)
+    private ControlResponse WaitForResponse(QueuedControl request)
+    {
+        int waitResult = WaitHandle.WaitAny(
+            new WaitHandle[] { request.Done.WaitHandle, _shutdown },
+            QueueWaitTimeout);
+        if (waitResult == 0) return CompletedResponse(request);
+        if (waitResult == 1) return BuildShutdownResponse(request.Id);
+
+        int previousState = Interlocked.CompareExchange(ref request.State, 2, 0);
+        if (previousState == 0)
+        {
+            ControlResponse canceled = BuildCanceledBeforeExecutionResponse(request.Id);
+            CompleteRequest(request, canceled);
+            return canceled;
+        }
+
+        if (previousState == 1)
+        {
+            return BuildInProgressResponse(request.Id);
+        }
+
+        return request.Done.Wait(TimeSpan.FromMilliseconds(100))
+            ? CompletedResponse(request)
+            : BuildCanceledBeforeExecutionResponse(request.Id);
+    }
+
+    private void CompleteRequest(QueuedControl request, ControlResponse response)
+    {
+        if (Interlocked.CompareExchange(ref request.CompletionState, 1, 0) != 0) return;
+        request.Response = response;
+        lock (_requestSync)
+        {
+            if (_pendingRequests.TryGetValue(request.Id, out QueuedControl? pending)
+                && ReferenceEquals(pending, request))
+            {
+                _pendingRequests.Remove(request.Id);
+            }
+
+            CacheResponseUnderLock(request.Id, request.Fingerprint, response);
+        }
+
+        request.Done.Set();
+    }
+
+    private void CacheResponseUnderLock(string id, string fingerprint, ControlResponse response)
     {
         _responseCache[id] = new CachedControlResponse(fingerprint, response);
         _responseCacheOrder.Enqueue(id);
@@ -258,6 +404,44 @@ internal sealed class PipeControlServer : IDisposable
             _responseCache.Remove(expiredId);
         }
     }
+
+    private static ControlResponse CompletedResponse(QueuedControl request) =>
+        request.Response ?? Error(request.Id, "控制命令已结束，但没有生成响应。");
+
+    private static ControlResponse BuildCompletedResponse(QueuedControl request) => new()
+    {
+        Id = request.Id,
+        Success = request.Success,
+        Message = request.Message,
+        Status = request.Status,
+        Data = request.Data
+    };
+
+    private static ControlResponse BuildCanceledBeforeExecutionResponse(string id) => new()
+    {
+        Id = id,
+        Success = false,
+        Message = "游戏主线程未能及时处理控制命令；该请求已在执行前取消。"
+    };
+
+    private static ControlResponse BuildShutdownResponse(string id) => new()
+    {
+        Id = id,
+        Success = false,
+        Message = "游戏正在退出，已开始的控制命令未能返回确定结果。"
+    };
+
+    private static ControlResponse BuildInProgressResponse(string id) => new()
+    {
+        Id = id,
+        Success = false,
+        Message = "控制命令仍在游戏主线程执行；监听通道已释放，该请求不会重复执行。",
+        Data = new JObject
+        {
+            ["pending"] = true,
+            ["requestId"] = id
+        }
+    };
 
     private static string BuildRequestFingerprint(
         string command,
@@ -274,6 +458,12 @@ internal sealed class PipeControlServer : IDisposable
         Message = message
     };
 
+    private static async Task WriteResponseAsync(StreamWriter writer, string payload)
+    {
+        await writer.WriteLineAsync(payload);
+        await writer.FlushAsync();
+    }
+
     private static bool TokensEqual(string? first, string second)
     {
         if (first == null || first.Length != second.Length) return false;
@@ -286,26 +476,31 @@ internal sealed class PipeControlServer : IDisposable
     {
         public QueuedControl(
             string id,
+            string fingerprint,
             string command,
             AutomationRunOptions? options,
             Newtonsoft.Json.Linq.JObject? arguments)
         {
             Id = id;
+            Fingerprint = fingerprint;
             Command = command;
             Options = options;
             Arguments = arguments;
         }
 
         public string Id { get; }
+        public string Fingerprint { get; }
         public string Command { get; }
         public AutomationRunOptions? Options { get; }
         public Newtonsoft.Json.Linq.JObject? Arguments { get; }
         public ManualResetEventSlim Done { get; } = new(false);
         public int State;
+        public int CompletionState;
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
         public AutoPlayerStatus? Status { get; set; }
         public Newtonsoft.Json.Linq.JObject? Data { get; set; }
+        public ControlResponse? Response { get; set; }
     }
 
     private sealed class CachedControlResponse

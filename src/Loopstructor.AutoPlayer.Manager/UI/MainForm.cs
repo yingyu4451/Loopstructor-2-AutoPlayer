@@ -360,11 +360,28 @@ internal sealed partial class MainForm : Window
             return;
         }
 
-        int runningProcessId = FindRunningGameProcess(_game.ExecutablePath);
-        if (runningProcessId > 0)
+        IReadOnlyList<int> runningProcessIds = FindRunningGameProcesses(_game.ExecutablePath);
+        int? preferredProcessId = _session != null
+                                  && MatchesBoundGameProcess(
+                                      _session.ProcessId,
+                                      _session.ProcessStartTimeUtc,
+                                      _game.ExecutablePath)
+            ? _session.ProcessId
+            : null;
+        int? runningProcessId = SelectRunningGameProcess(preferredProcessId, runningProcessIds);
+        if (runningProcessId is > 0)
         {
             PrepareInstalledSession(_game, selectProfile: false, announce: false);
-            if (_session != null) _session.ProcessId = runningProcessId;
+            if (_session != null)
+            {
+                _session.ProcessId = runningProcessId.Value;
+                _session.ProcessStartTimeUtc = TryGetGameProcessStartTimeUtc(
+                    runningProcessId.Value,
+                    _game.ExecutablePath,
+                    out DateTime startTimeUtc)
+                    ? startTimeUtc
+                    : null;
+            }
             SetConnectionState("正在连接", GoldBrush);
             AppendLog(
                 "INFO",
@@ -372,6 +389,16 @@ internal sealed partial class MainForm : Window
                 BlueBrush);
             _pollTimer.Start();
             _ = PollPluginAsync();
+            return;
+        }
+
+        if (runningProcessIds.Count > 1)
+        {
+            SetConnectionState("多个游戏进程", DangerBrush);
+            AppendLog(
+                "ERROR",
+                "检测到多个相同目录的 Skyspine 游戏进程，无法安全判断控制目标。请只保留一个游戏进程后重试。",
+                DangerBrush);
             return;
         }
 
@@ -486,8 +513,27 @@ internal sealed partial class MainForm : Window
         && SamePath(first.Ticket.ProfileRoot, second.Ticket.ProfileRoot)
         && SamePath(first.Ticket.ArtifactRoot, second.Ticket.ArtifactRoot);
 
-    private static int FindRunningGameProcess(string executablePath)
+    private void ReloadPersistentSessionAfterRejection()
     {
+        if (_session?.IsPersistent != true || _game == null) return;
+        int? processId = _session.ProcessId;
+        DateTime? processStartTimeUtc = _session.ProcessStartTimeUtc;
+        if (!_installedSessions.TryLoad(_game, out ActivationSession? refreshed, out _)
+            || refreshed == null
+            || SameControlSession(_session, refreshed))
+        {
+            return;
+        }
+
+        refreshed.ProcessId = processId;
+        refreshed.ProcessStartTimeUtc = processStartTimeUtc;
+        AdoptSession(refreshed);
+        AppendLog("INFO", "已重新加载玩家模式本机控制凭据；正在重新握手。", BlueBrush);
+    }
+
+    private static IReadOnlyList<int> FindRunningGameProcesses(string executablePath)
+    {
+        List<int> matches = new();
         string expected = Path.GetFullPath(executablePath);
         string processName = Path.GetFileNameWithoutExtension(expected);
         foreach (Process process in Process.GetProcessesByName(processName))
@@ -501,17 +547,125 @@ internal sealed partial class MainForm : Window
                         && SamePath(processPath, expected)
                         && !process.HasExited)
                     {
-                        return process.Id;
+                        matches.Add(process.Id);
                     }
                 }
-                catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+                catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
                 {
                     // Processes outside the current desktop/user boundary are not attachable.
                 }
             }
         }
 
-        return 0;
+        matches.Sort();
+        return matches;
+    }
+
+    internal static int? SelectRunningGameProcess(
+        int? preferredProcessId,
+        IReadOnlyCollection<int> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (preferredProcessId is > 0 && candidates.Contains(preferredProcessId.Value))
+        {
+            return preferredProcessId.Value;
+        }
+
+        return candidates.Count == 1 ? candidates.First() : null;
+    }
+
+    private bool EnsureResidentProcessTarget()
+    {
+        if (_session == null) return false;
+        if (_session.ActivationMode != AutoPlayerActivationMode.ResidentPlayer) return true;
+        if (_game == null) return false;
+
+        int? previousProcessId = _session.ProcessId;
+        DateTime? previousStartTimeUtc = _session.ProcessStartTimeUtc;
+        if (MatchesBoundGameProcess(
+                previousProcessId,
+                previousStartTimeUtc,
+                _game.ExecutablePath))
+        {
+            return true;
+        }
+
+        InvalidateTransportTrust();
+        _hello = null;
+        _status = null;
+
+        IReadOnlyList<int> candidates = FindRunningGameProcesses(_game.ExecutablePath);
+        // A stale PID is not a preference. It may already belong to a new game
+        // instance and must pass the same ambiguity rules as every other candidate.
+        int? nextProcessId = SelectRunningGameProcess(preferredProcessId: null, candidates);
+        if (candidates.Count > 1 && nextProcessId is not > 0)
+        {
+            InvalidateTransportTrust();
+            _hello = null;
+            _status = null;
+            _session.ProcessId = null;
+            _session.ProcessStartTimeUtc = null;
+            _lastStatusSignature = string.Empty;
+            const string ambiguity = "检测到多个相同目录的 Skyspine 游戏进程；请只保留一个进程后再连接。";
+            if (!string.Equals(_lastTrustError, ambiguity, StringComparison.Ordinal))
+            {
+                _lastTrustError = ambiguity;
+                AppendLog("ERROR", ambiguity, DangerBrush);
+            }
+            SetConnectionState("多个游戏进程", DangerBrush);
+            SetOperationAvailability();
+            return false;
+        }
+
+        DateTime? nextStartTimeUtc = null;
+        if (nextProcessId is > 0)
+        {
+            if (!TryGetGameProcessStartTimeUtc(
+                    nextProcessId.Value,
+                    _game.ExecutablePath,
+                    out DateTime discoveredStartTimeUtc))
+            {
+                SetConnectionState("进程验证失败", DangerBrush);
+                return false;
+            }
+
+            nextStartTimeUtc = discoveredStartTimeUtc;
+        }
+
+        if (previousProcessId == nextProcessId
+            && previousStartTimeUtc == nextStartTimeUtc)
+        {
+            SetConnectionState("等待游戏", GoldBrush);
+            return nextProcessId is > 0;
+        }
+
+        InvalidateTransportTrust();
+        _hello = null;
+        _status = null;
+        _session.ProcessId = nextProcessId;
+        _session.ProcessStartTimeUtc = nextStartTimeUtc;
+        _session.ProcessInstanceId = string.Empty;
+        _lastStatusSignature = string.Empty;
+        _lastTrustError = string.Empty;
+        _cheatForm?.UpdateSession(false, null, null);
+        SetOperationAvailability();
+
+        if (nextProcessId is > 0)
+        {
+            AppendLog(
+                "INFO",
+                $"已发现 Skyspine 游戏进程 PID {nextProcessId}；正在连接进程专属控制通道。",
+                BlueBrush);
+        }
+        else if (previousProcessId is > 0)
+        {
+            AppendLog(
+                "INFO",
+                $"Skyspine 游戏进程 PID {previousProcessId} 已退出或 PID 已被其他程序复用；Manager 将继续后台等待。",
+                GoldBrush);
+        }
+
+        return nextProcessId is > 0;
     }
 
     private async Task PollPluginAsync()
@@ -521,21 +675,51 @@ internal sealed partial class MainForm : Window
         try
         {
             ReadPlayerLog();
+            if (!EnsureResidentProcessTarget())
+            {
+                return;
+            }
+
             PipeCallResult call = _hello == null || !_sessionTrusted
                 ? await _pipeClient.HelloAsync(_session, _lifetime.Token)
                 : await _pipeClient.StatusAsync(_session, _lifetime.Token);
             if (!call.TransportSuccess)
             {
+                bool connectionWasTrusted = InvalidateTransportTrust();
                 _transportFailures++;
                 SetConnectionState("未连接", GoldBrush);
-                if (_transportFailures == 4)
+                if (connectionWasTrusted)
                 {
-                    AppendLog("WARN", "尚未收到已安装游戏的插件握手；Manager 会继续等待：" + call.Error, GoldBrush);
+                    AppendLog(
+                        "WARN",
+                        "插件控制通道已中断；Manager 已禁用控制并开始重新握手：" + call.Error,
+                        GoldBrush);
+                }
+                else if (_transportFailures == 4)
+                {
+                    string prefix = _hello == null
+                        ? "尚未收到已安装游戏的插件握手；Manager 会继续等待："
+                        : "插件重新握手仍未成功；Manager 会继续等待：";
+                    AppendLog("WARN", prefix + call.Error, GoldBrush);
                 }
 
                 if (_transportFailures >= 6 && !_legacyProbeDone)
                 {
                     _legacyProbeDone = true;
+                    if (_session.IsPersistent)
+                    {
+                        PipeCallResult unscoped = await _pipeClient.ProbeUnscopedHelloAsync(
+                            _session,
+                            _lifetime.Token);
+                        if (unscoped.TransportSuccess)
+                        {
+                            AppendLog(
+                                "ERROR",
+                                "检测到仍在运行的旧版插件控制通道。请彻底关闭 Skyspine，再重新启动游戏以加载当前插件；Manager 不会向旧通道发送控制命令。",
+                                DangerBrush);
+                        }
+                    }
+
                     PipeCallResult legacy = await _pipeClient.ProbeLegacyStatusAsync(_lifetime.Token);
                     if (legacy.TransportSuccess)
                     {
@@ -556,8 +740,17 @@ internal sealed partial class MainForm : Window
 
             if (!response.Success)
             {
+                InvalidateTransportTrust();
+                _hello = null;
+                _status = null;
+                ReloadPersistentSessionAfterRejection();
                 SetConnectionState("插件拒绝", DangerBrush);
-                AppendLog("ERROR", response.Message, DangerBrush);
+                string rejection = "插件拒绝控制请求：" + response.Message;
+                if (!string.Equals(rejection, _lastTrustError, StringComparison.Ordinal))
+                {
+                    _lastTrustError = rejection;
+                    AppendLog("ERROR", rejection + " Manager 将重读本机凭据并重新握手。", DangerBrush);
+                }
                 return;
             }
 
@@ -579,6 +772,13 @@ internal sealed partial class MainForm : Window
                     _lastTrustError = string.Empty;
                     int launchProcessId = _session.ProcessId ?? 0;
                     _session.ProcessId = _hello.GameProcessId;
+                    _session.ProcessStartTimeUtc = TryGetGameProcessStartTimeUtc(
+                        _hello.GameProcessId,
+                        _game!.ExecutablePath,
+                        out DateTime handshakeStartTimeUtc)
+                        ? handshakeStartTimeUtc
+                        : null;
+                    _session.ProcessInstanceId = _hello.ProcessInstanceId;
                     _session.DeleteTicket();
                     SetConnectionState("安全连接", SignalBrush);
                     AppendLog("SAFE", "插件握手与本次构建指纹一致，控制通道已启用。", SignalBrush);
@@ -655,11 +855,24 @@ internal sealed partial class MainForm : Window
             };
             if (!result.TransportSuccess)
             {
+                bool connectionWasTrusted = InvalidateTransportTrust();
+                SetConnectionState("未连接", GoldBrush);
+                if (connectionWasTrusted)
+                {
+                    AppendLog("WARN", "插件控制通道已中断；Manager 正在重新握手。", GoldBrush);
+                }
                 AppendLog("ERROR", $"{ControlCommandName(command)}发送失败：{result.Error}", DangerBrush);
                 return;
             }
 
             ControlResponse response = result.Response!;
+            if (IsSessionRejection(response))
+            {
+                InvalidateTransportTrust();
+                _hello = null;
+                _status = null;
+                SetConnectionState("重新握手", GoldBrush);
+            }
             AppendLog(response.Success ? "ACT" : "ERROR", response.Message, response.Success ? SignalBrush : DangerBrush);
             if (response.Status != null)
             {
@@ -697,6 +910,12 @@ internal sealed partial class MainForm : Window
             PipeCallResult result = await _pipeClient.SendCheatAsync(_session, command, arguments, _lifetime.Token);
             if (!result.TransportSuccess)
             {
+                bool connectionWasTrusted = InvalidateTransportTrust();
+                SetConnectionState("未连接", GoldBrush);
+                if (connectionWasTrusted)
+                {
+                    AppendLog("WARN", "插件控制通道已中断；Manager 正在重新握手。", GoldBrush);
+                }
                 bool outcomeUnknown = result.RequestMayHaveExecuted && CheatCommands.IsMutationCommand(command);
                 string message = outcomeUnknown
                     ? "作弊写命令已发送，但连续两次未能取回同一请求 ID 的结果。为避免重复执行，本窗口已冻结写操作；请关闭游戏并重新启动测试进程。"
@@ -711,6 +930,13 @@ internal sealed partial class MainForm : Window
             }
 
             ControlResponse response = result.Response!;
+            if (IsSessionRejection(response))
+            {
+                InvalidateTransportTrust();
+                _hello = null;
+                _status = null;
+                SetConnectionState("重新握手", GoldBrush);
+            }
             if (!response.Success || !string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase))
             {
                 AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? GoldBrush : DangerBrush);
@@ -733,6 +959,22 @@ internal sealed partial class MainForm : Window
             return new ControlResponse { Success = false, Message = exception.Message };
         }
     }
+
+    private bool InvalidateTransportTrust()
+    {
+        bool connectionWasTrusted = _sessionTrusted;
+        _sessionTrusted = false;
+        if (_session != null) _session.ProcessInstanceId = string.Empty;
+        _cheatForm?.UpdateSession(false, _hello, _status);
+        SetOperationAvailability();
+        return connectionWasTrusted;
+    }
+
+    private static bool IsSessionRejection(ControlResponse response) =>
+        !response.Success
+        && (response.Message.Contains("控制令牌无效", StringComparison.Ordinal)
+            || response.Message.Contains("目标 PID", StringComparison.Ordinal)
+            || response.Message.Contains("进程实例标识无效", StringComparison.Ordinal));
 
     private void OpenCheatForm()
     {
@@ -791,8 +1033,34 @@ internal sealed partial class MainForm : Window
             return false;
         }
 
+        if (!Guid.TryParseExact(hello.ProcessInstanceId, "N", out _))
+        {
+            error = "插件握手未返回有效的游戏进程实例标识；请重装当前插件并重新启动游戏。";
+            return false;
+        }
+
+        if (ShouldRejectHelloProcess(
+                _session.ProcessId,
+                hello.GameProcessId,
+                _game.ExecutablePath))
+        {
+            error = $"插件来自另一个 Skyspine 进程（预期 PID {_session.ProcessId}，实际 PID {hello.GameProcessId}）。";
+            return false;
+        }
+
         if (!ValidateGameProcess(hello.GameProcessId, _game.ExecutablePath, out error))
         {
+            return false;
+        }
+
+        if (_session.ProcessId == hello.GameProcessId
+            && _session.ProcessStartTimeUtc.HasValue
+            && !MatchesBoundGameProcess(
+                hello.GameProcessId,
+                _session.ProcessStartTimeUtc,
+                _game.ExecutablePath))
+        {
+            error = "插件报告的 PID 已属于另一个游戏进程实例；Manager 将重新发现安全目标。";
             return false;
         }
 
@@ -850,6 +1118,54 @@ internal sealed partial class MainForm : Window
 
         error = string.Empty;
         return true;
+    }
+
+    internal static bool MatchesExpectedGameProcess(int? expectedProcessId, int actualProcessId) =>
+        expectedProcessId is not > 0 || expectedProcessId.Value == actualProcessId;
+
+    internal static bool ShouldRejectHelloProcess(
+        int? expectedProcessId,
+        int actualProcessId,
+        string expectedExecutable) =>
+        !MatchesExpectedGameProcess(expectedProcessId, actualProcessId)
+        && IsGameProcessRunningAtPath(expectedProcessId, expectedExecutable);
+
+    internal static bool IsGameProcessRunningAtPath(int? processId, string expectedExecutable) =>
+        processId is > 0
+        && ValidateGameProcess(processId.Value, expectedExecutable, out _);
+
+    internal static bool MatchesBoundGameProcess(
+        int? processId,
+        DateTime? expectedStartTimeUtc,
+        string expectedExecutable) =>
+        processId is > 0
+        && expectedStartTimeUtc.HasValue
+        && TryGetGameProcessStartTimeUtc(
+            processId.Value,
+            expectedExecutable,
+            out DateTime actualStartTimeUtc)
+        && actualStartTimeUtc == expectedStartTimeUtc.Value;
+
+    internal static bool TryGetGameProcessStartTimeUtc(
+        int processId,
+        string expectedExecutable,
+        out DateTime startTimeUtc)
+    {
+        startTimeUtc = default;
+        if (processId <= 0) return false;
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            if (process.HasExited) return false;
+            string actualExecutable = process.MainModule?.FileName ?? string.Empty;
+            if (!SamePath(actualExecutable, expectedExecutable)) return false;
+            startTimeUtc = process.StartTime.ToUniversalTime();
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            return false;
+        }
     }
 
     private void ApplyHello(BridgeHello hello)
@@ -945,7 +1261,7 @@ internal sealed partial class MainForm : Window
                                   || SamePath(status.IsolatedSaveRoot, _session.Ticket.ProfileRoot));
         if (!statusTrusted)
         {
-            _sessionTrusted = false;
+            InvalidateTransportTrust();
             SetConnectionState("门禁失败", DangerBrush);
         }
         else if (_sessionTrusted)
@@ -1172,7 +1488,7 @@ internal sealed partial class MainForm : Window
 
     private void CheckSelectedProcessBoundary()
     {
-        if (_session?.ProcessId is not > 0 || _transportFailures != 5) return;
+        if (_session?.ProcessId is not > 0 || _transportFailures < 5) return;
 
         try
         {
@@ -1192,6 +1508,8 @@ internal sealed partial class MainForm : Window
         _hello = null;
         _status = null;
         _session.ProcessId = null;
+        _session.ProcessStartTimeUtc = null;
+        _session.ProcessInstanceId = string.Empty;
         _lastStatusSignature = string.Empty;
         SetConnectionState("等待游戏", GoldBrush);
         SetOperationAvailability();

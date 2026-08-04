@@ -46,6 +46,8 @@ internal sealed class CheatController : IDisposable
     public void NotifyManagerHeartbeat() =>
         Interlocked.Exchange(ref _lastManagerHeartbeatUtcTicks, DateTime.UtcNow.Ticks);
 
+    public void NotifyManagerCommandCompleted() => NotifyManagerHeartbeat();
+
     public void Tick()
     {
         if (Enabled)

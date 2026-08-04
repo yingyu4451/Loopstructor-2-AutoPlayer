@@ -25,6 +25,7 @@ internal sealed class ActivationContext
         CheatModeAllowed = cheatModeAllowed;
         ActivationMode = activationMode;
         Source = source;
+        ProcessInstanceId = Guid.NewGuid().ToString("N");
     }
 
     public string PipeName { get; }
@@ -36,6 +37,7 @@ internal sealed class ActivationContext
     public AutoPlayerActivationMode ActivationMode { get; }
     public bool IsPlayerMode => ActivationMode == AutoPlayerActivationMode.ResidentPlayer;
     public string Source { get; }
+    public string ProcessInstanceId { get; }
     public bool CheatProfileTainted => CheatProfileTaintMarker.IsTainted(ProfileRoot);
 
     public bool TryMarkCheatProfileTainted(string requestId, string command, out string error) =>
