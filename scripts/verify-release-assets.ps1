@@ -289,27 +289,23 @@ foreach ($requiredFile in @(
     'manager/Loopstructor.AutoPlayer.Updater.dll'
     'manager/Loopstructor.AutoPlayer.Updater.deps.json'
     'manager/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
-    'manager/System.Windows.Forms.dll'
+    'manager/PresentationFramework.dll'
+    'manager/PresentationCore.dll'
+    'manager/WindowsBase.dll'
     'manager/hostfxr.dll'
     'manager/hostpolicy.dll'
     'manager/coreclr.dll'
-    'updater/Loopstructor.AutoPlayer.Updater.dll'
 )) {
     if (-not ($packagePaths -ccontains $requiredFile)) {
         throw "Release archive is missing required file: $requiredFile"
     }
 }
-
-$updaterCompatibilityFiles = @($packagePaths | Where-Object {
+if (@($packagePaths | Where-Object {
     $_.StartsWith('updater/', [StringComparison]::Ordinal)
-})
-if ($updaterCompatibilityFiles.Count -ne 1 -or
-    -not [StringComparer]::Ordinal.Equals(
-        $updaterCompatibilityFiles[0],
-        'updater/Loopstructor.AutoPlayer.Updater.dll')) {
-    throw "Updater compatibility directory contains unexpected files: $($updaterCompatibilityFiles -join ', ')"
+}).Count -ne 0) {
+    throw 'Release archive must not contain the retired updater/ compatibility directory.'
 }
-foreach ($requiredDirectory in @('manager/', 'payload/', 'updater/')) {
+foreach ($requiredDirectory in @('manager/', 'payload/')) {
     if (@($packagePaths | Where-Object { $_.StartsWith($requiredDirectory, [StringComparison]::Ordinal) }).Count -eq 0) {
         throw "Release archive is missing required directory content: $requiredDirectory"
     }

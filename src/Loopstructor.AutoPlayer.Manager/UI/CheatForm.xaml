@@ -1,0 +1,772 @@
+<Window x:Class="Loopstructor.AutoPlayer.Manager.UI.CheatForm"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Loopstructor.AutoPlayer.Manager.UI.Controls"
+        xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
+        x:ClassModifier="internal"
+        Title="Loopstructor 2.AutoPlayer 作弊工具"
+        Width="1280"
+        Height="860"
+        MinWidth="980"
+        MinHeight="680"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Loopstructor.AutoPlayer.Manager;component/UI/GameTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="CheatSectionStyle" TargetType="Border" BasedOn="{StaticResource InstrumentPanelStyle}">
+                <Setter Property="Margin" Value="0,0,0,12" />
+            </Style>
+            <Style x:Key="CheatCompactSectionStyle" TargetType="Border" BasedOn="{StaticResource CheatSectionStyle}">
+                <Setter Property="Margin" Value="0,0,0,10" />
+                <Setter Property="Padding" Value="14,10" />
+            </Style>
+            <Style x:Key="CheatStatusStyle" TargetType="TextBlock" BasedOn="{StaticResource DataTextStyle}">
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+            <Style x:Key="CheatGridTextStyle" TargetType="TextBlock">
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+            <Style x:Key="CheatScrollPageStyle" TargetType="RepeatButton">
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Border Background="{TemplateBinding Background}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="CheatScrollThumbStyle" TargetType="Thumb">
+                <Setter Property="MinWidth" Value="8" />
+                <Setter Property="MinHeight" Value="28" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Thumb">
+                            <Border Margin="2"
+                                    Background="{StaticResource BronzeBrush}"
+                                    BorderBrush="{StaticResource BrassBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="CheatHorizontalScrollThumbStyle" TargetType="Thumb" BasedOn="{StaticResource CheatScrollThumbStyle}">
+                <Setter Property="MinWidth" Value="28" />
+                <Setter Property="MinHeight" Value="8" />
+            </Style>
+            <ControlTemplate x:Key="CheatVerticalScrollTemplate" TargetType="ScrollBar">
+                <Border Background="{TemplateBinding Background}" BorderBrush="#4E3522" BorderThickness="1">
+                    <Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Style="{StaticResource CheatScrollPageStyle}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource CheatScrollThumbStyle}" />
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Style="{StaticResource CheatScrollPageStyle}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+                </Border>
+            </ControlTemplate>
+            <ControlTemplate x:Key="CheatHorizontalScrollTemplate" TargetType="ScrollBar">
+                <Border Background="{TemplateBinding Background}" BorderBrush="#4E3522" BorderThickness="1">
+                    <Track x:Name="PART_Track" Orientation="Horizontal">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageLeftCommand}" Style="{StaticResource CheatScrollPageStyle}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource CheatHorizontalScrollThumbStyle}" />
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageRightCommand}" Style="{StaticResource CheatScrollPageStyle}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+                </Border>
+            </ControlTemplate>
+            <Style TargetType="ScrollBar">
+                <Setter Property="Width" Value="14" />
+                <Setter Property="Background" Value="{StaticResource ScreenBrush}" />
+                <Setter Property="Template" Value="{StaticResource CheatVerticalScrollTemplate}" />
+                <Style.Triggers>
+                    <Trigger Property="Orientation" Value="Horizontal">
+                        <Setter Property="Width" Value="Auto" />
+                        <Setter Property="Height" Value="14" />
+                        <Setter Property="Template" Value="{StaticResource CheatHorizontalScrollTemplate}" />
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <controls:MechanicalShell x:Name="Shell" Title="SKYSPINE / 作弊工具" Subtitle="CHEAT CONTROL CONSOLE">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Padding="14,10"
+                    Background="{StaticResource ScreenBrush}"
+                    BorderBrush="{StaticResource BronzeBrush}"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock FontSize="15"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource GoldBrush}"
+                                   Text="作弊运行控制" />
+                        <TextBlock x:Name="_versionLabel"
+                                   Margin="0,4,16,0"
+                                   Style="{StaticResource CheatStatusStyle}"
+                                   Text="Manager 版本 / 作弊协议" />
+                    </StackPanel>
+                    <CheckBox x:Name="_enableCheck"
+                              Grid.Column="1"
+                              Margin="16,0,0,0"
+                              VerticalAlignment="Center"
+                              FontSize="15"
+                              FontWeight="Bold"
+                              Content="开启作弊模式"
+                              ToolTip="通过安全握手且自动游玩未运行或暂停时可以启用作弊模式。" />
+                </Grid>
+            </Border>
+
+            <Border x:Name="_statusBanner"
+                    Grid.Row="1"
+                    Margin="0,8,0,10"
+                    Background="#221C13"
+                    BorderBrush="#5B3B24"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="_statusRail" Background="{StaticResource GoldBrush}" />
+                    <StackPanel Grid.Column="1" Margin="13,8,13,9">
+                        <TextBlock x:Name="_statusTitle"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource GoldBrush}"
+                                   Text="等待可信游戏会话" />
+                        <TextBlock x:Name="_statusDetail"
+                                   Margin="0,3,0,0"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   Text="启动已安装插件的游戏后，此处会显示作弊功能状态。"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TabControl x:Name="_tabs" Grid.Row="2">
+                <TabItem Header="资源">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="4,12,8,8">
+                            <DockPanel Margin="0,0,0,12" LastChildFill="True">
+                                <Button x:Name="_catalogRefreshButton"
+                                        DockPanel.Dock="Left"
+                                        Margin="0,0,12,0"
+                                        Content="刷新资源目录" />
+                                <TextBlock x:Name="_catalogSummary"
+                                           Style="{StaticResource CheatStatusStyle}"
+                                           Text="尚未读取资源目录" />
+                            </DockPanel>
+
+                            <Border Style="{StaticResource CheatSectionStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="获取指定战车" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="240" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="3*" MinWidth="420" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="战车（中文名 / 枚举名 / ID）" />
+                                            <local:CatalogPickerControl x:Name="_vehicleCatalog" />
+                                            <Grid Margin="0,14,0,0">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="44" />
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="12" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Style="{StaticResource CaptionStyle}" Text="数量" />
+                                                <local:CheatNumericInput x:Name="_vehicleCount"
+                                                                         Grid.Row="1"
+                                                                         Minimum="1"
+                                                                         Maximum="20"
+                                                                         Value="1" />
+                                                <Button x:Name="_grantVehicleButton"
+                                                        Grid.Row="1"
+                                                        Grid.Column="2"
+                                                        VerticalAlignment="Stretch"
+                                                        Style="{StaticResource PrimaryButtonStyle}"
+                                                        Content="获取战车" />
+                                            </Grid>
+                                            <TextBlock Foreground="{StaticResource MutedTextBrush}"
+                                                       Text="附魔列表留空时获取普通战车；所选附魔会同时应用。"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+
+                                        <Border Grid.Column="1" Width="1" Background="#5A3B25" />
+
+                                        <StackPanel Grid.Column="2">
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="44" />
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" MinWidth="190" />
+                                                    <ColumnDefinition Width="12" />
+                                                    <ColumnDefinition Width="105" />
+                                                    <ColumnDefinition Width="12" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Style="{StaticResource CaptionStyle}" Text="附魔（中文名 / 枚举名 / ID，可添加多个）" />
+                                                <local:CatalogPickerControl x:Name="_enchantmentCatalog" Grid.Row="1" />
+                                                <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="附魔等级" />
+                                                <local:CheatNumericInput x:Name="_enchantmentLevel"
+                                                                         Grid.Row="1"
+                                                                         Grid.Column="2"
+                                                                         Minimum="1"
+                                                                         Maximum="7"
+                                                                         Value="1" />
+                                                <Button x:Name="_addEnchantmentButton"
+                                                        Grid.Row="1"
+                                                        Grid.Column="4"
+                                                        VerticalAlignment="Stretch"
+                                                        Style="{StaticResource BlueButtonStyle}"
+                                                        Content="添加 / 更新" />
+                                            </Grid>
+                                            <DataGrid x:Name="_enchantmentGrid" Height="174" IsReadOnly="True" SelectionChanged="EnchantmentGrid_OnSelectionChanged">
+                                                <DataGrid.Columns>
+                                                    <DataGridTemplateColumn Width="48">
+                                                        <DataGridTemplateColumn.CellTemplate>
+                                                            <DataTemplate>
+                                                                <Image Width="30" Height="30" Source="{Binding Icon}" Stretch="Uniform" />
+                                                            </DataTemplate>
+                                                        </DataGridTemplateColumn.CellTemplate>
+                                                    </DataGridTemplateColumn>
+                                                    <DataGridTextColumn Width="*" MinWidth="150" Header="附魔名称" Binding="{Binding Name}" />
+                                                    <DataGridTextColumn Width="135" Header="枚举名" Binding="{Binding EnumName}" />
+                                                    <DataGridTextColumn Width="120" Header="附魔 ID" Binding="{Binding Id}" />
+                                                    <DataGridTextColumn Width="64" Header="等级" Binding="{Binding Level}" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                            <DockPanel Margin="0,10,0,0">
+                                                <Button x:Name="_removeEnchantmentButton" Margin="0,0,8,0" Content="移除选中" />
+                                                <Button x:Name="_clearEnchantmentsButton" Margin="0,0,12,0" Content="清空" />
+                                                <TextBlock x:Name="_enchantmentSummary"
+                                                           Style="{StaticResource CheatStatusStyle}"
+                                                           Text="已选 0 / 5" />
+                                            </DockPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MinWidth="250" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" MinWidth="250" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" MinWidth="250" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource CheatSectionStyle}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="获取指定消耗品" />
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="消耗品（中文名 / 枚举名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_disposableCatalog" />
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="44" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="100" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
+                                            <local:CheatNumericInput x:Name="_disposableCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
+                                            <Button x:Name="_grantDisposableButton"
+                                                    Grid.Row="1"
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Stretch"
+                                                    Style="{StaticResource PrimaryButtonStyle}"
+                                                    Content="获取消耗品" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="2" Style="{StaticResource CheatSectionStyle}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="遗物" />
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="遗物（中文名 / 枚举名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_relicCatalog" />
+                                        <TextBlock Margin="0,12,0,0" Style="{StaticResource CaptionStyle}" Text="删除已有（实际持有）" />
+                                        <local:CatalogPickerControl x:Name="_ownedRelicCatalog" />
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="44" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="操作" />
+                                            <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                                <Button x:Name="_grantRelicButton"
+                                                        VerticalAlignment="Stretch"
+                                                        Style="{StaticResource PrimaryButtonStyle}"
+                                                        Content="获取遗物" />
+                                                <Button x:Name="_removeRelicButton"
+                                                        Margin="8,0,0,0"
+                                                        VerticalAlignment="Stretch"
+                                                        Style="{StaticResource DangerButtonStyle}"
+                                                        Content="删除已有"
+                                                        ToolTip="删除当前选择的已有遗物" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="4" Style="{StaticResource CheatSectionStyle}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="弹射点（中文名 / 枚举名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_catapultCatalog" />
+                                        <TextBlock Margin="0,12,0,0" Style="{StaticResource CaptionStyle}" Text="删除已有（实际持有 / Buff 分组）" />
+                                        <local:CatalogPickerControl x:Name="_ownedCatapultCatalog" />
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="44" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="100" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="8" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
+                                            <local:CheatNumericInput x:Name="_catapultCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
+                                            <Button x:Name="_grantCatapultButton"
+                                                    Grid.Row="1"
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Stretch"
+                                                    Style="{StaticResource GoldButtonStyle}"
+                                                    Content="获取弹射点" />
+                                            <Button x:Name="_removeCatapultButton"
+                                                    Grid.Row="1"
+                                                    Grid.Column="4"
+                                                    VerticalAlignment="Stretch"
+                                                    Style="{StaticResource DangerButtonStyle}"
+                                                    Content="删除已有"
+                                                    ToolTip="从背包删除当前选择的弹射点" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="战斗">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="4,12,8,8">
+                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="战场状态" />
+                                    <WrapPanel>
+                                        <CheckBox x:Name="_baseGodModeCheck" Width="190" Margin="0,4,22,8" FontSize="15" FontWeight="Bold" Content="基地无敌" />
+                                        <CheckBox x:Name="_mapSkipCheck" Width="240" Margin="0,4,22,8" FontSize="15" FontWeight="Bold" Content="地图节点自由跳转" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="场上弹射点" />
+                                        <Button x:Name="_fieldCatapultRefreshButton" Grid.Column="2" Content="刷新" />
+                                        <Button x:Name="_removeFieldCatapultButton" Grid.Column="4" Style="{StaticResource DangerButtonStyle}" Content="删除选中" />
+                                        <Button x:Name="_clearFieldCatapultsButton" Grid.Column="6" Style="{StaticResource DangerButtonStyle}" Content="全部删除" />
+                                        <TextBlock x:Name="_fieldCatapultSummary" Grid.Column="7" Margin="12,0,0,0" Style="{StaticResource CheatStatusStyle}" Text="尚未读取场上弹射点" />
+                                    </Grid>
+                                    <DataGrid x:Name="_fieldCatapultGrid" Height="150" IsReadOnly="True">
+                                        <DataGrid.Columns>
+                                            <DataGridTemplateColumn Width="54" Header="图标">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Width="36" Height="36">
+                                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
+                                                            <Image Source="{Binding Icon}" Stretch="Uniform" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Width="*" MinWidth="180" Header="中文名" Binding="{Binding Name}" />
+                                            <DataGridTextColumn Width="180" Header="枚举名" Binding="{Binding EnumName}" />
+                                            <DataGridTextColumn Width="160" Header="运行时 ID" Binding="{Binding RuntimeId}" />
+                                            <DataGridTextColumn Width="190" Header="位置 X / Y / Z" Binding="{Binding Position}" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="波次操作" />
+                                    <WrapPanel>
+                                        <Button x:Name="_endWaveButton" Margin="0,0,12,8" Style="{StaticResource DangerButtonStyle}" Content="结束当前波次" />
+                                        <Button x:Name="_clearEnemiesButton" Margin="0,0,12,8" Style="{StaticResource DangerButtonStyle}" Content="清除所有敌人" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="敌人标识" />
+                                    <CheckBox x:Name="_enemyIdOverlayCheck" Margin="0,4,0,8" FontSize="15" FontWeight="Bold" Content="在游戏中显示敌人 ID" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="对象属性">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="4,12,8,8">
+                            <Border Style="{StaticResource CheatSectionStyle}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Margin="0" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="当前战车" />
+                                        <Button x:Name="_vehicleRefreshButton" Grid.Column="2" Content="刷新战车" />
+                                        <TextBlock x:Name="_vehicleSummary" Grid.Column="4" Style="{StaticResource CheatStatusStyle}" Text="尚未读取战车" />
+                                    </Grid>
+                                    <DataGrid x:Name="_vehicleGrid" Height="275" RowHeight="52" IsReadOnly="True" SelectionChanged="VehicleGrid_OnSelectionChanged">
+                                        <DataGrid.Columns>
+                                            <DataGridTemplateColumn Width="52" Header="图标">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Width="40" Height="40">
+                                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
+                                                            <Image Source="{Binding Icon}" Stretch="Uniform" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Width="78" Header="战车 ID" Binding="{Binding VehicleId}" />
+                                            <DataGridTextColumn Width="135" Header="枚举名" Binding="{Binding EnumName}" />
+                                            <DataGridTextColumn Width="120" Header="中文名" Binding="{Binding Name}" />
+                                            <DataGridTextColumn Width="58" Header="等级" Binding="{Binding Level}" />
+                                            <DataGridTemplateColumn Width="*" MinWidth="210" Header="已有附魔">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ItemsControl ItemsSource="{Binding Enchantments}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Width="38" Height="38" Margin="0,3,5,3" Padding="3" Background="#2A2118" BorderBrush="#5A3B25" BorderThickness="1" ToolTip="{Binding Label}">
+                                                                        <Grid>
+                                                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
+                                                                            <Image Source="{Binding Icon}" Stretch="Uniform" />
+                                                                            <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Padding="2,0" Background="#CC17120D" BorderBrush="{StaticResource BrassBrush}" BorderThickness="1">
+                                                                                <TextBlock FontFamily="{StaticResource DataFont}" FontSize="9" Foreground="{StaticResource GoldBrush}" Text="{Binding LevelLabel}" />
+                                                                            </Border>
+                                                                        </Grid>
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Width="160" Header="位置 X / Y / Z" Binding="{Binding Position}" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <DockPanel Margin="0,8,0,0">
+                                        <Button x:Name="_removeVehicleButton" DockPanel.Dock="Left" Style="{StaticResource DangerButtonStyle}" Content="删除选中战车" />
+                                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" Text="按战车 ID 精确删除，避免误删同类型的其他等级战车。" />
+                                    </DockPanel>
+
+                                    <Separator />
+                                    <TextBlock Margin="0,0,0,8" FontWeight="Bold" Foreground="{StaticResource GoldBrush}" Text="属性编辑" />
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="44" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3*" MinWidth="220" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="2*" MinWidth="170" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="属性（中文名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_vehicleAttribute" Grid.Row="1" ShowIcons="False" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="当前 / 基础" />
+                                        <Border x:Name="_vehicleCurrentValueFrame" Grid.Row="1" Grid.Column="2" Padding="10" Background="{StaticResource ScreenBrush}" BorderBrush="{StaticResource BronzeBrush}" BorderThickness="1">
+                                            <TextBlock x:Name="_vehicleCurrentValue" Style="{StaticResource CheatStatusStyle}" Text="当前值 -" />
+                                        </Border>
+                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="新绝对值" />
+                                        <local:CheatNumericInput x:Name="_vehicleAttributeValue" Grid.Row="1" Grid.Column="4" Minimum="-1000000000" Maximum="1000000000" DecimalPlaces="3" Increment="0.1" />
+                                        <Button x:Name="_modifyVehicleButton" Grid.Row="1" Grid.Column="6" VerticalAlignment="Stretch" Style="{StaticResource BlueButtonStyle}" Content="应用绝对值" />
+                                    </Grid>
+
+                                    <TextBlock Margin="0,4,0,8" FontWeight="Bold" Foreground="{StaticResource GoldBrush}" Text="已有战车附魔" />
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="44" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3*" MinWidth="240" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="附魔（0 级移除）" />
+                                        <local:CatalogPickerControl x:Name="_vehicleEnchantmentCatalog" Grid.Row="1" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="当前" />
+                                        <Border x:Name="_vehicleEnchantmentCurrentFrame" Grid.Row="1" Grid.Column="2" Padding="10" Background="{StaticResource ScreenBrush}" BorderBrush="{StaticResource BronzeBrush}" BorderThickness="1">
+                                            <TextBlock x:Name="_vehicleEnchantmentCurrent" Style="{StaticResource CheatStatusStyle}" Text="当前等级 -" />
+                                        </Border>
+                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="目标等级" />
+                                        <local:CheatNumericInput x:Name="_vehicleEnchantmentLevel" Grid.Row="1" Grid.Column="4" Minimum="0" Maximum="7" Value="0" />
+                                        <Button x:Name="_setVehicleEnchantmentButton" Grid.Row="1" Grid.Column="6" VerticalAlignment="Stretch" Style="{StaticResource GoldButtonStyle}" Content="设置附魔" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CheatSectionStyle}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Margin="0" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="当前敌人" />
+                                        <Button x:Name="_enemyRefreshButton" Grid.Column="2" Content="刷新敌人" />
+                                        <TextBlock x:Name="_enemySummary" Grid.Column="4" Style="{StaticResource CheatStatusStyle}" Text="尚未读取敌人" />
+                                    </Grid>
+                                    <DataGrid x:Name="_enemyGrid" Height="245" RowHeight="52" IsReadOnly="True" SelectionChanged="EnemyGrid_OnSelectionChanged">
+                                        <DataGrid.Columns>
+                                            <DataGridTemplateColumn Width="52" Header="图标">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Width="38" Height="38">
+                                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
+                                                            <Image Source="{Binding Icon}" Stretch="Uniform" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Width="120" Header="运行时 ID" Binding="{Binding RuntimeId}" />
+                                            <DataGridTextColumn Width="155" Header="枚举名" Binding="{Binding EnumName}" />
+                                            <DataGridTextColumn Width="*" MinWidth="160" Header="中文名" Binding="{Binding Name}" />
+                                            <DataGridTextColumn Width="120" Header="生命值" Binding="{Binding Health}" />
+                                            <DataGridTextColumn Width="165" Header="位置 X / Y / Z" Binding="{Binding Position}" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <Separator />
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="44" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3*" MinWidth="220" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="2*" MinWidth="170" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="属性（中文名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_enemyAttribute" Grid.Row="1" ShowIcons="False" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="当前 / 基础" />
+                                        <Border x:Name="_enemyCurrentValueFrame" Grid.Row="1" Grid.Column="2" Padding="10" Background="{StaticResource ScreenBrush}" BorderBrush="{StaticResource BronzeBrush}" BorderThickness="1">
+                                            <TextBlock x:Name="_enemyCurrentValue" Style="{StaticResource CheatStatusStyle}" Text="当前值 -" />
+                                        </Border>
+                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="新绝对值" />
+                                        <local:CheatNumericInput x:Name="_enemyAttributeValue" Grid.Row="1" Grid.Column="4" Minimum="-1000000000" Maximum="1000000000" DecimalPlaces="3" Increment="0.1" />
+                                        <Button x:Name="_modifyEnemyButton" Grid.Row="1" Grid.Column="6" VerticalAlignment="Stretch" Style="{StaticResource BlueButtonStyle}" Content="应用绝对值" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="生成">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="4,12,8,8">
+                            <DockPanel Margin="0,0,0,12">
+                                <Button x:Name="_spawnCatalogRefreshButton" DockPanel.Dock="Left" Margin="0,0,12,0" Content="刷新怪物目录" />
+                                <TextBlock Style="{StaticResource CheatStatusStyle}" Text="怪物会在中心点附近按生成半径分散出现" />
+                            </DockPanel>
+                            <Border Style="{StaticResource CheatSectionStyle}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="在指定世界坐标生成怪物" />
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="44" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" MinWidth="280" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="105" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="怪物（中文名 / 枚举名 / ID）" />
+                                        <local:CatalogPickerControl x:Name="_enemyCatalog" Grid.Row="1" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="自定义等级" />
+                                        <local:CheatNumericInput x:Name="_enemyLevel" Grid.Row="1" Grid.Column="2" Minimum="1" Maximum="200" Value="1" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="等级来源" />
+                                        <CheckBox x:Name="_followCurrentLevelCheck" Grid.Row="1" Grid.Column="4" VerticalAlignment="Stretch" FontWeight="Bold" Content="跟随当前关卡" IsChecked="True" />
+                                        <TextBlock Grid.Column="6" Style="{StaticResource CaptionStyle}" Text="每点数量" />
+                                        <local:CheatNumericInput x:Name="_enemyCount" Grid.Row="1" Grid.Column="6" Minimum="1" Maximum="10" Value="1" />
+                                        <TextBlock x:Name="_resolvedLevelLabel" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="5" Margin="0,5,0,0" Style="{StaticResource CheatStatusStyle}" Text="实际等级：跟随当前波次 AI 等级" />
+                                    </Grid>
+
+                                    <Separator />
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="44" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" MinWidth="105" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" MinWidth="105" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" MinWidth="105" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" MinWidth="110" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="X" />
+                                        <local:CheatNumericInput x:Name="_spawnX" Grid.Row="1" Minimum="-10000" Maximum="10000" DecimalPlaces="2" Increment="0.5" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="Y" />
+                                        <local:CheatNumericInput x:Name="_spawnY" Grid.Row="1" Grid.Column="2" Minimum="-10000" Maximum="10000" DecimalPlaces="2" Increment="0.5" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="Z" />
+                                        <local:CheatNumericInput x:Name="_spawnZ" Grid.Row="1" Grid.Column="4" Minimum="-10000" Maximum="10000" DecimalPlaces="2" Increment="0.5" />
+                                        <TextBlock Grid.Column="6" Style="{StaticResource CaptionStyle}" Text="生成半径" />
+                                        <local:CheatNumericInput x:Name="_spawnRadius" Grid.Row="1" Grid.Column="6" Minimum="0" Maximum="1000" Value="6" DecimalPlaces="2" Increment="0.5" />
+                                        <Button x:Name="_capturePointButton"
+                                                Grid.Row="1"
+                                                Grid.Column="8"
+                                                VerticalAlignment="Stretch"
+                                                Style="{StaticResource BlueButtonStyle}"
+                                                Content="从游戏选点"
+                                                ToolTip="进入游戏后按住左 Alt 并单击鼠标左键，选择怪物生成位置。" />
+                                        <Button x:Name="_cancelCaptureButton"
+                                                Grid.Row="1"
+                                                Grid.Column="10"
+                                                VerticalAlignment="Stretch"
+                                                Content="取消选点" />
+                                        <Button x:Name="_addSpawnPointButton"
+                                                Grid.Row="1"
+                                                Grid.Column="12"
+                                                VerticalAlignment="Stretch"
+                                                Style="{StaticResource GoldButtonStyle}"
+                                                Content="添加坐标" />
+                                    </Grid>
+                                    <Border Margin="0,2,0,10" Padding="10" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                                        <TextBlock x:Name="_captureStatusLabel" Style="{StaticResource CheatStatusStyle}" Text="选点状态：未启动" />
+                                    </Border>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="160" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="生成位置列表（每个点都会执行一次所选数量）" />
+                                        <DataGrid x:Name="_spawnPointGrid" Grid.Row="1" Grid.ColumnSpan="4" IsReadOnly="True">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Width="70" Header="序号" Binding="{Binding Number}" />
+                                                <DataGridTextColumn Width="120" Header="来源" Binding="{Binding Source}" />
+                                                <DataGridTextColumn Width="*" Header="X" Binding="{Binding X}" />
+                                                <DataGridTextColumn Width="*" Header="Y" Binding="{Binding Y}" />
+                                                <DataGridTextColumn Width="*" Header="Z" Binding="{Binding Z}" />
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                        <TextBlock x:Name="_spawnPointSummary" Grid.Row="2" Margin="0,8,12,0" Style="{StaticResource CheatStatusStyle}" Text="尚未添加生成位置" />
+                                        <Button x:Name="_removeSpawnPointButton" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Content="删除选中点" />
+                                        <Button x:Name="_clearSpawnPointsButton" Grid.Row="2" Grid.Column="3" Margin="0,8,0,0" Content="清空位置" />
+                                    </Grid>
+                                    <Separator />
+                                    <DockPanel Margin="0,8,0,0">
+                                        <Button x:Name="_spawnEnemyButton" DockPanel.Dock="Left" Margin="0,0,14,0" Style="{StaticResource GoldButtonStyle}" Content="生成怪物" />
+                                        <TextBlock x:Name="_spawnStatusLabel" Style="{StaticResource CheatStatusStyle}" Text="生成状态：尚未执行" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </controls:MechanicalShell>
+</Window>

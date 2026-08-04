@@ -1,224 +1,347 @@
-using System.Drawing.Drawing2D;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
-internal sealed class CatalogPickerControl : UserControl
+internal sealed partial class CatalogPickerControl : UserControl
 {
-    private readonly ComboBox _combo;
-    private Font _primaryFont;
-    private Font _idFont;
+    public static readonly DependencyProperty ShowIconsProperty = DependencyProperty.Register(
+        nameof(ShowIcons),
+        typeof(bool),
+        typeof(CatalogPickerControl),
+        new PropertyMetadata(true, ShowIconsChanged));
+
+    private readonly List<CatalogPickerItem> _allItems = new();
+    private readonly ObservableCollection<CatalogPickerItem> _visibleItems = new();
+    private bool _updatingText;
+    private bool _suppressNextFocusOpen;
+    private string _selectedId = string.Empty;
+    private string _selectionBeforeSearch = string.Empty;
 
     public CatalogPickerControl()
     {
-        AutoScaleMode = AutoScaleMode.Dpi;
-        BackColor = Color.Transparent;
-        Height = 46;
-        MinimumSize = new Size(150, 46);
-        Margin = Padding.Empty;
-
-        _primaryFont = Theme.Body(9f, FontStyle.Bold);
-        _idFont = Theme.Data(7.5f);
-        _combo = new ComboBox
-        {
-            Dock = DockStyle.Fill,
-            DrawMode = DrawMode.OwnerDrawFixed,
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            IntegralHeight = false,
-            MaxDropDownItems = 9,
-            Font = _primaryFont
-        };
-        _combo.DrawItem += DrawCatalogItem;
-        _combo.SelectedIndexChanged += (_, _) => SelectedItemChanged?.Invoke(this, EventArgs.Empty);
-        Controls.Add(_combo);
-        UpdateDpiMetrics();
+        InitializeComponent();
+        ResultsList.ItemsSource = _visibleItems;
+        ResultsList.Tag = ShowIcons;
+        ResultsPopup.PlacementTarget = PickerRoot;
+        AddHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(OnPickerLostKeyboardFocus), true);
+        ResultsList.AddHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(OnPickerLostKeyboardFocus), true);
+        Unloaded += (_, _) => ResultsPopup.IsOpen = false;
+        SyncIconPresentation();
     }
 
     public event EventHandler? SelectedItemChanged;
 
-    public CatalogPickerItem? SelectedCatalogItem => _combo.SelectedItem as CatalogPickerItem;
+    public bool ShowIcons
+    {
+        get => (bool)GetValue(ShowIconsProperty);
+        set => SetValue(ShowIconsProperty, value);
+    }
 
-    public string SelectedId => SelectedCatalogItem?.Id ?? string.Empty;
+    public CatalogPickerItem? SelectedCatalogItem => _allItems.FirstOrDefault(item =>
+        string.Equals(item.Id, _selectedId, StringComparison.Ordinal));
 
-    public int ItemCount => _combo.Items.Count;
+    public string SelectedId => _selectedId;
+
+    public int ItemCount => _allItems.Count;
+
+    public CatalogPickerItem? FindItem(string? idOrEnumName)
+    {
+        if (string.IsNullOrWhiteSpace(idOrEnumName)) return null;
+        return _allItems.FirstOrDefault(item =>
+            string.Equals(item.Id, idOrEnumName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.EnumName, idOrEnumName, StringComparison.OrdinalIgnoreCase));
+    }
 
     public void SetItems(IEnumerable<CatalogPickerItem> items)
     {
-        string selectedId = SelectedId;
-        _combo.BeginUpdate();
-        try
-        {
-            _combo.Items.Clear();
-            foreach (CatalogPickerItem item in items) _combo.Items.Add(item);
-
-            int matchingIndex = _combo.Items.Cast<CatalogPickerItem>()
-                .Select((item, index) => new { item, index })
-                .FirstOrDefault(pair => string.Equals(pair.item.Id, selectedId, StringComparison.Ordinal))
-                ?.index ?? -1;
-            _combo.SelectedIndex = matchingIndex >= 0
-                ? matchingIndex
-                : _combo.Items.Count > 0 ? 0 : -1;
-        }
-        finally
-        {
-            _combo.EndUpdate();
-        }
+        string previousId = _selectedId;
+        _allItems.Clear();
+        _allItems.AddRange(items);
+        string nextId = _allItems.Any(item => string.Equals(item.Id, previousId, StringComparison.Ordinal))
+            ? previousId
+            : _allItems.FirstOrDefault()?.Id ?? string.Empty;
+        _selectionBeforeSearch = nextId;
+        ReplaceVisibleItems(_allItems, nextId);
+        SetSelectedId(nextId, updateText: true);
     }
 
     public void ClearItems()
     {
-        _combo.Items.Clear();
-        _combo.SelectedIndex = -1;
+        _allItems.Clear();
+        _selectionBeforeSearch = string.Empty;
+        ReplaceVisibleItems(Array.Empty<CatalogPickerItem>(), string.Empty);
+        SetSelectedId(string.Empty, updateText: true);
+        ResultsPopup.IsOpen = false;
     }
 
-    protected override void OnDpiChangedAfterParent(EventArgs eventArgs)
+    private void SearchBox_OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs eventArgs)
     {
-        base.OnDpiChangedAfterParent(eventArgs);
-        UpdateDpiMetrics();
-    }
-
-    protected override void OnEnabledChanged(EventArgs eventArgs)
-    {
-        base.OnEnabledChanged(eventArgs);
-        _combo.Invalidate();
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
+        if (_suppressNextFocusOpen)
         {
-            _combo.DrawItem -= DrawCatalogItem;
-            _primaryFont.Dispose();
-            _idFont.Dispose();
-        }
-
-        base.Dispose(disposing);
-    }
-
-    private void UpdateDpiMetrics()
-    {
-        int itemHeight = ScaleLogical(42);
-        Height = ScaleLogical(46);
-        MinimumSize = new Size(ScaleLogical(150), Height);
-        _combo.ItemHeight = itemHeight;
-        _combo.DropDownHeight = (itemHeight * 8) + ScaleLogical(2);
-    }
-
-    private void DrawCatalogItem(object? sender, DrawItemEventArgs eventArgs)
-    {
-        if (eventArgs.Index < 0 || eventArgs.Index >= _combo.Items.Count)
-        {
-            eventArgs.DrawBackground();
+            _suppressNextFocusOpen = false;
             return;
         }
 
-        if (_combo.Items[eventArgs.Index] is not CatalogPickerItem item)
+        OpenResults();
+        SearchBox.SelectAll();
+    }
+
+    private void SearchBox_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs eventArgs)
+    {
+        // GotKeyboardFocus only runs the first time. Re-clicking an already focused
+        // search box must also reopen the candidate list after an explicit close.
+        if (SearchBox.IsKeyboardFocused) OpenResults();
+    }
+
+    private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs eventArgs)
+    {
+        if (_updatingText) return;
+        string query = SearchBox.Text;
+        CatalogPickerItem[] matches = _allItems.Where(item => item.Matches(query)).ToArray();
+        ReplaceVisibleItems(matches, string.Empty);
+        SetSelectedId(string.Empty, updateText: false);
+        if (IsEnabled && SearchBox.IsKeyboardFocused)
         {
-            eventArgs.DrawBackground();
+            SyncPopupWidth();
+            ResultsPopup.IsOpen = true;
+        }
+    }
+
+    private void SearchBox_OnPreviewKeyDown(object sender, KeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key is Key.Down or Key.Up)
+        {
+            MoveSelection(eventArgs.Key == Key.Down ? 1 : -1);
+            eventArgs.Handled = true;
             return;
         }
-        bool selected = (eventArgs.State & DrawItemState.Selected) != 0;
-        bool disabled = (eventArgs.State & DrawItemState.Disabled) != 0 || !Enabled;
-        Color background = disabled
-            ? Color.FromArgb(242, 244, 245)
-            : selected ? Color.FromArgb(213, 234, 234) : Color.White;
-        Color primary = disabled ? Theme.Muted : Theme.Ink;
-        Color secondary = disabled ? Color.FromArgb(143, 151, 156) : selected ? Theme.TealDark : Theme.Muted;
-        using (SolidBrush brush = new(background)) eventArgs.Graphics.FillRectangle(brush, eventArgs.Bounds);
 
-        int padding = ScaleLogical(6);
-        int iconSize = ScaleLogical(32);
-        Rectangle iconBounds = new(
-            eventArgs.Bounds.Left + padding,
-            eventArgs.Bounds.Top + Math.Max(0, (eventArgs.Bounds.Height - iconSize) / 2),
-            iconSize,
-            iconSize);
-        DrawIcon(eventArgs.Graphics, item, iconBounds);
-
-        int textLeft = iconBounds.Right + ScaleLogical(8);
-        int textRightPadding = ScaleLogical(22);
-        int textWidth = Math.Max(1, eventArgs.Bounds.Right - textLeft - textRightPadding);
-        int primaryHeight = ScaleLogical(20);
-        Rectangle primaryBounds = new(textLeft, eventArgs.Bounds.Top + ScaleLogical(2), textWidth, primaryHeight);
-        Rectangle idBounds = new(
-            textLeft,
-            primaryBounds.Bottom - ScaleLogical(1),
-            textWidth,
-            Math.Max(1, eventArgs.Bounds.Bottom - primaryBounds.Bottom));
-
-        TextRenderer.DrawText(
-            eventArgs.Graphics,
-            item.DisplayName,
-            _primaryFont,
-            primaryBounds,
-            primary,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(
-            eventArgs.Graphics,
-            item.Id,
-            _idFont,
-            idBounds,
-            secondary,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-
-        eventArgs.DrawFocusRectangle();
-    }
-
-    private void DrawIcon(Graphics graphics, CatalogPickerItem item, Rectangle bounds)
-    {
-        using (SolidBrush background = new(Color.FromArgb(239, 243, 244))) graphics.FillRectangle(background, bounds);
-        if (item.Icon != null)
+        if (eventArgs.Key == Key.Enter)
         {
-            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            Rectangle destination = FitInside(item.Icon.Size, bounds);
-            graphics.DrawImage(item.Icon, destination);
-        }
-        else
-        {
-            string marker = item.DisplayName.Length == 0 ? "?" : item.DisplayName[..1];
-            TextRenderer.DrawText(
-                graphics,
-                marker,
-                _primaryFont,
-                bounds,
-                Theme.Muted,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            CommitHighlightedItem();
+            eventArgs.Handled = true;
+            return;
         }
 
-        using Pen border = new(Theme.Line);
-        graphics.DrawRectangle(border, bounds.X, bounds.Y, Math.Max(0, bounds.Width - 1), Math.Max(0, bounds.Height - 1));
+        if (eventArgs.Key == Key.Escape)
+        {
+            RestoreSelection();
+            eventArgs.Handled = true;
+        }
     }
 
-    private static Rectangle FitInside(Size source, Rectangle target)
+    private void ResultsList_OnPreviewKeyDown(object sender, KeyEventArgs eventArgs)
     {
-        if (source.Width <= 0 || source.Height <= 0) return target;
-        float scale = Math.Min((float)target.Width / source.Width, (float)target.Height / source.Height);
-        int width = Math.Max(1, (int)Math.Round(source.Width * scale));
-        int height = Math.Max(1, (int)Math.Round(source.Height * scale));
-        return new Rectangle(
-            target.Left + ((target.Width - width) / 2),
-            target.Top + ((target.Height - height) / 2),
-            width,
-            height);
+        if (eventArgs.Key == Key.Enter)
+        {
+            CommitHighlightedItem();
+            eventArgs.Handled = true;
+        }
+        else if (eventArgs.Key == Key.Escape)
+        {
+            RestoreSelection();
+            _suppressNextFocusOpen = true;
+            if (!SearchBox.Focus()) _suppressNextFocusOpen = false;
+            eventArgs.Handled = true;
+        }
     }
 
-    private int ScaleLogical(int value) => Math.Max(1, (int)Math.Round(value * (DeviceDpi / 96f)));
+    private void ResultsList_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs eventArgs)
+    {
+        DependencyObject? current = eventArgs.OriginalSource as DependencyObject;
+        while (current != null && current is not ListBoxItem)
+        {
+            current = current is FrameworkContentElement contentElement
+                ? contentElement.Parent
+                : VisualTreeHelper.GetParent(current);
+        }
+
+        if (current is not ListBoxItem itemContainer || itemContainer.DataContext is not CatalogPickerItem item) return;
+        CommitItem(item);
+    }
+
+    private void DropButton_OnClick(object sender, RoutedEventArgs eventArgs)
+    {
+        SearchBox.Focus();
+        OpenResults();
+        SearchBox.SelectAll();
+    }
+
+    private void OpenResults()
+    {
+        if (!IsEnabled || _allItems.Count == 0) return;
+        if (!ResultsPopup.IsOpen && !string.IsNullOrWhiteSpace(_selectedId))
+        {
+            _selectionBeforeSearch = _selectedId;
+        }
+
+        PrepareResultsForOpen();
+        SyncPopupWidth();
+        ResultsPopup.IsOpen = true;
+    }
+
+    private void OnPickerLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs eventArgs)
+    {
+        // Popup content lives in a separate presentation source. Defer the check
+        // until WPF has moved focus, then treat both trees as one picker.
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            if (!ResultsPopup.IsOpen || HasPickerKeyboardFocus()) return;
+            RestoreSelection();
+        });
+    }
+
+    private bool HasPickerKeyboardFocus() =>
+        SearchBox.IsKeyboardFocusWithin
+        || ResultsList.IsKeyboardFocusWithin
+        || DropButton.IsKeyboardFocusWithin
+        || (ResultsPopup.Child?.IsKeyboardFocusWithin ?? false);
+
+    private void MoveSelection(int delta)
+    {
+        if (_visibleItems.Count == 0) return;
+        if (!ResultsPopup.IsOpen)
+        {
+            SyncPopupWidth();
+            ResultsPopup.IsOpen = true;
+        }
+        int index = ResultsList.SelectedIndex;
+        if (index < 0) index = delta > 0 ? 0 : _visibleItems.Count - 1;
+        else index = Math.Clamp(index + delta, 0, _visibleItems.Count - 1);
+        ResultsList.SelectedIndex = index;
+        ResultsList.ScrollIntoView(ResultsList.SelectedItem);
+    }
+
+    private void CommitHighlightedItem()
+    {
+        CatalogPickerItem? item = ResultsList.SelectedItem as CatalogPickerItem
+                                  ?? _visibleItems.FirstOrDefault();
+        if (item != null) CommitItem(item);
+    }
+
+    private void CommitItem(CatalogPickerItem item)
+    {
+        _selectionBeforeSearch = item.Id;
+        SetSelectedId(item.Id, updateText: true);
+        ReplaceVisibleItems(_allItems, item.Id);
+        ResultsPopup.IsOpen = false;
+        SearchBox.CaretIndex = SearchBox.Text.Length;
+    }
+
+    private void RestoreSelection()
+    {
+        string restoreId = _allItems.Any(item => string.Equals(item.Id, _selectionBeforeSearch, StringComparison.Ordinal))
+            ? _selectionBeforeSearch
+            : string.Empty;
+        ReplaceVisibleItems(_allItems, restoreId);
+        SetSelectedId(restoreId, updateText: true);
+        ResultsPopup.IsOpen = false;
+    }
+
+    private void ReplaceVisibleItems(IEnumerable<CatalogPickerItem> items, string selectedId)
+    {
+        _visibleItems.Clear();
+        foreach (CatalogPickerItem item in items) _visibleItems.Add(item);
+        ResultsList.SelectedItem = _visibleItems.FirstOrDefault(item =>
+            string.Equals(item.Id, selectedId, StringComparison.Ordinal));
+        EmptyText.Visibility = _visibleItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PrepareResultsForOpen()
+    {
+        if (!string.IsNullOrWhiteSpace(_selectedId))
+        {
+            ReplaceVisibleItems(_allItems, _selectedId);
+            return;
+        }
+
+        string query = SearchBox.Text;
+        ReplaceVisibleItems(_allItems.Where(item => item.Matches(query)), string.Empty);
+    }
+
+    private void SetSelectedId(string id, bool updateText)
+    {
+        bool changed = !string.Equals(_selectedId, id, StringComparison.Ordinal);
+        _selectedId = id;
+        if (updateText)
+        {
+            _updatingText = true;
+            try
+            {
+                SearchBox.Text = SelectedCatalogItem?.SelectionText ?? string.Empty;
+            }
+            finally
+            {
+                _updatingText = false;
+            }
+        }
+
+        SyncSelectedIcon();
+
+        if (changed) SelectedItemChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SyncPopupWidth() => ResultsPopup.Width = Math.Max(ActualWidth, MinWidth);
+
+    private static void ShowIconsChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs eventArgs)
+    {
+        if (dependencyObject is CatalogPickerControl picker && picker.ResultsList != null)
+        {
+            picker.ResultsList.Tag = eventArgs.NewValue;
+            picker.SyncIconPresentation();
+        }
+    }
+
+    private void SyncIconPresentation()
+    {
+        if (SelectedIconColumn == null || SelectedIconFrame == null) return;
+        SelectedIconColumn.Width = ShowIcons ? new GridLength(42) : new GridLength(0);
+        SelectedIconFrame.Visibility = ShowIcons ? Visibility.Visible : Visibility.Collapsed;
+        SyncSelectedIcon();
+    }
+
+    private void SyncSelectedIcon()
+    {
+        if (SelectedIcon == null || SelectedIconFallback == null) return;
+        SelectedIcon.Source = ShowIcons ? SelectedCatalogItem?.Icon : null;
+        SelectedIconFallback.Visibility = ShowIcons && SelectedIcon.Source == null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
 }
 
 internal sealed class CatalogPickerItem
 {
+    private static readonly Regex LevelSuffix = new(
+        @"_L(\d+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     public CatalogPickerItem(
         string id,
         string name,
         string fallbackName,
-        Image? icon,
-        IReadOnlyList<string> tags)
+        ImageSource? icon,
+        IReadOnlyList<string> tags,
+        object? payload = null,
+        string? enumName = null)
     {
         Id = id;
         Name = name;
         FallbackName = fallbackName;
+        EnumName = string.IsNullOrWhiteSpace(enumName) ? id : enumName.Trim();
         Icon = icon;
         Tags = tags;
+        Payload = payload;
+        LevelLabel = ResolveLevelLabel(payload, id);
     }
 
     public string Id { get; }
@@ -227,13 +350,99 @@ internal sealed class CatalogPickerItem
 
     public string FallbackName { get; }
 
-    public Image? Icon { get; }
+    public string EnumName { get; }
+
+    public ImageSource? Icon { get; }
 
     public IReadOnlyList<string> Tags { get; }
+
+    public object? Payload { get; }
+
+    public string LevelLabel { get; }
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Name)
         ? Name
         : !string.IsNullOrWhiteSpace(FallbackName) ? FallbackName : Id;
 
+    public string TechnicalLabel => string.Equals(EnumName, Id, StringComparison.OrdinalIgnoreCase)
+        ? $"枚举 {EnumName}"
+        : $"枚举 {EnumName} · ID {Id}";
+
+    public string SelectionText
+    {
+        get
+        {
+            string identity = string.IsNullOrWhiteSpace(EnumName)
+                ? DisplayName
+                : $"{DisplayName} · {EnumName}";
+            return string.IsNullOrWhiteSpace(LevelLabel)
+                ? identity
+                : $"{identity} · {LevelLabel}";
+        }
+    }
+
+    public bool Matches(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return true;
+        string[] terms = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return terms.All(term => SearchValues().Any(value =>
+            value.Contains(term, StringComparison.CurrentCultureIgnoreCase)));
+    }
+
     public override string ToString() => DisplayName;
+
+    private IEnumerable<string> SearchValues()
+    {
+        yield return Id;
+        yield return Name;
+        yield return FallbackName;
+        yield return EnumName;
+        yield return LevelLabel;
+        foreach (string tag in Tags) yield return tag;
+    }
+
+    private static string ResolveLevelLabel(object? payload, string id)
+    {
+        if (TryReadLevel(payload, out int payloadLevel) && payloadLevel >= 0) return $"Lv.{payloadLevel}";
+        Match match = LevelSuffix.Match(id);
+        return match.Success ? $"Lv.{match.Groups[1].Value}" : string.Empty;
+    }
+
+    private static bool TryReadLevel(object? payload, out int level)
+    {
+        level = 0;
+        object? value = payload switch
+        {
+            JObject json => json.GetValue("level", StringComparison.OrdinalIgnoreCase),
+            JProperty property when string.Equals(property.Name, "level", StringComparison.OrdinalIgnoreCase) => property.Value,
+            _ => null
+        };
+
+        if (value == null && payload != null)
+        {
+            Type type = payload.GetType();
+            PropertyInfo? property = type.GetProperty("Level", BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+            value = property?.GetValue(payload);
+            if (value == null)
+            {
+                FieldInfo? field = type.GetField("Level", BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+                value = field?.GetValue(payload);
+            }
+        }
+
+        string text = value switch
+        {
+            null => string.Empty,
+            JValue token => token.ToString(CultureInfo.InvariantCulture),
+            JToken token => token.ToString(),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? string.Empty
+        };
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out level)) return true;
+        if (!decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal numeric)
+            || numeric != decimal.Truncate(numeric)
+            || numeric is < int.MinValue or > int.MaxValue) return false;
+        level = Decimal.ToInt32(numeric);
+        return true;
+    }
 }

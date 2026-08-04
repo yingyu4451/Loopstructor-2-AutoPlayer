@@ -41,7 +41,7 @@ public sealed class ProtocolTests
 
         Assert.Null(legacy.Arguments);
         Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
-        Assert.Equal(2, Protocol.CheatCurrentVersion);
+        Assert.Equal(4, Protocol.CheatCurrentVersion);
         Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
         Assert.Equal("CommonMonster", roundTrip.Arguments!.Value<string>("enemyId"));
         Assert.Equal(12.5, roundTrip.Arguments.Value<double>("x"));
@@ -55,7 +55,8 @@ public sealed class ProtocolTests
             CheatSessionAuthorized = true,
             CheatAvailable = true,
             RunIntegrity = "cheat-modified",
-            BaseGodModeEnabled = true
+            BaseGodModeEnabled = true,
+            MapSkipEnabled = true
         };
 
         AutoPlayerStatus roundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(
@@ -64,22 +65,94 @@ public sealed class ProtocolTests
         Assert.True(roundTrip.CheatSessionAuthorized);
         Assert.True(roundTrip.CheatAvailable);
         Assert.True(roundTrip.BaseGodModeEnabled);
+        Assert.True(roundTrip.MapSkipEnabled);
         Assert.Equal("cheat-modified", roundTrip.RunIntegrity);
     }
 
     [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
-        Assert.Equal(17, CheatCommands.All.Count);
-        Assert.Equal(11, CheatCommands.Mutations.Count);
+        Assert.Equal(26, CheatCommands.All.Count);
+        Assert.Equal(18, CheatCommands.Mutations.Count);
         Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
         Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SpawnEnemy));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantCatapultPoint));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetVehicleEnchantment));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetMapSkipEnabled));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveVehicle));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveRelic));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveCatapultPoint));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveFieldCatapultPoint));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.ClearFieldCatapultPoints));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantVehicle.ToUpperInvariant()));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.QueryEnemies));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnabled));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetSpawnPointCapture));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.RemoveSpawnPoint));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.ClearSpawnPoints));
+    }
+
+    [Fact]
+    public void ActivationMode_RoundTripsWithoutChangingBaseProtocolVersion()
+    {
+        BridgeHello hello = new() { ActivationMode = AutoPlayerActivationMode.ResidentPlayer };
+        AutoPlayerStatus status = new() { ActivationMode = AutoPlayerActivationMode.ResidentPlayer };
+
+        BridgeHello helloRoundTrip = JsonConvert.DeserializeObject<BridgeHello>(JsonConvert.SerializeObject(hello))!;
+        AutoPlayerStatus statusRoundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(JsonConvert.SerializeObject(status))!;
+
+        Assert.Equal(1, Protocol.CurrentVersion);
+        Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, helloRoundTrip.ActivationMode);
+        Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, statusRoundTrip.ActivationMode);
+    }
+
+    [Theory]
+    [InlineData(AutoPlayerActivationMode.IsolatedQa, true, true, true, true, true)]
+    [InlineData(AutoPlayerActivationMode.IsolatedQa, true, false, true, true, false)]
+    [InlineData(AutoPlayerActivationMode.ResidentPlayer, false, false, false, false, true)]
+    [InlineData(AutoPlayerActivationMode.ResidentPlayer, true, true, true, true, false)]
+    [InlineData(AutoPlayerActivationMode.ResidentPlayer, false, true, false, false, false)]
+    public void SafetyGate_UsesModeSpecificIsolationRequirements(
+        AutoPlayerActivationMode mode,
+        bool saveIsolationApplied,
+        bool saveIsolationVerified,
+        bool platformWritesBlocked,
+        bool gameArtifactsRedirected,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            AutoPlayerSafetyGate.IsReady(
+                mode,
+                saveIsolationApplied,
+                saveIsolationVerified,
+                platformWritesBlocked,
+                gameArtifactsRedirected));
+    }
+
+    [Fact]
+    public void SpawnEnemyProtocol_SupportsMultiplePointsAndExplicitLevelSource()
+    {
+        ControlRequest request = new()
+        {
+            Command = CheatCommands.SpawnEnemy,
+            Arguments = new JObject
+            {
+                ["enemyId"] = "CommonMonster",
+                ["count"] = 2,
+                ["levelMode"] = "current",
+                ["points"] = new JArray(
+                    new JObject { ["pointId"] = "a", ["x"] = 1, ["y"] = 2, ["z"] = 0 },
+                    new JObject { ["pointId"] = "b", ["x"] = 3, ["y"] = 4, ["z"] = 0 })
+            }
+        };
+
+        ControlRequest roundTrip = JsonConvert.DeserializeObject<ControlRequest>(JsonConvert.SerializeObject(request))!;
+
+        Assert.Equal("current", roundTrip.Arguments!.Value<string>("levelMode"));
+        Assert.Equal(2, ((JArray)roundTrip.Arguments["points"]!).Count);
+        Assert.Null(roundTrip.Arguments["level"]);
     }
 
     [Fact]

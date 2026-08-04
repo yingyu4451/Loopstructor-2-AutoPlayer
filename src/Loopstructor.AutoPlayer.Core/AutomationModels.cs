@@ -53,6 +53,35 @@ public enum AutomationGameMode
     Random
 }
 
+public enum AutoPlayerActivationMode
+{
+    IsolatedQa,
+    ResidentPlayer
+}
+
+public static class AutoPlayerSafetyGate
+{
+    public static bool IsReady(
+        AutoPlayerActivationMode mode,
+        bool saveIsolationApplied,
+        bool saveIsolationVerified,
+        bool platformWritesBlocked,
+        bool gameArtifactsRedirected) => mode switch
+    {
+        AutoPlayerActivationMode.IsolatedQa =>
+            saveIsolationApplied
+            && saveIsolationVerified
+            && platformWritesBlocked
+            && gameArtifactsRedirected,
+        AutoPlayerActivationMode.ResidentPlayer =>
+            !saveIsolationApplied
+            && !saveIsolationVerified
+            && !platformWritesBlocked
+            && !gameArtifactsRedirected,
+        _ => false
+    };
+}
+
 public sealed class AutomationRunOptions
 {
     public AutomationGameMode Mode { get; set; } = AutomationGameMode.Common;
@@ -98,6 +127,7 @@ public sealed class AutoPlayerStatus
 {
     public int ProtocolVersion { get; set; } = Protocol.CurrentVersion;
     public string PluginVersion { get; set; } = string.Empty;
+    public AutoPlayerActivationMode ActivationMode { get; set; } = AutoPlayerActivationMode.IsolatedQa;
     public AutoPlayerRunState RunState { get; set; } = AutoPlayerRunState.Standby;
     public AutomationOutcome Outcome { get; set; } = AutomationOutcome.Unknown;
     public AutomationStage Stage { get; set; } = AutomationStage.WaitingForGame;
@@ -141,6 +171,7 @@ public sealed class AutoPlayerStatus
     public int CheatActionCount { get; set; }
     public bool EnemyIdsVisible { get; set; }
     public bool BaseGodModeEnabled { get; set; }
+    public bool MapSkipEnabled { get; set; }
     public string RunIntegrity { get; set; } = "clean";
     public string CheatAvailabilityReason { get; set; } = string.Empty;
     public IReadOnlyList<TimelineEvent> Timeline { get; set; } = Array.Empty<TimelineEvent>();
@@ -151,6 +182,7 @@ public sealed class BridgeHello
     public int ProtocolVersion { get; set; }
     public int GameProcessId { get; set; }
     public string PluginVersion { get; set; } = string.Empty;
+    public AutoPlayerActivationMode ActivationMode { get; set; } = AutoPlayerActivationMode.IsolatedQa;
     public string GameVersion { get; set; } = string.Empty;
     public string UnityVersion { get; set; } = string.Empty;
     public string BuildGuid { get; set; } = string.Empty;
@@ -173,6 +205,7 @@ public sealed class BridgeHello
     public bool CheatAvailable { get; set; }
     public bool CheatModeEnabled { get; set; }
     public bool CheatUsed { get; set; }
+    public bool MapSkipEnabled { get; set; }
     public string CheatAvailabilityReason { get; set; } = string.Empty;
     public IReadOnlyList<string> CheatCapabilities { get; set; } = Array.Empty<string>();
 }
@@ -212,7 +245,7 @@ public sealed class LaunchTicket
 public static class Protocol
 {
     public const int CurrentVersion = 1;
-    public const int CheatCurrentVersion = 2;
+    public const int CheatCurrentVersion = 4;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
     public const string PipeEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PIPE";
@@ -254,19 +287,28 @@ public static class CheatCommands
     public const string QueryCatalog = "cheat.queryCatalog";
     public const string QueryState = "cheat.queryState";
     public const string GrantVehicle = "cheat.grantVehicle";
+    public const string RemoveVehicle = "cheat.removeVehicle";
     public const string GrantDisposable = "cheat.grantDisposable";
     public const string GrantCatapultPoint = "cheat.grantCatapultPoint";
+    public const string RemoveCatapultPoint = "cheat.removeCatapultPoint";
+    public const string RemoveFieldCatapultPoint = "cheat.removeFieldCatapultPoint";
+    public const string ClearFieldCatapultPoints = "cheat.clearFieldCatapultPoints";
     public const string SetBaseGodMode = "cheat.setBaseGodMode";
     public const string EndWave = "cheat.endWave";
     public const string ClearEnemies = "cheat.clearEnemies";
     public const string QueryVehicles = "cheat.queryVehicles";
     public const string ModifyVehicle = "cheat.modifyVehicle";
+    public const string SetVehicleEnchantment = "cheat.setVehicleEnchantment";
     public const string QueryEnemies = "cheat.queryEnemies";
     public const string ModifyEnemy = "cheat.modifyEnemy";
     public const string SetEnemyIdOverlay = "cheat.setEnemyIdOverlay";
     public const string GrantRelic = "cheat.grantRelic";
+    public const string RemoveRelic = "cheat.removeRelic";
     public const string SetSpawnPointCapture = "cheat.setSpawnPointCapture";
+    public const string RemoveSpawnPoint = "cheat.removeSpawnPoint";
+    public const string ClearSpawnPoints = "cheat.clearSpawnPoints";
     public const string SpawnEnemy = "cheat.spawnEnemy";
+    public const string SetMapSkipEnabled = "cheat.setMapSkipEnabled";
 
     public static IReadOnlyList<string> All { get; } = new[]
     {
@@ -274,34 +316,50 @@ public static class CheatCommands
         QueryCatalog,
         QueryState,
         GrantVehicle,
+        RemoveVehicle,
         GrantDisposable,
         GrantCatapultPoint,
+        RemoveCatapultPoint,
+        RemoveFieldCatapultPoint,
+        ClearFieldCatapultPoints,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
         QueryVehicles,
         ModifyVehicle,
+        SetVehicleEnchantment,
         QueryEnemies,
         ModifyEnemy,
         SetEnemyIdOverlay,
         GrantRelic,
+        RemoveRelic,
         SetSpawnPointCapture,
-        SpawnEnemy
+        RemoveSpawnPoint,
+        ClearSpawnPoints,
+        SpawnEnemy,
+        SetMapSkipEnabled
     };
 
     public static IReadOnlyList<string> Mutations { get; } = new[]
     {
         GrantVehicle,
+        RemoveVehicle,
         GrantDisposable,
         GrantCatapultPoint,
+        RemoveCatapultPoint,
+        RemoveFieldCatapultPoint,
+        ClearFieldCatapultPoints,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
         ModifyVehicle,
+        SetVehicleEnchantment,
         ModifyEnemy,
         SetEnemyIdOverlay,
         GrantRelic,
-        SpawnEnemy
+        RemoveRelic,
+        SpawnEnemy,
+        SetMapSkipEnabled
     };
 
     public static bool IsCheatCommand(string? command) =>

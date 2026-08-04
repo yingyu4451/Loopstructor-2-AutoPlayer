@@ -99,8 +99,9 @@ jobs:
             'manager/Loopstructor.AutoPlayer.Updater.deps.json'
             'manager/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
             'manager/coreclr.dll'
-            'manager/System.Windows.Forms.dll'
-            'updater/Loopstructor.AutoPlayer.Updater.dll'
+            'manager/PresentationFramework.dll'
+            'manager/PresentationCore.dll'
+            'manager/WindowsBase.dll'
           )
           foreach ($relativePath in $requiredFiles) {
             $path = Join-Path $artifactRoot $relativePath
@@ -109,19 +110,15 @@ jobs:
             }
           }
 
-          foreach ($relativePath in @('manager', 'payload', 'updater')) {
+          foreach ($relativePath in @('manager', 'payload')) {
             $path = Join-Path $artifactRoot $relativePath
             if (-not (Test-Path -LiteralPath $path -PathType Container)) {
               throw "Workflow artifact is missing root directory: $relativePath"
             }
           }
 
-          $updaterCompatibilityFiles = @(
-            Get-ChildItem -LiteralPath (Join-Path $artifactRoot 'updater') -Recurse -File
-          )
-          if ($updaterCompatibilityFiles.Count -ne 1 -or
-              $updaterCompatibilityFiles[0].Name -cne 'Loopstructor.AutoPlayer.Updater.dll') {
-            throw "Updater compatibility directory contains unexpected files: $($updaterCompatibilityFiles.Name -join ', ')"
+          if (Test-Path -LiteralPath (Join-Path $artifactRoot 'updater')) {
+            throw 'Workflow artifact must not contain the retired updater compatibility directory.'
           }
 
           $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json

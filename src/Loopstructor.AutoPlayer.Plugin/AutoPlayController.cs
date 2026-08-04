@@ -85,13 +85,13 @@ internal sealed class AutoPlayController
             ? AutoPlayerRunState.Standby
             : AutoPlayerRunState.Incompatible;
         _stageDetail = string.IsNullOrEmpty(_compatibilityError)
-            ? _cheatUsed
-                ? "已激活；当前 QA 配置已被作弊写操作永久标记，只能继续用于作弊测试。"
-                : "已激活，正在等待开始命令。"
+            ? _activation.IsPlayerMode
+                ? "玩家模式已在后台待命，可随时从 Manager 开始自动游玩。"
+                : "隔离 QA 模式已激活，正在等待开始命令。"
             : _compatibilityError;
         if (_cheatUsed)
         {
-            AddTimeline("cheat", "检测到当前 QA 配置的持久作弊污染标记；普通自动游玩已禁用。");
+            AddTimeline("cheat", "检测到当前控制配置的作弊记录；后续自动游玩会继续标记为 cheat-modified。");
         }
         if (!string.IsNullOrEmpty(_compatibilityError)) AddTimeline("error", _compatibilityError);
     }
@@ -100,15 +100,9 @@ internal sealed class AutoPlayController
     {
         lock (_sync)
         {
-            if (_cheatUsed)
-            {
-                message = "当前 QA 配置已执行过作弊写操作并被永久标记，不能用于普通自动游玩。请新建并选择未污染的 QA 配置；当前配置仍可继续用于作弊测试。";
-                return false;
-            }
-
             if (_cheatModeEnabled)
             {
-                message = "作弊模式当前已启用，不能开始自动游玩。请先关闭作弊模式；执行过作弊写操作后必须重启游戏进程。";
+                message = "作弊模式当前已启用，不能开始自动游玩。请先关闭作弊模式。";
                 return false;
             }
 
@@ -140,7 +134,9 @@ internal sealed class AutoPlayController
             _runState = AutoPlayerRunState.Running;
             _outcome = AutomationOutcome.InProgress;
             _stage = AutomationStage.WaitingForGame;
-            _stageDetail = "正在等待存档隔离验证和受支持的场景。";
+            _stageDetail = _activation.IsPlayerMode
+                ? "正在等待受支持的游戏场景。"
+                : "正在等待存档隔离验证和受支持的场景。";
             _consecutiveFailures = 0;
             _wavesStarted = 0;
             _wavesCompleted = 0;
@@ -201,7 +197,7 @@ internal sealed class AutoPlayController
                     return false;
                 }
 
-                if (_needsProcessRestart && !_cheatUsed)
+                if (_needsProcessRestart)
                 {
                     message = "当前游戏进程已要求重启，不能再进入作弊模式。";
                     return false;
@@ -220,11 +216,10 @@ internal sealed class AutoPlayController
         {
             _cheatUsed = true;
             _cheatActionCount++;
-            _needsProcessRestart = true;
             _lastCommand = command;
             _lastMessage = message;
             _lastActionAtUtc = DateTime.UtcNow;
-            AddTimeline("cheat", message + " 当前 QA 配置已永久标记为作弊污染，不能用于普通自动游玩。");
+            AddTimeline("cheat", message + " 当前控制配置已记录作弊修改；后续自动游玩证据会标记为 cheat-modified。");
         }
     }
 
@@ -308,9 +303,9 @@ internal sealed class AutoPlayController
 
     public void Tick()
     {
-        // The manager requires save isolation to be verified before it enables Start.
-        // Probe while in standby so the safety handshake cannot deadlock.
-        SaveIsolationPatch.ProbeRuntimeSaveFolder();
+        // Isolated QA sessions verify the redirected save root before Start.
+        // Resident player mode intentionally leaves the player's save path untouched.
+        if (!_activation.IsPlayerMode) SaveIsolationPatch.ProbeRuntimeSaveFolder();
         if (_runState != AutoPlayerRunState.Running || Time.realtimeSinceStartup < _nextTickAt) return;
         _nextTickAt = Time.realtimeSinceStartup + Math.Max(0.2f, _settings.TickIntervalSeconds.Value);
 
@@ -344,13 +339,13 @@ internal sealed class AutoPlayController
             MarkProgress();
         }
 
-        if (SaveIsolationPatch.VerificationFailed)
+        if (!_activation.IsPlayerMode && SaveIsolationPatch.VerificationFailed)
         {
             Fault(SaveIsolationPatch.VerificationError);
             return;
         }
 
-        if (!SaveIsolationPatch.Verified)
+        if (!_activation.IsPlayerMode && !SaveIsolationPatch.Verified)
         {
             SetStage(AutomationStage.WaitingForGame, "正在等待 SaveManager 确认隔离的测试存档。");
             if (Time.realtimeSinceStartup - _lastProgressAt >= SaveVerificationTimeoutSeconds)
@@ -392,6 +387,7 @@ internal sealed class AutoPlayController
         {
             return new AutoPlayerStatus
             {
+                ActivationMode = _activation.ActivationMode,
                 PluginVersion = PluginInfo.Version,
                 RunState = _runState,
                 Outcome = _outcome,
@@ -435,6 +431,7 @@ internal sealed class AutoPlayController
                 CheatActionCount = _cheatActionCount,
                 EnemyIdsVisible = _enemyIdsVisible,
                 BaseGodModeEnabled = _baseGodModeEnabled,
+                MapSkipEnabled = MapSkipPatch.Enabled,
                 RunIntegrity = _cheatUsed ? "cheat-modified" : "clean",
                 CheatAvailabilityReason = _cheatAvailabilityReason,
                 Timeline = _timeline.ToArray()
@@ -448,6 +445,7 @@ internal sealed class AutoPlayController
         {
             return new BridgeHello
             {
+                ActivationMode = _activation.ActivationMode,
                 ProtocolVersion = Protocol.CurrentVersion,
                 GameProcessId = GetCurrentProcessId(),
                 PluginVersion = PluginInfo.Version,
@@ -473,6 +471,7 @@ internal sealed class AutoPlayController
                 CheatAvailable = _cheatAvailable,
                 CheatModeEnabled = _cheatModeEnabled,
                 CheatUsed = _cheatUsed,
+                MapSkipEnabled = MapSkipPatch.Enabled,
                 CheatAvailabilityReason = _cheatAvailabilityReason,
                 CheatCapabilities = _cheatCapabilities
             };
@@ -966,12 +965,15 @@ internal sealed class AutoPlayController
             return "Assembly-CSharp.dll 在验证后发生变化；请更新或重新安装自动游玩适配器。";
         if (!_bridge.IsAvailable)
             return "当前游戏版本缺少必需的自动游玩运行时成员：" + string.Join(", ", _bridge.MissingMembers);
-        if (!SaveIsolationPatch.Installed)
-            return "无法安装存档隔离挂钩。";
-        if (!PlatformWriteIsolationPatch.Applied)
-            return "外部平台写入隔离不完整。";
-        if (!GameArtifactIsolationPatch.Applied)
-            return "游戏诊断产物隔离不完整。";
+        if (!_activation.IsPlayerMode)
+        {
+            if (!SaveIsolationPatch.Installed)
+                return "无法安装存档隔离挂钩。";
+            if (!PlatformWriteIsolationPatch.Applied)
+                return "外部平台写入隔离不完整。";
+            if (!GameArtifactIsolationPatch.Applied)
+                return "游戏诊断产物隔离不完整。";
+        }
         if (!GameOutcomeObserver.Installed)
             return "无法安装只读胜负结果观察器。";
         return string.Empty;

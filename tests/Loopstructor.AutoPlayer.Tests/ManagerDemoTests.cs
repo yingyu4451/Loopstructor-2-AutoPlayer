@@ -2,6 +2,7 @@ using System.Drawing;
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.UI;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -86,6 +87,62 @@ public sealed class ManagerDemoTests
         Assert.Contains(Path.DirectorySeparatorChar + "qa-default", status.IsolatedSaveRoot);
     }
 
+    [Theory]
+    [InlineData("剧毒", true)]
+    [InlineData("poison", true)]
+    [InlineData("高级 持续", true)]
+    [InlineData("冰冻", false)]
+    public void CatalogPickerItem_SearchesChineseNamesIdsAndTags(string query, bool expected)
+    {
+        CatalogPickerItem item = new(
+            "PoisonDomain",
+            "剧毒场域",
+            "Poison Domain",
+            null,
+            new[] { "附魔", "高级", "持续伤害" });
+
+        Assert.Equal(expected, item.Matches(query));
+    }
+
+    [Fact]
+    public void CatalogPickerItem_LevelLabel_UsesCatalogPayload()
+    {
+        CatalogPickerItem item = new(
+            "Link_ElectricFork",
+            "雷叉",
+            string.Empty,
+            null,
+            Array.Empty<string>(),
+            new JObject { ["level"] = 3 });
+
+        Assert.Equal("Lv.3", item.LevelLabel);
+        Assert.Equal("雷叉 · Link_ElectricFork · Lv.3", item.SelectionText);
+    }
+
+    [Fact]
+    public void CatalogPickerItem_LevelLabel_UsesAnyNumericIdSuffix()
+    {
+        CatalogPickerItem item = new(
+            "Link_ElectricFork_L12",
+            "雷叉",
+            string.Empty,
+            null,
+            Array.Empty<string>());
+
+        Assert.Equal("Lv.12", item.LevelLabel);
+    }
+
+    [Fact]
+    public void CheatDemo_QueryCatalog_ContainsChineseVehicleLevels()
+    {
+        ControlResponse response = DemoData.CheatResponse(CheatCommands.QueryCatalog, null);
+        JArray vehicles = Assert.IsType<JArray>(response.Data!["vehicles"]);
+
+        Assert.True(response.Success);
+        Assert.Contains(vehicles.OfType<JObject>(), item =>
+            item.Value<string>("name") == "雷叉" && item.Value<int>("level") == 2);
+    }
+
     [Fact]
     public void DemoStatus_RestartVariant_ExposesRestartGateFromCompletedState()
     {
@@ -94,6 +151,46 @@ public sealed class ManagerDemoTests
         Assert.True(status.NeedsProcessRestart);
         Assert.Equal(AutoPlayerRunState.Completed, status.RunState);
         Assert.Equal(AutomationStage.Completed, status.Stage);
+    }
+
+    [Fact]
+    public void TimelineHistory_RetainsEveryEventForScrolling()
+    {
+        TimelineEvent[] events = Enumerable.Range(0, 24)
+            .Select(index => new TimelineEvent
+            {
+                TimestampUtc = DateTime.UtcNow.AddSeconds(index),
+                Stage = AutomationStage.Battle,
+                Kind = "action",
+                Message = "历史事件 " + index
+            })
+            .ToArray();
+
+        IReadOnlyList<TimelineEvent> history = MainForm.TimelineHistory(events);
+
+        Assert.Equal(24, history.Count);
+        Assert.Equal(events.Select(item => item.Message), history.Select(item => item.Message));
+        Assert.NotSame(events, history);
+    }
+
+    [Fact]
+    public void TimelineHistory_NullInputReturnsEmptyHistory()
+    {
+        Assert.Empty(MainForm.TimelineHistory(null));
+    }
+
+    [Theory]
+    [InlineData(0, 100, 100, true)]
+    [InlineData(400, 100, 500, true)]
+    [InlineData(398, 100, 500, true)]
+    [InlineData(250, 100, 500, false)]
+    public void LogFollowLatest_OnlyScrollsWhenAlreadyAtBottom(
+        double verticalOffset,
+        double viewportHeight,
+        double extentHeight,
+        bool expected)
+    {
+        Assert.Equal(expected, MainForm.ShouldFollowLatest(verticalOffset, viewportHeight, extentHeight));
     }
 
     [Fact]
@@ -149,7 +246,7 @@ public sealed class ManagerDemoTests
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void RunControls_EnabledCheatOrPriorCheatUse_DisablesNormalStart(
+    public void RunControls_OnlyCurrentlyEnabledCheatModeBlocksStart(
         bool enabled,
         bool used)
     {
@@ -163,7 +260,7 @@ public sealed class ManagerDemoTests
 
         RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
 
-        Assert.False(availability.CanStart);
+        Assert.Equal(!enabled, availability.CanStart);
         Assert.False(availability.CanPause);
         Assert.False(availability.CanResume);
         Assert.False(availability.CanStop);

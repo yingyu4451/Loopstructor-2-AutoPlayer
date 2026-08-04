@@ -143,7 +143,7 @@ public sealed class UpdateCoordinatorTests
     }
 
     [Fact]
-    public void TryCreateInvocation_SharedRuntimeStartsManagerDirectoryUpdater()
+    public void TryCreateInvocation_UsesManagerDirectoryUpdater()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -154,11 +154,6 @@ public sealed class UpdateCoordinatorTests
         try
         {
             string sharedUpdaterExecutable = Path.Combine(managerDirectory, "Loopstructor.AutoPlayer.Updater.exe");
-            string legacyUpdaterDirectory = Path.Combine(root, "updater");
-            Directory.CreateDirectory(legacyUpdaterDirectory);
-            File.WriteAllBytes(
-                Path.Combine(legacyUpdaterDirectory, "Loopstructor.AutoPlayer.Updater.exe"),
-                Array.Empty<byte>());
             File.WriteAllBytes(sharedUpdaterExecutable, Array.Empty<byte>());
             UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
 
@@ -177,7 +172,7 @@ public sealed class UpdateCoordinatorTests
     }
 
     [Fact]
-    public void TryCreateInvocation_CompatibilityAssemblyWithoutUpdaterExecutableIsRejected()
+    public void TryCreateInvocation_RetiredUpdaterDirectoryAssemblyIsRejected()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -203,7 +198,7 @@ public sealed class UpdateCoordinatorTests
     }
 
     [Fact]
-    public void TryCreateInvocation_LegacyExecutableRemainsSupported()
+    public void TryCreateInvocation_RetiredUpdaterDirectoryExecutableIsRejected()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -217,13 +212,9 @@ public sealed class UpdateCoordinatorTests
             File.WriteAllBytes(updaterExecutable, Array.Empty<byte>());
             UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
 
-            bool created = coordinator.TryCreateInvocation(out ProcessStartInfo startInfo, "apply");
+            bool created = coordinator.TryCreateInvocation(out _, "apply");
 
-            Assert.True(created);
-            Assert.Equal(updaterExecutable, startInfo.FileName);
-            Assert.Equal(updaterDirectory, startInfo.WorkingDirectory);
-            Assert.False(startInfo.UseShellExecute);
-            Assert.Equal(new[] { "apply" }, startInfo.ArgumentList);
+            Assert.False(created);
         }
         finally
         {

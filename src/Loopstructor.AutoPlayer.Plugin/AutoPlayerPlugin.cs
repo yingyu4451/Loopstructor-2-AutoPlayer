@@ -7,7 +7,7 @@ using Newtonsoft.Json;
 
 namespace Loopstructor.AutoPlayer.Plugin;
 
-/// <summary>Hosts the activated, process-local QA automation adapter.</summary>
+/// <summary>Hosts the process-local automation adapter in isolated QA or resident player mode.</summary>
 [BepInPlugin(PluginInfo.Guid, PluginInfo.Name, PluginInfo.Version)]
 public sealed class AutoPlayerPlugin : BaseUnityPlugin
 {
@@ -18,6 +18,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
     private EvidenceRecorder? _evidence;
     private string _statusPath = string.Empty;
     private float _nextStatusWriteAt;
+    private bool _residentPlayerMode;
 
     private void Awake()
     {
@@ -27,7 +28,12 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
             return;
         }
 
-        ProtectActivatedManagerObject();
+        _residentPlayerMode = activation.IsPlayerMode;
+
+        if (!activation.IsPlayerMode)
+        {
+            ProtectActivatedManagerObject();
+        }
 
         PluginSettings settings = new(Config);
         RuntimeBridge bridge = new();
@@ -44,10 +50,22 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
                                     && bridge.IsAvailable;
         if (baseContractAccepted)
         {
-            SaveIsolationPatch.Install(_harmony, activation.ProfileRoot, Logger.LogInfo);
-            PlatformWriteIsolationPatch.Install(_harmony, Logger.LogInfo);
-            GameArtifactIsolationPatch.Install(_harmony, activation.ArtifactRoot, Logger.LogInfo);
+            if (!activation.IsPlayerMode)
+            {
+                SaveIsolationPatch.Install(_harmony, activation.ProfileRoot, Logger.LogInfo);
+                PlatformWriteIsolationPatch.Install(_harmony, Logger.LogInfo);
+                GameArtifactIsolationPatch.Install(_harmony, activation.ArtifactRoot, Logger.LogInfo);
+            }
+            else
+            {
+                Logger.LogInfo("玩家模式已进入本机鉴权待命；不会重定向存档、平台写入或游戏诊断产物。");
+            }
+
             GameOutcomeObserver.Install(_harmony, Logger.LogInfo);
+            if (!MapSkipPatch.Install(_harmony, Logger.LogInfo))
+            {
+                Logger.LogWarning("地图跳关未能接入游戏地图输入流程；该功能将保持不可用。");
+            }
         }
         else
         {
@@ -64,7 +82,7 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _controlServer = new PipeControlServer(_controller, _cheatController, activation);
         _controlServer.Start();
         _statusPath = Path.Combine(activation.ArtifactRoot, "status.json");
-        WriteStatus();
+        if (!_residentPlayerMode) WriteStatus();
         Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} 已通过{ActivationSourceLabel(activation.Source)}激活，当前处于待命模式。");
     }
 
@@ -80,7 +98,9 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _controlServer?.Pump();
         _cheatController?.Tick();
         _controller?.Tick();
-        if (_controller != null && UnityEngine.Time.realtimeSinceStartup >= _nextStatusWriteAt)
+        if (!_residentPlayerMode
+            && _controller != null
+            && UnityEngine.Time.realtimeSinceStartup >= _nextStatusWriteAt)
         {
             _nextStatusWriteAt = UnityEngine.Time.realtimeSinceStartup + 1f;
             WriteStatus();
@@ -99,7 +119,8 @@ public sealed class AutoPlayerPlugin : BaseUnityPlugin
         _cheatController?.Dispose();
         _cheatController = null;
         SpawnPointCaptureInputPatch.Detach();
-        WriteStatus();
+        MapSkipPatch.Reset();
+        if (!_residentPlayerMode) WriteStatus();
         _controller = null;
         _harmony?.UnpatchSelf();
         _harmony = null;

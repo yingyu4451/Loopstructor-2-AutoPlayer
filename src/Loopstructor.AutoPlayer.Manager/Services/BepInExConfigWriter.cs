@@ -26,7 +26,7 @@ public sealed class BepInExConfigWriter
             PluginConfigFileName);
         StringBuilder content = new();
         content.AppendLine("# 由 Loopstructor AutoPlayer Manager 管理。");
-        content.AppendLine("# 自动化运行仍需有效的一次性启动授权。");
+        content.AppendLine("# 玩家模式通过当前 Windows 用户的本机控制注册鉴权；QA 票据模式仍使用一次性授权。");
         content.AppendLine();
         content.AppendLine("[Runtime]");
         content.Append("TickIntervalSeconds = ").AppendLine(tickIntervalSeconds.ToString("0.###", CultureInfo.InvariantCulture));

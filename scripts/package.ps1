@@ -436,7 +436,6 @@ foreach ($directory in @($packageWorkRoot, $releaseRoot)) {
 }
 
 $managerOutput = Join-Path $packageRoot 'manager'
-$updaterOutput = Join-Path $packageRoot 'updater'
 $launcherOutput = Join-Path $packageWorkRoot 'launcher'
 $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
@@ -446,9 +445,6 @@ $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-WindowsProject -Project $updaterProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
-New-Item -ItemType Directory -Path $updaterOutput -Force | Out-Null
-# v0.1.8 validates that the legacy updater directory still contains this assembly stem.
-Copy-Item -LiteralPath (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Updater.dll') -Destination $updaterOutput
 
 foreach ($requiredManagerFile in @(
     'Loopstructor.AutoPlayer.Manager.exe'
@@ -460,27 +456,14 @@ foreach ($requiredManagerFile in @(
     'hostfxr.dll'
     'hostpolicy.dll'
     'coreclr.dll'
-    'System.Windows.Forms.dll'
+    'PresentationFramework.dll'
+    'PresentationCore.dll'
+    'WindowsBase.dll'
 )) {
     $requiredManagerPath = Join-Path $managerOutput $requiredManagerFile
     if (-not (Test-Path -LiteralPath $requiredManagerPath -PathType Leaf)) {
         throw "Shared Manager runtime is missing required file: $requiredManagerFile"
     }
-}
-
-foreach ($requiredUpdaterFile in @(
-    'Loopstructor.AutoPlayer.Updater.dll'
-)) {
-    $requiredUpdaterPath = Join-Path $updaterOutput $requiredUpdaterFile
-    if (-not (Test-Path -LiteralPath $requiredUpdaterPath -PathType Leaf)) {
-        throw "Updater compatibility directory is missing required file: $requiredUpdaterFile"
-    }
-}
-
-$updaterCompatibilityFiles = @(Get-ChildItem -LiteralPath $updaterOutput -Recurse -File -Force)
-if ($updaterCompatibilityFiles.Count -ne 1 -or
-    $updaterCompatibilityFiles[0].Name -cne 'Loopstructor.AutoPlayer.Updater.dll') {
-    throw "Updater compatibility directory must contain only Loopstructor.AutoPlayer.Updater.dll: $($updaterCompatibilityFiles.Name -join ', ')"
 }
 
 $bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'

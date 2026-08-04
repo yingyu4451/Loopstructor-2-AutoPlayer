@@ -49,17 +49,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 随机模式首次验证在场景模块尚未完成 `Init()` 时过早调用入口，曾于 `Temp` 场景触发 `MetroTDAffixCreatorHandler.Clear()` 空引用。插件现在只读检查全局模块与当前场景 Main 的加载状态，并要求连续一个稳定轮询周期后才执行前端写操作；随后随机模式已完成跨波复验。当前 Player.log 仍会记录随机转盘离场后的 `RandomMode_TurnTableManager.StopDecorateAnimation` 非致命 `Animator.Play` 空引用；工具不以 Harmony 吞掉该异常，发布说明应保留这个游戏侧已知问题。
 
-Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID 许可，Player.log 记录 `[Steamworks.NET] SteamAPI_Init() failed`；这没有阻止上述两种模式的隔离玩法测试，但也不能作为 Steam 已完全离线或账号不会留痕的证据。已知补丁只强制阻断 Steam 成就、IGP 成就、结算飞书自动上传及 `RestartAppIfNecessary` 四个入口；在线状态、游戏时长、Overlay、云同步、统计或新版新增遥测仍可能被平台记录。正式验收应使用专用 QA 账号、离线环境或无平台测试包，发布说明不得承诺账号“零痕迹”。
+隔离 QA 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID 许可，Player.log 记录 `[Steamworks.NET] SteamAPI_Init() failed`；这没有阻止上述隔离玩法测试，但也不能作为 Steam 已完全离线或账号不会留痕的证据。玩家模式不注入 AppID，也不阻断平台行为。已知 QA 补丁只覆盖 Steam 成就、IGP 成就、结算飞书自动上传及 `RestartAppIfNecessary` 四个入口；正式验收应使用专用 QA 账号、离线环境或无平台测试包。
 
-运行时恢复语义也属于发布兼容性：激活进程内的 BepInEx Manager GameObject 由 `DontDestroyOnLoad` 和 `HideAndDontSave` 保护，跨场景存活但不永久修改 BepInEx 配置。任何污染/故障会设置 `NeedsProcessRestart=true`；Manager 必须显示“必须彻底重启”、禁用 Start 并拒绝向旧进程发送新的 `start`。正常 Running 只启用 Pause/Stop，Paused 只启用 Resume/Stop，未握手或需要重启时运行命令全部禁用。
+运行时恢复语义也属于发布兼容性：玩家模式必须能连接手动启动的受信游戏，且待命时不重定向玩家存档或平台行为；隔离 QA 仍保持跨场景激活保护。真正的自动化故障会设置 `NeedsProcessRestart=true`，Manager 必须显示“必须彻底重启”、禁用 Start 并拒绝向旧进程发送新的 `start`。作弊写尝试只设置 `CheatUsed` 和 `cheat-modified`，关闭作弊模式后仍可开始自动游玩。
 
 默认防线的干净初始化暂态会重试且不累计连续失败；任何深层包装中的 `statePolluted=true`、`needsReset=true`，以及已提交动力站点后发生的后续失败，都必须被识别为不安全并要求新进程。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
 
-## 0.3.0 作弊模式验收
+## 0.5.0 玩家常驻与作弊模式验收
 
-可信 Manager 会话在安全握手后即可打开独立作弊工具并手动启用，不再要求启动前选择单独会话。发布验收应逐项覆盖：官方简体中文名与图标、获取带多种独立等级附魔的指定战车、获取消耗品、获取两类弹射点、基地无敌、结束当前波次、清除当前敌人、修改指定车辆属性、修改指定敌人属性、显示敌人 ID、获得遗物，以及手填坐标或用左 Alt 加鼠标左键固定位置后生成允许的怪物。
+玩家常驻验收必须覆盖：安装后手动启动游戏也能连接；Manager 最小化后保持后台且不因作弊窗口操作抢到前台；玩家模式四个 QA 隔离标志均为 false；PID、路径、程序集指纹、协议和 token 任一不符都会拒绝。作弊工具逐项覆盖中文名、枚举名和图标搜索；获取/删除战车、遗物、背包及场上弹射点；已有战车附魔图标与编辑；战斗操作；以及多点怪物生成。
 
-仅携带作弊能力且尚未启用时必须允许自动游玩 `start`；实际启用作弊模式时必须拒绝 `start`。任何写操作尝试都要把运行完整性标记为不可信并要求重启，即使操作失败或响应结果不确定。场景切换必须关闭基地无敌、敌人 ID 显示与位置捕获；Manager 断连或心跳超时必须关闭整个作弊模式及瞬态功能。结束波次应拒绝模板锁定、无活动波次和 Boss 波；刷怪目录应拒绝 Boss、特殊波单位、地图外坐标以及没有有效配置预制体的 ID。
+仅携带作弊能力且尚未启用时必须允许 `start`；实际启用作弊模式时必须拒绝，关闭后恢复允许。写操作尝试要持久标记 `cheat-modified`，但不单独要求重启。场景切换必须关闭基地无敌、敌人 ID、位置捕获、生成点列表与地图跳关；Manager 断连或心跳超时必须关闭作弊模式及瞬态功能。背包弹射点删除必须从 `ownedCatapultPoints` 选择真实 `catapultPointId`，不得仅按枚举删任意同类 Buff 行。怪物生成默认等级必须与 `WaveProgressController.CurrentAILevel` 一致，多点按每点数量分散，且每个对象通过阵营、碰撞、战斗和受击验证。
 
 ## 本地打包
 
@@ -68,25 +68,25 @@ Manager 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID �
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.3.0
+.\scripts\package.ps1 -Version 0.5.0
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.3.0 -SkipBuild
+.\scripts\package.ps1 -Version 0.5.0 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.3.0-win-x64.zip
-  Loopstructor.AutoPlayer-0.3.0-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.0-win-x64.zip
+  Loopstructor.AutoPlayer-0.5.0-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.3.0-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.0-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -94,9 +94,9 @@ Loopstructor 2.AutoPlayer/
   manager/
     Loopstructor.AutoPlayer.Manager.exe 内部 Manager 入口
     Loopstructor.AutoPlayer.Updater.exe 内部 Updater 入口
-    System.Windows.Forms.dll            Manager/Updater 共用运行时文件
-  updater/
-    Loopstructor.AutoPlayer.Updater.dll 旧版包结构兼容标记
+    PresentationFramework.dll           Manager/Updater 共用 WPF 运行时文件
+    PresentationCore.dll
+    WindowsBase.dll
   payload/
     bepinex/
     plugin/
@@ -105,7 +105,7 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装系统 .NET；根启动器为自包含单文件，内部 Manager 与 Updater 都位于 `manager\`，并只携带唯一一套 .NET/WinForms 运行时。`updater\` 只保留供旧版包结构校验使用的小型程序集，不重复携带运行时。更新应用前，Updater 会把自身和共享运行时一起复制到临时目录，因此仍能安全替换整个程序目录。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装系统 .NET；根启动器为自包含单文件，内部 Manager 与 Updater 都位于 `manager\`，并只携带唯一一套 .NET/WPF 运行时。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和共享运行时一起复制到临时目录，因此仍能安全替换整个程序目录。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
@@ -116,9 +116,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.3.0",
+  "version": "0.5.0",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.3.0-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.5.0-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -139,7 +139,7 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 
 验证完成后在 staging 目录解压，退出管理器，再由独立 Updater 替换工具目录。任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
 
-清单协议从 schema 1 升级为 schema 2，归档也从扁平结构改为固定包装目录。因此 `v0.1.2` 不能自动升级到 `v0.1.3`，必须手动下载 `Loopstructor.AutoPlayer-0.1.3-win-x64.zip` 并解压；完成这次迁移后，后续新版可以按 schema 2 和同一归档结构自动更新。
+当前 Updater 只处理 schema 2 和当前固定包装目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，包含旧 `updater/` 兼容目录的发布包会被拒绝；旧目录版本需要手动安装当前发布包。
 
 `v0.1.3` 的无 token 更新检查仍调用匿名 REST API。如果它正报告 `403 (rate limit exceeded)`，可等待配额恢复、仅在当前 Manager 进程环境中临时提供只读 token，或手动下载并安装 `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 一次。安装 `v0.1.4` 后，公开仓库的无 token 更新改用网页端 `releases/latest` 和精确 tag 的 Release 资产地址。
 
@@ -183,8 +183,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -194,21 +194,22 @@ git push origin v0.3.0
 ## 发布检查表
 
 - Core、Plugin、Manager、Updater 和 Tests 全部在 solution 中且 Release 构建成功；
-- 测试覆盖一次性票据、token 拒绝、路径越界拒绝、程序集哈希不符和更新哈希失败；
+- 测试覆盖玩家本机注册、一次性 QA 票据、token 拒绝、路径越界拒绝、程序集哈希不符和更新哈希失败；
 - 使用新的空 QA profile 分别完成普通模式和随机模式跨波验证；记录 2 波启动、1 波完成、奖励和波后选路，或记录当前版本的新等价证据；
 - 验证所有前端写操作只在全局模块和当前场景 Main 稳定就绪后发出；检查随机模式日志并记录转盘离场后的非致命动画异常是否仍存在；
 - 确认真实存档目录文件哈希和时间未变化，且 QA profile 独立产生存档；
 - 确认四个强制平台写入补丁全部应用；使用 QA 账号或离线环境，不得把“无已知成就写入”等同于账号零痕迹；
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
-- 验证仅携带作弊能力时允许自动游玩、启用作弊时拒绝自动游玩；手动启用、中文与图标目录、多附魔、两类弹射点、输入采样阶段的位置捕获、其余作弊功能、写命令前置污染标记、跨进程污染继承、场景切换复位和 Manager 租约失效关闭均符合预期；
-- 验证结束波次拒绝无活动波次、模板锁定和 Boss 波，指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID；
+- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；Manager 与作弊工具可独立最小化且不会互相抢前台；验证仅携带作弊能力时允许自动游玩、启用作弊时拒绝、关闭后恢复；中文/枚举/图标搜索、多附魔、对象图标、已有附魔图标、战车/遗物/背包及场上弹射点删除、多点生成列表、游戏内点位标记、当前 AI 等级链、写命令前置作弊标记、场景复位和 Manager 租约失效关闭均符合预期；
+- 验证地图跳关允许当前地图界面已加载阶段中的已通过、当前和未来节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
+- 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
-- 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套运行时、`updater\` 不重复携带运行时、marker 和逐文件 checksums；不得在 ZIP 预览中运行；
+- 完整解压唯一 Release ZIP，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的资产名、大小和 SHA-256 均指向同一个 Release ZIP，并验证新版 Updater 能安全移除固定包装目录后完成更新；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
 - 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
-- 发布后续版本时，用支持 schema 2 的前一版本执行一次完整自更新与失败回滚测试；`v0.1.2` 到 `v0.1.3` 只验证手动迁移；
+- 发布后续版本时，用采用当前目录结构的前一版本执行一次完整自更新与失败回滚测试；旧 `updater\` 目录结构不在兼容范围内；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；
 - GitHub 发布与更新坐标保持为 `yingyu4451/gui2`；若仓库私有，确认测试机通过安全环境提供只读 token，且发布包、日志和 Git 历史均不含 token。

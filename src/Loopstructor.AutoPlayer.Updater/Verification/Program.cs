@@ -26,7 +26,9 @@ try
 {
     VerifySemanticVersions();
     VerifyDefaultUpdateConfiguration(verificationRoot);
-    VerifyLegacyManagerEntryPoint(verificationRoot);
+    VerifyLegacyManagerEntryPointRejected(verificationRoot);
+    VerifyMissingEntryPointsRejected(verificationRoot);
+    VerifyRetiredUpdaterDirectoryRejected(verificationRoot);
     VerifyManagerRestartEntryPoint(verificationRoot);
     VerifyManagerEntryPointTraversalRejected(verificationRoot);
     VerifyZipExtraction(verificationRoot);
@@ -101,6 +103,23 @@ static void VerifyDefaultUpdateConfiguration(string root)
         Require(configuration.Source.GitHubOwner == "yingyu4451", "default GitHub owner");
         Require(configuration.Source.GitHubRepository == "gui2", "default GitHub repository");
         Require(configuration.GitHubToken.Length == 0, "default update configuration does not invent a token");
+
+        string retiredLayoutRoot = Path.Combine(root, "retired-config-layout");
+        string retiredUpdaterDirectory = Path.Combine(retiredLayoutRoot, "updater");
+        Directory.CreateDirectory(retiredUpdaterDirectory);
+        File.WriteAllText(
+            Path.Combine(retiredLayoutRoot, "autoplayer-update.json"),
+            "{\"GitHubOwner\":\"retired-owner\",\"GitHubRepository\":\"retired-repository\"}");
+        LoadedUpdateConfiguration retiredLayoutConfiguration = new UpdateConfigurationLoader().Load(
+            options,
+            retiredUpdaterDirectory);
+        Require(
+            retiredLayoutConfiguration.ConfigurationPath.Length == 0,
+            "retired updater directory does not inherit parent configuration");
+        Require(
+            retiredLayoutConfiguration.Source.GitHubOwner == "yingyu4451"
+            && retiredLayoutConfiguration.Source.GitHubRepository == "gui2",
+            "retired updater directory uses current built-in source defaults");
     }
     finally
     {
@@ -254,14 +273,53 @@ static void VerifyWrappedReleaseTransaction(string root)
         "wrapped release update does not create a nested installation root");
 }
 
-static void VerifyLegacyManagerEntryPoint(string root)
+static void VerifyLegacyManagerEntryPointRejected(string root)
 {
     string legacy = Path.Combine(root, "legacy-release");
     CreateRelease(legacy, "0.0.9", "manager/Loopstructor.AutoPlayer.Manager.exe");
-    ReleaseMarker marker = new ReleasePackageValidator().Validate(legacy, "0.0.9");
-    Require(
-        marker.ManagerPath == "manager/Loopstructor.AutoPlayer.Manager.exe",
-        "legacy nested Manager entry point remains valid");
+    ExpectInvalidData(
+        () => new ReleasePackageValidator().Validate(legacy, "0.0.9"),
+        "legacy nested Manager entry point rejection");
+    ExpectInvalidData(
+        () => ManagerRestarter.CreateStartInfo(legacy),
+        "legacy nested Manager restart rejection");
+}
+
+static void VerifyMissingEntryPointsRejected(string root)
+{
+    string release = Path.Combine(root, "missing-entry-points-release");
+    CreateRelease(release, "0.1.0");
+    string markerPath = Path.Combine(release, "autoplayer-release.json");
+    using JsonDocument markerDocument = JsonDocument.Parse(File.ReadAllText(markerPath));
+    Dictionary<string, object?> marker = markerDocument.RootElement
+        .EnumerateObject()
+        .Where(property => property.Name is not nameof(ReleaseMarker.ManagerPath) and not nameof(ReleaseMarker.UpdaterPath))
+        .ToDictionary(
+            property => property.Name,
+            property => JsonSerializer.Deserialize<object?>(property.Value.GetRawText()),
+            StringComparer.OrdinalIgnoreCase);
+    File.WriteAllText(markerPath, JsonSerializer.Serialize(marker));
+    WriteChecksums(release);
+
+    ExpectInvalidData(
+        () => new ReleasePackageValidator().Validate(release, "0.1.0"),
+        "missing release entry points rejection");
+}
+
+static void VerifyRetiredUpdaterDirectoryRejected(string root)
+{
+    string release = Path.Combine(root, "retired-updater-directory-release");
+    CreateRelease(release, "0.1.0");
+    string retiredUpdaterDirectory = Path.Combine(release, "updater");
+    Directory.CreateDirectory(retiredUpdaterDirectory);
+    File.WriteAllText(
+        Path.Combine(retiredUpdaterDirectory, "Loopstructor.AutoPlayer.Updater.exe"),
+        "retired-layout");
+    WriteChecksums(release);
+
+    ExpectInvalidData(
+        () => new ReleasePackageValidator().Validate(release, "0.1.0"),
+        "retired updater directory rejection");
 }
 
 static void VerifyManagerRestartEntryPoint(string root)
@@ -323,7 +381,7 @@ static void VerifyInterruptedRecovery(string root)
         TargetRoot = target,
         BackupRoot = backup,
         StagingRoot = staging,
-        Version = "0.4.0",
+        Version = "0.5.0",
         Phase = "backup-created",
         UpdatedAtUtc = DateTime.UtcNow
     };
@@ -427,13 +485,12 @@ static void CreateRelease(
     string managerPath = "Loopstructor.AutoPlayer.Manager.exe")
 {
     Directory.CreateDirectory(Path.Combine(root, "manager"));
-    Directory.CreateDirectory(Path.Combine(root, "updater"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "plugin"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex", "BepInEx", "core"));
     File.WriteAllText(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"), "root-launcher-" + version);
     File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Manager.exe"), version);
-    File.WriteAllText(Path.Combine(root, "updater", "Loopstructor.AutoPlayer.Updater.exe"), version);
+    File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Updater.exe"), version);
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "winhttp.dll"), "x64-loader");
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "doorstop_config.ini"), "enabled=true");
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "BepInEx", "core", "BepInEx.dll"), "5.4.23.5");
@@ -447,7 +504,7 @@ static void CreateRelease(
             Version = version,
             BepInExVersion = "5.4.23.5",
             ManagerPath = managerPath,
-            UpdaterPath = "updater/Loopstructor.AutoPlayer.Updater.exe",
+            UpdaterPath = "manager/Loopstructor.AutoPlayer.Updater.exe",
             BepInExPayloadPath = "payload/bepinex",
             PluginPayloadPath = "payload/plugin"
         }));

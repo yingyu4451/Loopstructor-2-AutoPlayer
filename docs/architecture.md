@@ -2,21 +2,21 @@
 
 ## 设计目标
 
-AutoPlayer 把“测试编排”和“游戏内执行”分开：Windows 管理器掌握安装、启动、profile、更新和报告；BepInEx 插件只在一次性授权的游戏进程中运行；决策引擎只根据结构化状态选择下一步动作。普通游戏启动不应获得自动化权限，也不应改变 BepInEx 创建的共享 Manager GameObject。
+AutoPlayer 把“控制编排”和“游戏内执行”分开：Windows Manager 掌握安装、进程连接、更新和报告；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权；决策引擎只根据结构化状态选择下一步动作。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。
 
 工具不携带游戏 DLL，也不修改 `Assembly-CSharp.dll`。插件通过反射发现打包游戏中已有的 `GuiGameAutomation.Runtime` 类型，因此游戏更新后可以先完成指纹和契约检查，再决定是否运行。
 
 ```mermaid
 flowchart LR
     M["Manager (.NET 8 Windows)"] -->|"安装经 SHA-256 校验的载荷"| G["游戏目录"]
-    M -->|"一次性 ActivationContext"| P["BepInEx 5 Plugin"]
-    M <-->|"动态 Named Pipe + Token"| P
+    M -->|"玩家本机注册或一次性 QA ActivationContext"| P["BepInEx 5 Plugin"]
+    M <-->|"本机 Named Pipe + Token"| P
     P --> C["Core 决策引擎"]
     P -->|"反射调用 JSON 契约"| R["GuiGameAutomation.Runtime"]
     R --> S["Loopstructor 2 游戏状态与正常流程"]
     P -->|"手动作弊开关 + Unity 主线程队列"| H["CheatController / CheatRuntimeBridge"]
     H --> S
-    P --> Q["隔离 QA Profile / Artifacts"]
+    P --> Q["玩家原存档或隔离 QA Profile / Artifacts"]
     U["Updater"] -->|"校验 Release 清单与 SHA-256"| M
 ```
 
@@ -25,7 +25,7 @@ flowchart LR
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
-| `Loopstructor.AutoPlayer.Manager` | .NET 8 Windows 自包含，共享运行时 | 选择游戏、安装载荷、创建 QA profile、生成会话凭据、启动游戏、显示状态和发起更新；`manager\` 同时携带 Manager 与 Updater 共用的运行时 |
+| `Loopstructor.AutoPlayer.Manager` | .NET 8 Windows 自包含，共享运行时 | 选择游戏、安装载荷、维护玩家模式本机注册、连接或启动游戏、显示状态和发起更新；`manager\` 同时携带 Manager 与 Updater 共用的运行时 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows，共享 Manager 运行时 | 在管理器退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
@@ -33,18 +33,16 @@ flowchart LR
 
 ## 启动与激活
 
-1. 管理器定位游戏 EXE，并读取 `<Game>_Data\Managed\Assembly-CSharp.dll` 的 SHA-256。
-2. 管理器在 `%LOCALAPPDATA%\LoopstructorAutoPlayer` 下创建本次 QA profile 与 artifact 目录。自动游玩和作弊工具都使用当前选择的 `profiles\<game-id>\<profile-name>` 隔离档。
-3. 每次启动生成唯一 pipe 名称和新的高熵 token。token 长度必须在 32 到 256 字符之间。
-4. 管理器通过子进程环境变量传递激活参数；无法可靠传递环境时，可写入绑定游戏根目录的单次启动票据。可信 Manager 会话同时携带作弊能力，实际启用仍必须由用户在握手后操作。Manager 同时仅为这个子进程设置 Steam AppID `3841840`，避免 Steam `RestartAppIfNecessary` 改为启动库中另一份安装。
-5. BepInEx 加载插件后，`ActivationContext` 验证协议、有效期、游戏根目录、pipe、token、允许的数据根目录和预期程序集哈希。验证失败或不存在激活上下文时立即返回，不保护共享 Manager GameObject，也不安装自动化补丁或开放 IPC。
-6. 票据无论成功与否都在读取后删除；票据不得过期，也不得拥有超过 10 分钟的剩余有效期。
-7. 只有激活验证成功后，插件才对 BepInEx Manager GameObject 调用 `DontDestroyOnLoad` 并设置 `HideAndDontSave`，让本次激活适配器隐藏且跨场景存活；该状态只属于当前 QA 进程。
-8. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。
-9. 插件先安装 QA 存档路径补丁，再通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径确实位于本次 profile。只有 `SaveIsolationApplied` 与 `SaveIsolationVerified` 同时为 true 才算通过。
-10. 插件安装四个必需的平台写入/重启补丁和游戏诊断产物重定向。四项平台补丁缺少任意一项都会使 `PlatformWritesBlocked = false`；产物重定向失败则 `GameArtifactsRedirected = false`。
-11. 插件在 `hello` 中回传自身真实 PID、指纹、运行时契约和隔离状态；Manager 只在该 PID 仍存活且可执行文件路径等于所选测试包时接受握手，并用它替换最初的启动 PID。
-12. Manager 同时要求 `SaveIsolationApplied`、`SaveIsolationVerified`、`PlatformWritesBlocked` 和 `GameArtifactsRedirected` 全部为 true。所有检查通过后才接受 `start`；否则保持 Standby/Incompatible/Faulted，不执行游戏动作。
+1. Manager 定位游戏 EXE，并读取 `<Game>_Data\Managed\Assembly-CSharp.dll` 的 SHA-256。
+2. 安装或验证插件后，Manager 为该游戏根目录写入当前 Windows 用户专用的 `control\installed-<root-id>.json`。其中的稳定 pipe、随机高熵 token、根目录哈希、程序集指纹和工具拥有的数据目录构成玩家模式本机注册。
+3. 玩家可以手动启动游戏，也可以由 Manager 启动。游戏已运行时 Manager 只连接现有进程；插件读取本机注册后进入 `ResidentPlayer` 待命，不会自动开始操作。
+4. 隔离 QA 模式使用另一条路径：每次启动生成新 pipe 和 token，通过子进程环境变量或最长 10 分钟的单次票据传递 QA profile、artifact 与预期程序集哈希；票据读取后立即删除。
+5. BepInEx 加载插件后，`ActivationContext` 验证协议、游戏根目录、pipe、token、工具拥有的数据目录和预期程序集哈希。玩家注册还必须匹配固定文件位置与根目录哈希；单次票据还必须验证有效期。
+6. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。失败时不安装操作补丁，也不接受控制。
+7. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Manager 拒绝握手。玩家原存档和平台行为保持游戏默认语义。
+8. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
+9. 插件在 `hello` 中回传自身真实 PID、激活模式、指纹、运行时契约和隔离状态。Manager 只在该 PID 仍存活、可执行文件路径等于所选游戏且模式门禁相符时接受握手。
+10. 连接成功后插件保持 Standby；只有用户发送 `start` 才开始自动决策。作弊能力随可信会话提供，但仍必须在独立作弊窗口中显式开启。
 
 支持的环境变量由共享协议定义：
 
@@ -58,13 +56,13 @@ LOOPSTRUCTOR_AUTOPLAYER_ASSEMBLY_SHA256=<64-lowercase-hex>
 LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED=1  # 可信 Manager 会话固定提供能力，仍需手动开启
 ```
 
-这些变量是管理器与子进程之间的实现协议，不是建议用户手工配置的永久设置。profile 必须位于 `DataRoot\profiles` 的子目录，artifact 必须位于 `DataRoot\artifacts` 的子目录。
+这些变量只属于隔离 QA 启动协议，不是建议用户手工配置的永久设置。profile 必须位于 `DataRoot\profiles` 的子目录，artifact 必须位于 `DataRoot\artifacts` 的子目录。玩家模式不注入这些变量，而是读取当前用户的本机注册。
 
 `SteamAppId=3841840` 与 `SteamGameId=3841840` 也是进程级启动参数，但不属于自动化认证协议。它们只用于固定所选 QA 构建的 Steam 开发启动语义，不会写入游戏目录或永久环境。
 
 ## IPC 协议
 
-IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象。pipe 名称和 token 每次启动变化；服务只允许一个连接。每个请求都应携带请求 ID 和本次会话 token：
+IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象，服务只允许一个连接。玩家模式的 pipe 与 token 对同一已安装游戏保持稳定，使手动启动也能被发现；隔离 QA 模式每次启动重新生成。每个请求都应携带请求 ID 和对应 token：
 
 ```json
 {"id":"request-1","token":"<session-token>","command":"status"}
@@ -90,21 +88,32 @@ IPC 使用本机 Named Pipe，每行一个 UTF-8 JSON 对象。pipe 名称和 to
 | `cheat.setEnabled` | 在已授权会话中手动开启或关闭作弊模式 |
 | `cheat.queryCatalog` / `cheat.queryState` | 查询带简体中文名和图标引用的战车、附魔、消耗品、弹射点、遗物、普通敌人及作弊状态 |
 | `cheat.grantVehicle` | 获取战车，并可传入多组附魔和各自等级 |
+| `cheat.removeVehicle` | 按稳定运行时战车 ID 删除指定已有战车 |
 | `cheat.grantDisposable` | 获取指定消耗品 |
 | `cheat.grantCatapultPoint` | 获取普通弹射点或能量弹射点，并同步点位 UI 数据 |
+| `cheat.removeCatapultPoint` | 删除背包中的指定弹射点 |
+| `cheat.removeFieldCatapultPoint` / `cheat.clearFieldCatapultPoints` | 单删或清空场上弹射点，并通过游戏正式销毁链清理关联状态 |
 | `cheat.setBaseGodMode` | 开启或关闭基地无敌 |
 | `cheat.endWave` | 结束当前允许结束的普通波次 |
 | `cheat.clearEnemies` | 清除当前已生成的敌人，不清空后续生成计划 |
-| `cheat.queryVehicles` / `cheat.modifyVehicle` | 查询运行时车辆 ID 并修改指定车辆属性 |
-| `cheat.queryEnemies` / `cheat.modifyEnemy` | 查询运行时敌人 ID 并修改指定敌人属性 |
+| `cheat.queryVehicles` / `cheat.modifyVehicle` | 查询运行时车辆 ID 与现有附魔，并用中文属性名选择、内部属性 ID 写入指定车辆属性 |
+| `cheat.setVehicleEnchantment` | 设置已有战车的一项附魔等级；等级为 `0` 时移除该附魔，同时保留其他附魔 |
+| `cheat.queryEnemies` / `cheat.modifyEnemy` | 查询运行时敌人 ID，并用中文属性名选择、内部属性 ID 写入指定敌人属性 |
 | `cheat.setEnemyIdOverlay` | 在游戏画面中显示或隐藏敌人 ID |
 | `cheat.grantRelic` | 获得指定遗物 |
-| `cheat.setSpawnPointCapture` | 开启或取消左 Alt 加鼠标左键的位置捕获 |
-| `cheat.spawnEnemy` | 在指定坐标生成允许列表中的普通敌人 |
+| `cheat.removeRelic` | 删除指定枚举的已有遗物并撤销其正式运行时效果 |
+| `cheat.setSpawnPointCapture` | 开启或取消左 Alt 加鼠标左键的位置捕获；每次捕获向点位列表追加一个点 |
+| `cheat.removeSpawnPoint` / `cheat.clearSpawnPoints` | 单删或清空当前场景保存的怪物生成点 |
+| `cheat.spawnEnemy` | 在一个或多个坐标周围分散生成普通敌人；默认使用当前波次 AI 等级 |
+| `cheat.setMapSkipEnabled` | 开启或关闭当前地图界面中全部节点的自由跳转 |
 
-可信会话仅携带作弊能力时仍可执行 `start`；实际开启作弊模式后才与自动游玩互斥。在已启用的作弊模式中，每个写命令进入游戏 API 前都必须先在当前 QA profile 创建持久污染标记；无法确认标记已落盘时命令失效即关闭。第一次写尝试会设置 `CheatUsed`、把运行完整性标记为不可信并要求彻底重启；同一 profile 在后续进程中也会继承污染状态并拒绝普通自动游玩，重启不能恢复“干净”状态。请求 ID 用于同一写请求的幂等重取：重复 ID 但参数不同会被拒绝，已在主线程开始的请求会返回其实际完成结果。
+可信会话仅携带作弊能力时仍可执行 `start`；实际开启作弊模式后才与自动游玩互斥。在已启用的作弊模式中，每个写命令进入游戏 API 前都必须先在当前自动游玩配置创建持久作弊标记；无法确认标记已落盘时命令失效即关闭。写尝试会设置 `CheatUsed` 并把后续运行完整性标记为 `cheat-modified`，但关闭作弊模式后可以在同一进程继续自动游玩；只有真正的自动化故障或不确定部分写入才设置 `NeedsProcessRestart`。请求 ID 用于同一写请求的幂等重取：重复 ID 但参数不同会被拒绝，已在主线程开始的请求会返回其实际完成结果。
 
-Manager 持续向插件提供控制租约。场景切换会重置基地无敌、敌人 ID 覆盖层和待捕获位置；Manager 断连或心跳超时会进一步关闭作弊模式和全部瞬态功能。位置捕获通过 Harmony 接入 `DefaultInputHandler.Update` 的本帧输入快照完成点，在游戏 UI、物体和玩法交互读取该次输入前检查左 Alt、鼠标左键、UI 命中及地图边界；捕获成功后调用游戏自身的 `UseInputOnly()` 消费点击。补丁未安装时定位功能拒绝开启，不回退到未排序的 BepInEx `Update`。结束波次只允许用于活动的非 Boss 普通波次；刷怪目录只包含当前游戏配置中具有有效预制体的非 Boss 普通敌人。
+Manager 持续向插件提供控制租约。场景切换会重置基地无敌、敌人 ID 覆盖层、待捕获位置、已保存生成点和地图跳关；Manager 断连或心跳超时会进一步关闭作弊模式和全部瞬态功能。位置捕获通过 Harmony 接入 `DefaultInputHandler.Update` 的本帧输入快照完成点，在游戏 UI、物体和玩法交互读取该次输入前检查左 Alt、鼠标左键、UI 命中及地图边界；捕获成功后调用游戏自身的 `UseInputOnly()` 消费点击，并把带稳定 `pointId` 的位置追加到运行时列表。`OnGUI` 为列表中的每个点绘制编号十字与坐标。补丁未安装时定位功能拒绝开启，不回退到未排序的 BepInEx `Update`。
+
+Manager 的作弊选择器在获得焦点后保持结果列表打开，目录项同时携带中文名、枚举名、稳定 ID 和图标，可按任一文本字段搜索；协议仍只发送确认选择后的稳定 ID。属性显示名优先从游戏的简体中文属性配置解析，配置缺项时使用与 `BattleMemoryEnum` 逐项精确对应的中文表兜底。已有战车附魔编辑先读取完整附魔列表，再通过游戏车辆管理器重建附魔并刷新车辆状态；等级 `0` 表示移除目标项，不清除其他附魔。
+
+地图跳关补丁会显示当前地图界面已加载阶段中的全部节点，包括已通过、当前和未来节点。它在没有活动波次、没有运行节点、没有待选子关卡且游戏未结束时，按游戏原有流程加载目标的最小前置路径、重新取得目标节点、调用节点点击并请求保存；陈旧阶段请求、跨阶段和失效节点都会拒绝。跳转前会保存原阶段和路径，后续校验或调用失败时执行补偿恢复，恢复失败则自动关闭地图跳关。批量刷怪先读取 `WaveProgressController.CurrentAILevel`，与正式 `WaveNest` 一样把该内部等级传给 `AgentCreator.CreateAgent`，因此继续经过 `AITable.InitTable`、`BasicAIDataSO.GetBasicParameters`、全局难度及无尽倍率；只有显式自定义时才用 UI 等级减一覆盖。每个生成点在 `spawnRadius` 内产生带最小间距的坐标，再逐个确认对象已进入敌方阵营、具备启用的敌方碰撞层、战斗系统和可受击状态；验证失败的对象会通过游戏回收接口清理。
 
 ## 游戏运行时契约
 
@@ -116,7 +125,7 @@ Manager 持续向插件提供控制租约。场景切换会重置基地无敌、
 
 所有方法使用 JSON 字符串作为输入和结构化 JSON 作为输出。任何必需类型或方法缺失都会记录在握手状态中，整套自动化视为不兼容；不能只运行“碰巧还能找到”的部分命令。自动玩家不移动系统鼠标，也不发送系统键盘事件，因而不会抢占人工操作所依赖的全局输入；真实输入链路需要由独立黑盒测试覆盖。
 
-`CheatRuntimeBridge` 同样不静态引用游戏程序集，而是按当前受支持构建的实际类型与方法签名反射调用车辆、物品、波次、敌人和属性系统。目录查询在 Unity 主线程读取官方配置，用显式 `zh` Locale 解析名称，并将不可读图集中的 Sprite 裁剪为按内容哈希命名的 PNG 写入本次 artifact；IPC 只传相对路径和 SHA-256。写命令先验证授权、隔离门禁、作弊开关、对象运行时 ID 和参数范围。运行时类型、方法、配置预制体或对象身份不符合预期时拒绝动作，不尝试猜测新版 API。
+`CheatRuntimeBridge` 同样不静态引用游戏程序集，而是按当前受支持构建的实际类型与方法签名反射调用车辆、物品、波次、敌人和属性系统。目录查询在 Unity 主线程读取官方配置，用显式 `zh` Locale 解析名称，并将不可读图集中的 Sprite 裁剪为按内容哈希命名的 PNG 写入本次 artifact；IPC 只传相对路径和 SHA-256。写命令先验证授权、与激活模式一致的安全门禁、作弊开关、对象运行时 ID 和参数范围：玩家模式要求 QA 隔离补丁全部未启用，隔离 QA 模式要求它们全部通过。运行时类型、方法、配置预制体或对象身份不符合预期时拒绝动作。
 
 ## 决策循环
 
@@ -124,7 +133,7 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 
 前端查询保持只读；任何前端写操作都要等 `Global.gm.isLoading == false`、当前 `sceneGm.isLoading == false`，并在下一轮轮询再次确认后才发出。这样不会在场景名已经切换、但模块与 UI 仍在初始化时模拟玩家点击。
 
-新局通过普通或随机模式提交后才进入默认防线准备。若 `NewGameScene` 仍处于路线图，路线和子关卡选择优先于防线宏。无回路、无车列或没有已放置玩家车辆等干净的暂态失败可以继续轮询，不计入连续命令失败；`continueGame` 会关闭本次默认防线准备，保留隔离存档已有的轨道、车列和站点布局。
+新局通过普通或随机模式提交后才进入默认防线准备。若 `NewGameScene` 仍处于路线图，路线和子关卡选择优先于防线宏。无回路、无车列或没有已放置玩家车辆等干净的暂态失败可以继续轮询，不计入连续命令失败；`continueGame` 会关闭本次默认防线准备，保留当前模式所用存档中的既有轨道、车列和站点布局。
 
 默认防线命令可能返回嵌套的子命令结果。结果检查器会递归查找任意深度的 `statePolluted = true` 或 `needsReset = true`，并识别“动力站点已经提交、后续步骤却失败”的错误包装；发现后立即升级为 Unsafe/Faulted，并要求新游戏进程，不能在同一进程重试宏来掩盖污染。
 
@@ -143,15 +152,15 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 
 ```text
 %LOCALAPPDATA%\LoopstructorAutoPlayer\
-  profiles\<qa-profile-id>\       独立测试存档
-  profiles\<game-id>\<profile-name>\       自动游玩与作弊共用的隔离 QA 存档
-  artifacts\<run-id>\             状态、时间线、日志、失败截图
-  tickets\launch-<root-id>.json    单次启动票据，消费后删除
+  control\installed-<root-id>.json            玩家模式本机注册
+  profiles\<game-id>\<profile-name>\          QA 存档或玩家模式作弊标记状态
+  artifacts\<game-id>\<run-id-or-player>\     状态、时间线、日志、失败截图
+  tickets\launch-<root-id>.json                隔离 QA 单次启动票据，消费后删除
 ```
 
-存档重定向通过 Harmony 在当前进程内拦截 `ActFramework_ByHZR.Save.SavePathUtility.GetCompanyAppDataPath` 及其内部实现。补丁安装只是第一阶段；第二阶段必须反射调用 `SaveManager.GetSaveFolderPath`，并对规范化后的实际路径做 profile 包含检查。握手成功前不发送任何游戏命令，验证失败或超时直接进入 Faulted。
+玩家模式的 `control` 注册不改变游戏存档位置，只给同一 Windows 用户的 Manager 提供本机发现与认证。隔离 QA 模式的存档重定向通过 Harmony 在当前进程内拦截 `ActFramework_ByHZR.Save.SavePathUtility.GetCompanyAppDataPath` 及其内部实现；补丁安装后还必须反射调用 `SaveManager.GetSaveFolderPath`，并对规范化后的实际路径做 profile 包含检查。两种模式都在握手成功前拒绝游戏命令。
 
-平台隔离目前精确覆盖四个入口：
+隔离 QA 模式的平台隔离目前精确覆盖四个入口：
 
 ```text
 ActFramework_ByHZR.Achievements.Unit.SteamAchievementController.UnlockAchievement
@@ -171,7 +180,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.3.0-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.0-win-x64.zip` 同时用于手动下载和新版自动更新。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -179,9 +188,9 @@ Loopstructor 2.AutoPlayer/
   manager/
     Loopstructor.AutoPlayer.Manager.exe  管理器入口
     Loopstructor.AutoPlayer.Updater.exe  更新器入口
-    System.Windows.Forms.dll       两个入口共用的自包含运行时文件
-  updater/
-    Loopstructor.AutoPlayer.Updater.dll  旧版包结构兼容标记
+    PresentationFramework.dll      两个入口共用的 WPF 运行时文件
+    PresentationCore.dll
+    WindowsBase.dll
   payload/
     bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
     plugin/                        AutoPlayer Plugin/Core 及运行依赖
@@ -190,10 +199,10 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256                 包内逐文件 SHA-256
 ```
 
-schema 2 更新清单指向同一个 Release ZIP。新版 Updater 验证压缩包只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。由于 schema 和归档结构都已改变，`v0.1.2` 不能自动升级到 `v0.1.3`，用户必须手动下载并解压一次；完成迁移后，后续新版可以使用同一结构自动更新。
+schema 2 更新清单指向同一个 Release ZIP。新版 Updater 验证压缩包只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。更新只接受当前目录结构：Updater 必须位于 `manager/Loopstructor.AutoPlayer.Updater.exe`，发布根不能包含旧 `updater/` 兼容目录。
 
 从 `v0.1.4` 起，公开仓库且未提供 token 时，Updater 通过 GitHub 网页端 `releases/latest` 解析同一仓库的精确 tag，再从该 tag 的 Release 资产地址下载清单和 ZIP；它不调用匿名 REST API，因此不受每个出口 IP 每小时 60 次的匿名 API 配额影响。提供 token（包括私有仓库）时才使用 GitHub REST API 返回的资产 URL；token 只发送给 `api.github.com`，重定向到 Release CDN 后不转发。两种路径都将清单和 ZIP 固定到同一精确 tag，并校验 tag、清单版本、资产名、大小及 SHA-256。
 
 `v0.1.3` 的无 token 更新仍可能因匿名 REST API 配额耗尽而返回 403。遇到该情况时需等待配额恢复、在当前 Manager 进程环境中临时提供只读 token，或手动安装 `v0.1.4` 一次；之后公开仓库的无 token 更新即使用新的网页 Release 路径。
 
-根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。根启动器是自包含单文件，内部 Manager 和 Updater 都位于 `manager\`，并只携带一套共用的 .NET/WinForms 运行时；`updater\` 只保留供旧版包结构校验使用的小型程序集，不重复携带运行时。完整解压后运行根部 EXE 仍无需安装系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。根启动器是自包含单文件，内部 Manager 和 Updater 都位于 `manager\`，并只携带一套共用的 .NET/WPF 运行时；发布根不再包含旧 `updater\` 目录。完整解压后运行根部 EXE 仍无需安装系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。

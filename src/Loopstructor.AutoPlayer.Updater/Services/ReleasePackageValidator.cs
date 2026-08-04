@@ -6,6 +6,9 @@ namespace Loopstructor.AutoPlayer.Updater.Services;
 
 public sealed class ReleasePackageValidator
 {
+    internal const string RequiredManagerEntryPoint = "Loopstructor.AutoPlayer.Manager.exe";
+    internal const string RequiredUpdaterEntryPoint = "manager/Loopstructor.AutoPlayer.Updater.exe";
+
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public ReleaseMarker Validate(string rootPath, string? expectedVersion = null, bool validateTargetSafety = false)
@@ -40,21 +43,21 @@ public sealed class ReleasePackageValidator
         }
 
         RequireDirectory(root, "manager");
-        RequireDirectory(root, "updater");
         RequireDirectory(root, "payload");
+        if (Directory.Exists(Path.Combine(root, "updater")))
+        {
+            throw new InvalidDataException("发布目录不能包含已停用的 updater 兼容目录。");
+        }
         RequireExecutableOrDll(root, "manager", "Loopstructor.AutoPlayer.Manager");
-        RequireExecutableOrDll(root, "updater", "Loopstructor.AutoPlayer.Updater");
-        ResolveEntryPoint(
+        ResolveRequiredEntryPoint(
             root,
             marker.ManagerPath,
-            "manager/Loopstructor.AutoPlayer.Manager.exe",
-            "Loopstructor.AutoPlayer.Manager",
+            RequiredManagerEntryPoint,
             "Manager 入口");
-        ResolveEntryPoint(
+        ResolveRequiredEntryPoint(
             root,
             marker.UpdaterPath,
-            "updater/Loopstructor.AutoPlayer.Updater.exe",
-            "Loopstructor.AutoPlayer.Updater",
+            RequiredUpdaterEntryPoint,
             "Updater 入口");
 
         string bepinexPayload = string.IsNullOrWhiteSpace(marker.BepInExPayloadPath)
@@ -91,23 +94,19 @@ public sealed class ReleasePackageValidator
                ?? throw new InvalidDataException("发布标记为空。");
     }
 
-    internal static string ResolveEntryPoint(
+    internal static string ResolveRequiredEntryPoint(
         string rootPath,
         string configuredPath,
-        string fallbackPath,
-        string expectedStem,
+        string requiredPath,
         string label)
     {
         string root = NormalizeRoot(rootPath);
-        string relative = string.IsNullOrWhiteSpace(configuredPath) ? fallbackPath : configuredPath;
-        string fileName = Path.GetFileName(relative);
-        if (!string.Equals(fileName, expectedStem + ".exe", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(fileName, expectedStem + ".dll", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(configuredPath, requiredPath, StringComparison.Ordinal))
         {
-            throw new InvalidDataException(label + "的文件名不符合预期。");
+            throw new InvalidDataException(label + "必须是 " + requiredPath + "。");
         }
 
-        return RequireSafeRelativeFile(root, relative, label);
+        return RequireSafeRelativeFile(root, requiredPath, label);
     }
 
     private static void ValidateTargetPath(string root)

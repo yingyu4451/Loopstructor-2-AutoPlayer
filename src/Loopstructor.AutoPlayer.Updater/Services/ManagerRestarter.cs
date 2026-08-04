@@ -16,11 +16,10 @@ public sealed class ManagerRestarter
     {
         string root = ReleasePackageValidator.NormalizeRoot(releaseRoot);
         ReleaseMarker marker = ReleasePackageValidator.ReadMarker(root);
-        string managerEntryPoint = ReleasePackageValidator.ResolveEntryPoint(
+        string managerEntryPoint = ReleasePackageValidator.ResolveRequiredEntryPoint(
             root,
             marker.ManagerPath,
-            "manager/Loopstructor.AutoPlayer.Manager.exe",
-            "Loopstructor.AutoPlayer.Manager",
+            ReleasePackageValidator.RequiredManagerEntryPoint,
             "Manager 入口");
         string managerDirectory = Path.GetDirectoryName(managerEntryPoint)
                                   ?? throw new InvalidDataException("Manager 入口没有父目录。");

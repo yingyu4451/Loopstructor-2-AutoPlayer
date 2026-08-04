@@ -14,6 +14,7 @@ internal sealed class ActivationContext
         string artifactRoot,
         string expectedAssemblySha256,
         bool cheatModeAllowed,
+        AutoPlayerActivationMode activationMode,
         string source)
     {
         PipeName = pipeName;
@@ -22,6 +23,7 @@ internal sealed class ActivationContext
         ArtifactRoot = artifactRoot;
         ExpectedAssemblySha256 = expectedAssemblySha256;
         CheatModeAllowed = cheatModeAllowed;
+        ActivationMode = activationMode;
         Source = source;
     }
 
@@ -31,6 +33,8 @@ internal sealed class ActivationContext
     public string ArtifactRoot { get; }
     public string ExpectedAssemblySha256 { get; }
     public bool CheatModeAllowed { get; }
+    public AutoPlayerActivationMode ActivationMode { get; }
+    public bool IsPlayerMode => ActivationMode == AutoPlayerActivationMode.ResidentPlayer;
     public string Source { get; }
     public bool CheatProfileTainted => CheatProfileTaintMarker.IsTainted(ProfileRoot);
 
@@ -54,9 +58,21 @@ internal sealed class ActivationContext
                     Environment.GetEnvironmentVariable(Protocol.CheatModeAllowedEnvironmentVariable),
                     "1",
                     StringComparison.Ordinal),
+                AutoPlayerActivationMode.IsolatedQa,
                 "environment",
                 out context,
                 out reason);
+        }
+
+        bool installedFound;
+        if (TryLoadInstalled(gameRoot, out context, out reason, out installedFound))
+        {
+            return true;
+        }
+
+        if (installedFound)
+        {
+            return false;
         }
 
         string ticketPath = Protocol.GetTicketPath(gameRoot);
@@ -106,6 +122,7 @@ internal sealed class ActivationContext
                 ticket.ArtifactRoot,
                 ticket.ExpectedAssemblySha256,
                 ticket.CheatModeAllowed,
+                AutoPlayerActivationMode.IsolatedQa,
                 "ticket",
                 out context,
                 out reason);
@@ -129,6 +146,7 @@ internal sealed class ActivationContext
         string? artifactRoot,
         string? expectedAssemblySha256,
         bool cheatModeAllowed,
+        AutoPlayerActivationMode activationMode,
         string source,
         out ActivationContext? context,
         out string reason)
@@ -192,9 +210,70 @@ internal sealed class ActivationContext
             fullArtifact,
             expectedHash.ToLowerInvariant(),
             cheatModeAllowed,
+            activationMode,
             source);
         reason = string.Empty;
         return true;
+    }
+
+    private static bool TryLoadInstalled(
+        string gameRoot,
+        out ActivationContext? context,
+        out string reason,
+        out bool found)
+    {
+        context = null;
+        string path = InstalledRegistrationPath(gameRoot);
+        found = File.Exists(path);
+        if (!found)
+        {
+            reason = "未找到已安装插件的玩家模式本机控制注册。";
+            return false;
+        }
+
+        try
+        {
+            InstalledControlRegistration? registration =
+                JsonConvert.DeserializeObject<InstalledControlRegistration>(File.ReadAllText(path));
+            if (registration == null || registration.Protocol != Protocol.CurrentVersion)
+            {
+                reason = "玩家模式本机控制注册的协议无效。";
+                return false;
+            }
+
+            if (!string.Equals(
+                    registration.GameRootSha256,
+                    Protocol.HashGameRoot(gameRoot),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "玩家模式本机控制注册属于另一个游戏安装目录。";
+                return false;
+            }
+
+            return TryCreate(
+                gameRoot,
+                registration.PipeName,
+                registration.Token,
+                registration.ProfileRoot,
+                registration.ArtifactRoot,
+                registration.ExpectedAssemblySha256,
+                registration.CheatModeAllowed,
+                AutoPlayerActivationMode.ResidentPlayer,
+                "玩家模式本机注册",
+                out context,
+                out reason);
+        }
+        catch (Exception exception)
+        {
+            reason = "无法读取玩家模式本机控制注册：" + exception.Message;
+            return false;
+        }
+    }
+
+    private static string InstalledRegistrationPath(string gameRoot)
+    {
+        string id = Protocol.HashGameRoot(gameRoot).Substring(0, 16);
+        return Path.Combine(Protocol.DataRoot, "control", "installed-" + id + ".json");
     }
 
     private static bool IsHex(string value)
@@ -214,5 +293,17 @@ internal sealed class ActivationContext
     private static void TryDelete(string path)
     {
         try { File.Delete(path); } catch { }
+    }
+
+    private sealed class InstalledControlRegistration
+    {
+        public int Protocol { get; set; }
+        public string GameRootSha256 { get; set; } = string.Empty;
+        public string PipeName { get; set; } = string.Empty;
+        public string Token { get; set; } = string.Empty;
+        public string ProfileRoot { get; set; } = string.Empty;
+        public string ArtifactRoot { get; set; } = string.Empty;
+        public string ExpectedAssemblySha256 { get; set; } = string.Empty;
+        public bool CheatModeAllowed { get; set; }
     }
 }

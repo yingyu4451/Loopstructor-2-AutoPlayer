@@ -89,11 +89,6 @@ public sealed class UpdateConfigurationLoader
 
         string baseDirectory = Path.GetFullPath(applicationDirectory);
         candidates.Add(Path.Combine(baseDirectory, "autoplayer-update.json"));
-        DirectoryInfo baseInfo = new(baseDirectory);
-        if (string.Equals(baseInfo.Name, "updater", StringComparison.OrdinalIgnoreCase) && baseInfo.Parent != null)
-        {
-            candidates.Add(Path.Combine(baseInfo.Parent.FullName, "autoplayer-update.json"));
-        }
 
         return candidates.FirstOrDefault(File.Exists) ?? string.Empty;
     }

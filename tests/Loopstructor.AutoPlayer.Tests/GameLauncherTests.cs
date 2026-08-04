@@ -46,6 +46,38 @@ public sealed class GameLauncherTests
     }
 
     [Fact]
+    public void CreateStartInfo_ResidentPlayerSessionUsesInstalledCredentialInsteadOfLaunchEnvironment()
+    {
+        string gameRoot = Path.Combine(Path.GetTempPath(), "Skyspine Player Build");
+        GameInstallValidation game = new()
+        {
+            GameRoot = gameRoot,
+            ExecutablePath = Path.Combine(gameRoot, "Loopstructor 2_ Skyspine.exe")
+        };
+        ActivationSession session = new()
+        {
+            GameRoot = gameRoot,
+            TicketPath = string.Empty,
+            IsPersistent = true,
+            ActivationMode = AutoPlayerActivationMode.ResidentPlayer,
+            EnvironmentVariables = new Dictionary<string, string>(),
+            Ticket = new LaunchTicket
+            {
+                PipeName = "Loopstructor.AutoPlayer.Player.test",
+                Token = new string('a', 64),
+                ArtifactRoot = Path.Combine(Path.GetTempPath(), "Skyspine Player Artifacts"),
+                ProfileRoot = Path.Combine(Path.GetTempPath(), "Skyspine Player State")
+            }
+        };
+
+        System.Diagnostics.ProcessStartInfo startInfo = GameLauncher.CreateStartInfo(game, session);
+
+        Assert.False(startInfo.Environment.ContainsKey(Protocol.EnabledEnvironmentVariable));
+        Assert.False(startInfo.Environment.ContainsKey(Protocol.TokenEnvironmentVariable));
+        Assert.Equal(GameInstallValidator.ExpectedSteamAppId, startInfo.Environment["SteamAppId"]);
+    }
+
+    [Fact]
     public void BuildProfileRoot_AlwaysUsesNamedGameScopedQaProfile()
     {
         string dataRoot = Path.Combine(Path.GetTempPath(), "LoopstructorProfileTest");

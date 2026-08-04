@@ -85,8 +85,7 @@ internal readonly record struct RunControlAvailability(
 
         AutoPlayerRunState state = status?.RunState ?? AutoPlayerRunState.Standby;
         bool needsProcessRestart = status?.NeedsProcessRestart == true;
-        bool cheatBlocksNormalRun = status?.CheatModeEnabled == true
-                                    || status?.CheatUsed == true;
+        bool cheatBlocksNormalRun = status?.CheatModeEnabled == true;
         return new RunControlAvailability(
             CanStart: !needsProcessRestart
                       && !cheatBlocksNormalRun
@@ -105,7 +104,7 @@ public sealed class ManagerSettings
     public const string DefaultGitHubRepository = "gui2";
 
     public string GameRoot { get; set; } = string.Empty;
-    public string ProfileName { get; set; } = "qa-default";
+    public string ProfileName { get; set; } = "player-default";
     public bool ContinueExistingProfile { get; set; }
     public AutomationGameMode GameMode { get; set; } = AutomationGameMode.Common;
     public int SpeedState { get; set; } = 2;
@@ -172,11 +171,14 @@ public sealed class ActivationSession
     public required string TicketPath { get; init; }
     public required string GameRoot { get; init; }
     public required IReadOnlyDictionary<string, string> EnvironmentVariables { get; init; }
+    public bool IsPersistent { get; init; }
+    public AutoPlayerActivationMode ActivationMode { get; init; } = AutoPlayerActivationMode.IsolatedQa;
     public int? ProcessId { get; internal set; }
     public string LogPath => Path.Combine(Ticket.ArtifactRoot, "Player.log");
 
     public void DeleteTicket()
     {
+        if (IsPersistent) return;
         try
         {
             if (File.Exists(TicketPath))

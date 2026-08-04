@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Loopstructor.AutoPlayer.Updater.Models;
 using Loopstructor.AutoPlayer.Updater.Services;
@@ -71,26 +72,66 @@ internal static class Program
         }
     }
 
-    private static int RunApplyUi(UpdateCommandOptions options)
+    private static int RunApplyUi(UpdateCommandOptions options) => RunOnStaThread(() =>
     {
-        ApplicationConfiguration.Initialize();
-        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        using UpdateForm form = new(
+        System.Windows.Application application = new()
+        {
+            ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose
+        };
+        UpdateForm form = new(
             options.CurrentVersion,
             (progress, cancellationToken, tryBeginCommit) =>
                 ExecuteAsync(options, progress, cancellationToken, tryBeginCommit));
-        Application.Run(form);
+        application.Run(form);
         return form.ExitCode;
-    }
+    });
 
-    private static int RunDemoUi(UpdateCommandOptions options)
+    private static int RunDemoUi(UpdateCommandOptions options) => RunOnStaThread(() =>
     {
-        ApplicationConfiguration.Initialize();
-        using UpdateForm form = UpdateForm.CreateDemo(
+        System.Windows.Application application = new()
+        {
+            ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose
+        };
+        UpdateForm form = UpdateForm.CreateDemo(
             options.CurrentVersion,
             typeof(Program).Assembly.GetName().Version?.ToString(3) ?? options.CurrentVersion);
-        Application.Run(form);
+        application.Run(form);
         return 0;
+    });
+
+    private static int RunOnStaThread(Func<int> operation)
+    {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            return operation();
+        }
+
+        int exitCode = 1;
+        Exception? failure = null;
+        Thread uiThread = new(() =>
+        {
+            try
+            {
+                exitCode = operation();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        })
+        {
+            IsBackground = false,
+            Name = "AutoPlayer Updater UI"
+        };
+        uiThread.SetApartmentState(ApartmentState.STA);
+        uiThread.Start();
+        uiThread.Join();
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        return exitCode;
     }
 
     internal static async Task<UpdaterResult> ExecuteAsync(
@@ -415,11 +456,11 @@ internal static class Program
     {
         try
         {
-            MessageBox.Show(
+            System.Windows.MessageBox.Show(
                 failure.Message,
                 "Loopstructor 2.AutoPlayer 更新器启动失败",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
         }
         catch
         {

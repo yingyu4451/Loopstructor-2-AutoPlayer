@@ -1,6 +1,7 @@
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
@@ -26,7 +27,7 @@ internal static class DemoData
     {
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
-        PluginVersion = "0.3.0",
+        PluginVersion = "0.5.0",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -125,6 +126,211 @@ internal static class DemoData
         status.LastMessage = "作弊资源目录已就绪";
         return status;
     }
+
+    public static ControlResponse CheatResponse(string command, JObject? arguments)
+    {
+        AutoPlayerStatus status = CheatStatus();
+        JObject state = new()
+        {
+            ["enabled"] = true,
+            ["baseGodMode"] = false,
+            ["enemyIdsVisible"] = false,
+            ["mapSkipEnabled"] = false,
+            ["ownedRelics"] = new JArray(
+                new JObject
+                {
+                    ["id"] = "Scope",
+                    ["relicId"] = "Scope",
+                    ["enumName"] = "Scope",
+                    ["name"] = "瞄准镜",
+                    ["count"] = 1
+                }),
+            ["ownedCatapultPoints"] = new JArray(
+                new JObject
+                {
+                    ["id"] = "FreePoint",
+                    ["catapultPointId"] = "point-normal-poison",
+                    ["disposableId"] = "FreePoint",
+                    ["enumName"] = "FreePoint",
+                    ["name"] = "自由弹射点",
+                    ["count"] = 2,
+                    ["buffs"] = new JArray("Poison")
+                },
+                new JObject
+                {
+                    ["id"] = "FreePoint",
+                    ["catapultPointId"] = "point-normal-energy",
+                    ["disposableId"] = "FreePoint",
+                    ["enumName"] = "FreePoint",
+                    ["name"] = "自由弹射点",
+                    ["count"] = 1,
+                    ["buffs"] = new JArray("Energy")
+                }),
+            ["spawnPointCapture"] = new JObject
+            {
+                ["state"] = "idle",
+                ["message"] = "未启动"
+            }
+        };
+
+        if (string.Equals(command, CheatCommands.QueryCatalog, StringComparison.OrdinalIgnoreCase))
+        {
+            return Success("演示资源目录已加载。", CheatCatalog(), status);
+        }
+
+        if (string.Equals(command, CheatCommands.QueryVehicles, StringComparison.OrdinalIgnoreCase))
+        {
+            return Success("演示战车列表已加载。", DemoVehicles(), status);
+        }
+
+        if (string.Equals(command, CheatCommands.QueryEnemies, StringComparison.OrdinalIgnoreCase))
+        {
+            return Success("演示敌人列表已加载。", DemoEnemies(), status);
+        }
+
+        if (string.Equals(command, CheatCommands.SetEnabled, StringComparison.OrdinalIgnoreCase))
+        {
+            bool enabled = arguments?.Value<bool?>("enabled") ?? true;
+            status.CheatModeEnabled = enabled;
+            state["enabled"] = enabled;
+        }
+
+        return Success(
+            string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase)
+                ? "演示作弊状态已读取。"
+                : "演示命令已模拟；未连接或修改游戏。",
+            state,
+            status);
+    }
+
+    private static JObject CheatCatalog() => new()
+    {
+        ["catalogVersion"] = 2,
+        ["locale"] = "zh",
+        ["vehicles"] = new JArray(
+            CatalogItem("Link_ElectricFork_L1", "雷叉", "战车", 1),
+            CatalogItem("Link_ElectricFork_L2", "雷叉", "战车", 2),
+            CatalogItem("Link_ElectricFork_L3", "雷叉", "战车", 3),
+            CatalogItem("Shell_DoubleShell_L4", "双发重炮", "战车", 4),
+            CatalogItem("Penetrate_WindPiercer_L2", "风矢", "战车", 2)),
+        ["enchantments"] = new JArray(
+            CatalogItem("Poison", "中毒", "附魔"),
+            CatalogItem("Energy", "能量", "附魔"),
+            CatalogItem("Slow", "减速", "附魔"),
+            CatalogItem("Tornado", "龙卷风", "附魔"),
+            CatalogItem("Tornado_Domain", "龙卷风场域", "附魔")),
+        ["disposables"] = new JArray(
+            CatalogItem("基地守护", "基地守护", "消耗品"),
+            CatalogItem("极度冷冻", "极度冷冻", "消耗品"),
+            CatalogItem("龙卷弹", "龙卷弹", "消耗品")),
+        ["relics"] = new JArray(
+            CatalogItem("瞄准镜", "瞄准镜", "遗物"),
+            CatalogItem("黑洞", "黑洞", "遗物"),
+            CatalogItem("充电宝", "充电宝", "遗物")),
+        ["enemies"] = new JArray(
+            CatalogItem("CommonMonster", "普通骷髅", "怪物"),
+            CatalogItem("ShootingMonster", "射击骷髅", "怪物"),
+            CatalogItem("SkullGiant", "巨型骷髅", "怪物"),
+            CatalogItem("SpiderQueen_Explode", "爆炸蜘蛛女王", "怪物"),
+            CatalogItem("BigBeetle", "巨型甲虫", "怪物")),
+        ["catapultPoints"] = new JArray(
+            CatalogItem("FreePoint", "自由弹射点", "弹射点"),
+            CatalogItem("FreePoint_Attribute", "属性弹射点", "弹射点")),
+        ["limits"] = new JObject
+        {
+            ["maxGrantCount"] = 99,
+            ["maxEnchantmentLevel"] = 9,
+            ["maxEnchantmentsPerVehicle"] = 5,
+            ["maxEnemyLevel"] = 200,
+            ["maxSpawnCount"] = 100,
+            ["maxSpawnRadius"] = 50,
+            ["maxCoordinateMagnitude"] = 10000
+        }
+    };
+
+    private static JObject DemoVehicles() => new()
+    {
+        ["vehicles"] = new JArray(
+            new JObject
+            {
+                ["vehicleId"] = 1042,
+                ["typeId"] = "Link_ElectricFork_L2",
+                ["name"] = "雷叉",
+                ["level"] = 2,
+                ["position"] = Position(12.5, -4.25, 0),
+                ["attributes"] = new JArray(
+                    Attribute("damage", "基础伤害", "float", 25, 0, 999999),
+                    Attribute("range", "射程", "float", 6, 0, 100),
+                    Attribute("targetCount", "目标个数", "integer", 4, 1, 100)),
+                ["enchantments"] = new JArray(
+                    new JObject { ["id"] = "Poison", ["name"] = "中毒", ["level"] = 2, ["effectiveLevel"] = 2 },
+                    new JObject { ["id"] = "Energy", ["name"] = "能量", ["level"] = 1, ["effectiveLevel"] = 1 })
+            })
+    };
+
+    private static JObject DemoEnemies() => new()
+    {
+        ["enemies"] = new JArray(
+            new JObject
+            {
+                ["runtimeId"] = "enemy-0027",
+                ["typeId"] = "SkullGiant",
+                ["name"] = "巨型骷髅",
+                ["health"] = 840,
+                ["healthMax"] = 1200,
+                ["position"] = Position(31.5, 8.75, 0),
+                ["attributes"] = new JArray(
+                    Attribute("health", "当前生命", "float", 840, 0, 99999999),
+                    Attribute("moveSpeed", "移动速度", "float", 1.2, 0, 100),
+                    Attribute("armor", "护甲", "float", 18, 0, 999999))
+            })
+    };
+
+    private static JObject CatalogItem(string id, string name, string category, int? level = null)
+    {
+        JObject item = new()
+        {
+            ["id"] = id,
+            ["name"] = name,
+            ["fallbackName"] = id,
+            ["tags"] = new JArray(category, id, name)
+        };
+        if (level.HasValue) item["level"] = level.Value;
+        return item;
+    }
+
+    private static JObject Attribute(
+        string id,
+        string name,
+        string kind,
+        double value,
+        double minimum,
+        double maximum) => new()
+    {
+        ["id"] = id,
+        ["name"] = name,
+        ["kind"] = kind,
+        ["value"] = value,
+        ["baseValue"] = value,
+        ["minimum"] = minimum,
+        ["maximum"] = maximum
+    };
+
+    private static JObject Position(double x, double y, double z) => new()
+    {
+        ["x"] = x,
+        ["y"] = y,
+        ["z"] = z
+    };
+
+    private static ControlResponse Success(string message, JObject data, AutoPlayerStatus status) => new()
+    {
+        Success = true,
+        Message = message,
+        Hello = CheatHello(),
+        Status = status,
+        Data = data
+    };
 
     public static IReadOnlyList<string> LogLines() => new[]
     {

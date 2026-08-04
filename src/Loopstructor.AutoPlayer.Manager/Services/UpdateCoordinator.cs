@@ -172,17 +172,6 @@ public sealed class UpdateCoordinator
 
     internal bool TryCreateInvocation(out ProcessStartInfo startInfo, string command)
     {
-        if (File.Exists(_layout.SharedUpdaterExecutable))
-        {
-            startInfo = new ProcessStartInfo(_layout.SharedUpdaterExecutable)
-            {
-                WorkingDirectory = Path.GetDirectoryName(_layout.SharedUpdaterExecutable)!,
-                UseShellExecute = false
-            };
-            startInfo.ArgumentList.Add(command);
-            return true;
-        }
-
         if (File.Exists(_layout.UpdaterExecutable))
         {
             startInfo = new ProcessStartInfo(_layout.UpdaterExecutable)

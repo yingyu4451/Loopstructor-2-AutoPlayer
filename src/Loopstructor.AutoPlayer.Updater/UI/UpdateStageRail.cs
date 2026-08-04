@@ -1,11 +1,12 @@
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Windows.Forms;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Media;
 using Loopstructor.AutoPlayer.Updater.Models;
 
 namespace Loopstructor.AutoPlayer.Updater.UI;
 
-internal sealed class UpdateStageRail : Control
+internal sealed class UpdateStageRail : FrameworkElement
 {
     private static readonly string[] Labels = { "准备", "下载", "校验", "安装", "重启" };
 
@@ -16,13 +17,9 @@ internal sealed class UpdateStageRail : Control
 
     public UpdateStageRail()
     {
-        DoubleBuffered = true;
-        BackColor = UpdaterTheme.Surface;
-        Font = UpdaterTheme.Body(8.5f, FontStyle.Bold);
-        MinimumSize = new Size(300, 48);
-        AccessibleRole = AccessibleRole.Graphic;
-        AccessibleName = "更新阶段";
-        SetStyle(ControlStyles.ResizeRedraw, true);
+        MinWidth = 360;
+        MinHeight = 64;
+        AutomationProperties.SetName(this, "更新阶段");
     }
 
     public void SetStage(UpdateProgressStage stage, bool failed, bool warning = false)
@@ -31,61 +28,94 @@ internal sealed class UpdateStageRail : Control
         _completed = stage == UpdateProgressStage.Completed && !failed && !warning;
         _failed = failed;
         _warning = warning;
-        AccessibleDescription = failed
+        string description = failed
             ? $"{Labels[_activeIndex]}阶段失败"
-            : warning ? $"{Labels[_activeIndex]}阶段需要处理"
-            : _completed ? "全部阶段已完成" : $"当前处于{Labels[_activeIndex]}阶段";
-        Invalidate();
-        AccessibilityNotifyClients(AccessibleEvents.NameChange, -1);
+            : warning
+                ? $"{Labels[_activeIndex]}阶段需要处理"
+                : _completed
+                    ? "全部阶段已完成"
+                    : $"当前处于{Labels[_activeIndex]}阶段";
+        AutomationProperties.SetHelpText(this, description);
+        ToolTip = description;
+        InvalidateVisual();
     }
 
-    protected override void OnPaint(PaintEventArgs eventArgs)
+    protected override void OnRender(DrawingContext drawingContext)
     {
-        base.OnPaint(eventArgs);
-        Graphics graphics = eventArgs.Graphics;
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        base.OnRender(drawingContext);
+        double width = Math.Max(1d, ActualWidth);
+        const double sidePadding = 43d;
+        const double railY = 23d;
+        double usableWidth = Math.Max(1d, width - (sidePadding * 2d));
+        double step = usableWidth / (Labels.Length - 1d);
 
-        const int sidePadding = 36;
-        const int railY = 17;
-        int usableWidth = Math.Max(1, Width - (sidePadding * 2));
-        float step = usableWidth / (float)(Labels.Length - 1);
+        Pen trackShadow = new(UpdaterTheme.Canvas, 10d) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
+        Pen trackBase = new(UpdaterTheme.Line, 6d) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
+        drawingContext.DrawLine(trackShadow, new Point(sidePadding, railY), new Point(width - sidePadding, railY));
+        drawingContext.DrawLine(trackBase, new Point(sidePadding, railY), new Point(width - sidePadding, railY));
 
         for (int index = 0; index < Labels.Length - 1; index++)
         {
-            float startX = sidePadding + (index * step);
-            float endX = sidePadding + ((index + 1) * step);
-            Color segmentColor = _completed || index < _activeIndex
-                ? UpdaterTheme.Blue
-                : UpdaterTheme.Line;
-            using Pen segment = new(segmentColor, 4f);
-            graphics.DrawLine(segment, startX, railY, endX, railY);
+            if (!_completed && index >= _activeIndex) continue;
+            double startX = sidePadding + (index * step);
+            double endX = sidePadding + ((index + 1) * step);
+            Pen completedSegment = new(UpdaterTheme.Gold, 4d)
+            {
+                StartLineCap = PenLineCap.Square,
+                EndLineCap = PenLineCap.Square
+            };
+            drawingContext.DrawLine(completedSegment, new Point(startX, railY), new Point(endX, railY));
         }
 
+        for (double x = sidePadding + 13d; x < width - sidePadding; x += 18d)
+        {
+            drawingContext.DrawLine(
+                new Pen(UpdaterTheme.Copper, 1d),
+                new Point(x, railY - 4d),
+                new Point(x, railY + 4d));
+        }
+
+        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         for (int index = 0; index < Labels.Length; index++)
         {
-            int centerX = (int)Math.Round(sidePadding + (index * step));
-            Color nodeColor = NodeColor(index);
-            using SolidBrush outer = new(UpdaterTheme.Surface);
-            using SolidBrush node = new(nodeColor);
-            graphics.FillEllipse(outer, centerX - 9, railY - 9, 18, 18);
-            graphics.FillEllipse(node, centerX - 6, railY - 6, 12, 12);
+            double centerX = sidePadding + (index * step);
+            Brush nodeBrush = NodeColor(index);
+            DrawGear(drawingContext, new Point(centerX, railY), nodeBrush, index == _activeIndex || _completed);
 
-            Rectangle labelBounds = new(centerX - 42, 31, 84, Math.Max(16, Height - 31));
-            TextRenderer.DrawText(
-                graphics,
+            FormattedText label = new(
                 Labels[index],
-                Font,
-                labelBounds,
-                nodeColor,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.EndEllipsis);
+                CultureInfo.GetCultureInfo("zh-CN"),
+                FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Microsoft YaHei UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                12d,
+                nodeBrush,
+                pixelsPerDip);
+            drawingContext.DrawText(label, new Point(centerX - (label.Width / 2d), 44d));
         }
     }
 
-    private Color NodeColor(int index)
+    private static void DrawGear(DrawingContext drawingContext, Point center, Brush stateBrush, bool active)
     {
-        if (_completed || index < _activeIndex) return UpdaterTheme.Blue;
+        Pen spokePen = new(stateBrush, active ? 2.4d : 1.7d);
+        for (int tooth = 0; tooth < 8; tooth++)
+        {
+            double angle = tooth * Math.PI / 4d;
+            Point inner = new(center.X + (Math.Cos(angle) * 8d), center.Y + (Math.Sin(angle) * 8d));
+            Point outer = new(center.X + (Math.Cos(angle) * 12d), center.Y + (Math.Sin(angle) * 12d));
+            drawingContext.DrawLine(spokePen, inner, outer);
+        }
+
+        drawingContext.DrawEllipse(UpdaterTheme.SurfaceRaised, new Pen(UpdaterTheme.Canvas, 3d), center, 10d, 10d);
+        drawingContext.DrawEllipse(active ? stateBrush : UpdaterTheme.Canvas, new Pen(stateBrush, 2d), center, 6d, 6d);
+        drawingContext.DrawEllipse(UpdaterTheme.Canvas, null, center, 2.2d, 2.2d);
+    }
+
+    private Brush NodeColor(int index)
+    {
+        if (_completed) return UpdaterTheme.SignalGreen;
+        if (index < _activeIndex) return UpdaterTheme.Gold;
         if (index > _activeIndex) return UpdaterTheme.Muted;
-        return _failed ? UpdaterTheme.Red : _warning ? UpdaterTheme.Amber : UpdaterTheme.Teal;
+        return _failed ? UpdaterTheme.Red : _warning ? UpdaterTheme.Amber : UpdaterTheme.SignalGreen;
     }
 
     private static int PhaseIndex(UpdateProgressStage stage) => stage switch

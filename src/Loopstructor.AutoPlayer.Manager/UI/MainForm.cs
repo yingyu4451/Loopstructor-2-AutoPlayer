@@ -1,26 +1,45 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing.Imaging;
+using System.Windows;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
 using Newtonsoft.Json.Linq;
+using Brush = System.Windows.Media.Brush;
+using Color = System.Windows.Media.Color;
+using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Window
 {
+    private static readonly Brush NormalStageBackground = CreateBrush(58, 38, 24);
+    private static readonly Brush WarningStageBackground = CreateBrush(60, 42, 19);
+    private static readonly Brush RestartStageBackground = CreateBrush(61, 29, 22);
+
     private readonly ManagerLaunchOptions _launchOptions;
     private readonly ManagerSettingsStore _settingsStore;
     private readonly DistributionLayout _distribution;
     private readonly GameInstallValidator _validator = new();
     private readonly BepInExConfigWriter _configWriter = new();
     private readonly ActivationSessionFactory _sessionFactory = new();
+    private readonly InstalledControlSessionStore _installedSessions = new();
     private readonly PipeControlClient _pipeClient = new();
     private readonly LogTailReader _logTail = new();
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 850 };
-    private readonly ToolTip _toolTip = new();
-    private readonly Dictionary<string, Label> _telemetry = new(StringComparer.Ordinal);
+    private readonly DispatcherTimer _pollTimer = new(DispatcherPriority.Background)
+    {
+        Interval = TimeSpan.FromMilliseconds(850)
+    };
+    private readonly ObservableCollection<TelemetryRow> _telemetryRows = new();
+    private readonly Dictionary<string, TelemetryRow> _telemetry = new(StringComparer.Ordinal);
+    private readonly ObservableCollection<TimelineDisplayItem> _timeline = new();
 
     private ManagerSettings _settings;
     private BepInExInstaller _installer;
@@ -31,46 +50,18 @@ internal sealed class MainForm : Form
     private PluginInstallStatus? _pluginStatus;
     private BridgeHello? _hello;
     private AutoPlayerStatus? _status;
+    private CheatForm? _cheatForm;
     private bool _pollInProgress;
     private bool _sessionTrusted;
     private bool _legacyProbeDone;
     private bool _updateAvailable;
+    private bool _contentShown;
     private int _transportFailures;
     private string _lastStatusSignature = string.Empty;
+    private string _timelineSignature = string.Empty;
     private string _lastTrustError = string.Empty;
     private bool _restartWarningReported;
-
-    private TextBox _gamePath = null!;
-    private Label _validationState = null!;
-    private Label _pluginState = null!;
-    private Button _browseButton = null!;
-    private Button _installButton = null!;
-    private Button _togglePluginButton = null!;
-    private Button _uninstallButton = null!;
-    private Button _launchButton = null!;
-    private Button _cheatButton = null!;
-    private TextBox _profileName = null!;
-    private CheckBox _continueProfile = null!;
-    private CheckBox _autoUpdateCheck = null!;
-    private ComboBox _mode = null!;
-    private NumericUpDown _speed = null!;
-    private NumericUpDown _maxMinutes = null!;
-    private Button _startButton = null!;
-    private Button _pauseButton = null!;
-    private Button _resumeButton = null!;
-    private Button _stopButton = null!;
-    private Label _runState = null!;
-    private Label _stageDetail = null!;
-    private Panel _stageBanner = null!;
-    private TimelineControl _timeline = null!;
-    private ConnectionBadge _connection = null!;
-    private Button _updateButton = null!;
-    private Label _updateState = null!;
-    private Label _productVersion = null!;
-    private RichTextBox _logs = null!;
-    private Button _openEvidenceButton = null!;
-    private Panel _captureSurface = null!;
-    private CheatForm? _cheatForm;
+    private bool _cheatMarkerReported;
 
     public MainForm(ManagerLaunchOptions launchOptions)
     {
@@ -82,498 +73,102 @@ internal sealed class MainForm : Form
         _gameLauncher = new GameLauncher(_sessionFactory, _configWriter);
         _updates = new UpdateCoordinator(_distribution);
 
+        InitializeComponent();
         InitializeWindow();
-        BuildInterface();
+        InitializeSelectors();
+        InitializeTelemetry();
         BindSettings();
         SetOperationAvailability();
+
         _pollTimer.Tick += PollTimerOnTick;
-        Shown += async (_, _) => await OnShownAsync(settingsWarning);
-        FormClosing += OnFormClosing;
+        ContentRendered += async (_, _) =>
+        {
+            if (_contentShown) return;
+            _contentShown = true;
+            await OnShownAsync(settingsWarning);
+        };
+        Closing += OnWindowClosing;
     }
+
+    private Brush SignalBrush => ThemeBrush("SignalGreenBrush");
+    private Brush GoldBrush => ThemeBrush("GoldBrush");
+    private Brush DangerBrush => ThemeBrush("DangerBrush");
+    private Brush BlueBrush => ThemeBrush("OperationBlueBrush");
+    private Brush TextBrush => ThemeBrush("TextBrush");
+    private Brush MutedBrush => ThemeBrush("MutedTextBrush");
 
     private void InitializeWindow()
     {
-        Text = $"Loopstructor 2.AutoPlayer Manager — v{ManagerProductInfo.Version}";
-        BackColor = Theme.Canvas;
-        ForeColor = Theme.Ink;
-        Font = Theme.Body(9f);
-        StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = _launchOptions.WindowSize ?? new Size(1400, 860);
-        MinimumSize = new Size(1100, 680);
-        AutoScaleMode = AutoScaleMode.Dpi;
-        KeyPreview = true;
+        Title = $"Loopstructor 2.AutoPlayer Manager — v{ManagerProductInfo.Version}";
+        ProductVersionLabel.Text = ManagerProductInfo.DisplayText;
+        _captureSurface.Subtitle = ManagerProductInfo.DisplayText;
+        if (_launchOptions.WindowSize is { } size)
+        {
+            Width = size.Width;
+            Height = size.Height;
+        }
     }
 
-    private void BuildInterface()
+    private void InitializeSelectors()
     {
-        _captureSurface = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Theme.Canvas
-        };
-        _captureSurface.Controls.Add(BuildWorkspace());
-        _captureSurface.Controls.Add(BuildHeader());
-        Controls.Add(_captureSurface);
+        _mode.ItemsSource = new[] { "普通模式", "随机模式" };
+        _speed.ItemsSource = new[] { "0 · 暂停", "1 · 常速", "2 · 加速" };
+        _timelineItems.ItemsSource = _timeline;
+        _logs.Document.PagePadding = new Thickness(0);
     }
 
-    private Control BuildHeader()
+    private void InitializeTelemetry()
     {
-        Panel header = new()
+        (string Key, string Caption)[] definitions =
         {
-            Dock = DockStyle.Top,
-            Height = 70,
-            BackColor = Theme.Ink,
-            Padding = new Padding(22, 10, 18, 10)
+            ("product", "产品"),
+            ("gameVersion", "游戏版本"),
+            ("pluginVersion", "插件版本"),
+            ("protocol", "协议"),
+            ("unity", "Unity"),
+            ("buildGuid", "构建 GUID"),
+            ("assembly", "程序集 SHA-256"),
+            ("mvid", "程序集 MVID"),
+            ("fingerprint", "指纹门禁"),
+            ("runtime", "运行时合同"),
+            ("isolation", "存档隔离"),
+            ("platform", "平台写入"),
+            ("artifacts", "产物重定向"),
+            ("profile", "存档模式"),
+            ("evidence", "证据目录"),
+            ("integrity", "运行标记"),
+            ("outcome", "本局结果"),
+            ("waves", "波次"),
+            ("process", "进程状态")
         };
-        TableLayoutPanel layout = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 460));
 
-        Panel identity = new() { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        Label title = new()
+        foreach ((string key, string caption) in definitions)
         {
-            Text = "SKYSPINE  /  QA 自动游玩",
-            ForeColor = Color.White,
-            Font = Theme.Display(16f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(0, 1)
-        };
-        FlowLayoutPanel productMeta = new()
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            BackColor = Color.Transparent,
-            Location = new Point(2, 31),
-            Margin = Padding.Empty
-        };
-        _productVersion = new Label
-        {
-            Name = "ProductVersionLabel",
-            AccessibleName = "AutoPlayer 版本",
-            Text = ManagerProductInfo.DisplayText,
-            ForeColor = Color.White,
-            Font = Theme.Data(8.5f, FontStyle.Bold),
-            AutoSize = true,
-            Margin = new Padding(0, 0, 14, 0)
-        };
-        Label subtitle = new()
-        {
-            Text = "构建验证、隔离运行与自动游玩控制",
-            ForeColor = Color.FromArgb(177, 191, 199),
-            Font = Theme.Body(8.5f),
-            AutoSize = true,
-            Margin = Padding.Empty
-        };
-        productMeta.Controls.Add(_productVersion);
-        productMeta.Controls.Add(subtitle);
-        identity.Controls.Add(title);
-        identity.Controls.Add(productMeta);
+            TelemetryRow row = new(key, caption);
+            _telemetry[key] = row;
+            _telemetryRows.Add(row);
+        }
 
-        FlowLayoutPanel actions = new()
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            BackColor = Color.Transparent,
-            Padding = new Padding(0, 9, 0, 0)
-        };
-        _connection = new ConnectionBadge { Margin = new Padding(10, 0, 0, 0) };
-        _updateButton = Theme.CommandButton("检查更新", Theme.Blue, 96);
-        _updateButton.Height = 30;
-        _updateButton.Margin = new Padding(10, 0, 0, 0);
-        _updateButton.Click += async (_, _) => await UpdateButtonOnClickAsync();
-        _updateState = new Label
-        {
-            Text = "尚未检查更新",
-            ForeColor = Color.FromArgb(187, 199, 205),
-            AutoEllipsis = true,
-            TextAlign = ContentAlignment.MiddleRight,
-            Width = 170,
-            Height = 30,
-            Font = Theme.Data(8.5f)
-        };
-        actions.Controls.Add(_connection);
-        actions.Controls.Add(_updateButton);
-        actions.Controls.Add(_updateState);
-        layout.Controls.Add(identity, 0, 0);
-        layout.Controls.Add(actions, 1, 0);
-        header.Controls.Add(layout);
-        return header;
-    }
-
-    private Control BuildWorkspace()
-    {
-        TableLayoutPanel workspace = new()
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(16),
-            ColumnCount = 1,
-            RowCount = 2,
-            BackColor = Theme.Canvas
-        };
-        workspace.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        RowStyle logRow = new(SizeType.Absolute, 232);
-        workspace.RowStyles.Add(logRow);
-        workspace.Resize += (_, _) =>
-            logRow.Height = Math.Clamp((int)(workspace.ClientSize.Height * 0.34f), 210, 250);
-
-        TableLayoutPanel main = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 1,
-            Margin = new Padding(0, 0, 0, 12),
-            BackColor = Theme.Canvas
-        };
-        main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 318));
-        main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 348));
-
-        Control targetPanel = BuildTargetPanel();
-        targetPanel.Margin = new Padding(0, 0, 12, 0);
-        Control runPanel = BuildRunPanel();
-        runPanel.Margin = new Padding(0, 0, 12, 0);
-        Control telemetryPanel = BuildTelemetryPanel();
-        telemetryPanel.Margin = Padding.Empty;
-        main.Controls.Add(targetPanel, 0, 0);
-        main.Controls.Add(runPanel, 1, 0);
-        main.Controls.Add(telemetryPanel, 2, 0);
-
-        workspace.Controls.Add(main, 0, 0);
-        workspace.Controls.Add(BuildLogPanel(), 0, 1);
-        return workspace;
-    }
-
-    private Control BuildTargetPanel()
-    {
-        SectionPanel section = new() { Dock = DockStyle.Fill };
-        Label heading = SectionHeading("测试目标");
-        heading.Dock = DockStyle.Top;
-        section.Controls.Add(heading);
-
-        FlowLayoutPanel fields = new()
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true,
-            Padding = new Padding(0, 12, 0, 0)
-        };
-        section.Controls.Add(fields);
-        fields.BringToFront();
-
-        Panel pathField = FieldPanel("Skyspine 打包目录", 62);
-        _gamePath = InputBox();
-        _gamePath.ReadOnly = true;
-        _gamePath.Location = new Point(0, 23);
-        _gamePath.Width = 184;
-        _browseButton = Theme.CommandButton("选择", Theme.Blue, 60);
-        _browseButton.Location = new Point(190, 22);
-        _browseButton.Height = 31;
-        _browseButton.Click += async (_, _) => await BrowseForGameAsync();
-        pathField.Controls.Add(_gamePath);
-        pathField.Controls.Add(_browseButton);
-        fields.Controls.Add(pathField);
-
-        _validationState = new Label
-        {
-            Text = "尚未选择构建",
-            ForeColor = Theme.Muted,
-            Font = Theme.Body(8.5f),
-            Width = 250,
-            Height = 32,
-            AutoEllipsis = true,
-            Margin = new Padding(0, 0, 0, 4)
-        };
-        fields.Controls.Add(_validationState);
-        fields.Controls.Add(Divider());
-
-        _pluginState = new Label
-        {
-            Text = "插件状态：未知",
-            ForeColor = Theme.Ink,
-            Font = Theme.Body(9f, FontStyle.Bold),
-            Width = 250,
-            Height = 24,
-            AutoEllipsis = true,
-            Margin = new Padding(0, 4, 0, 2)
-        };
-        fields.Controls.Add(_pluginState);
-
-        Panel pluginActions = new() { Width = 250, Height = 36, Margin = new Padding(0, 0, 0, 7) };
-        _installButton = Theme.CommandButton("安装", Theme.Teal, 76);
-        _installButton.Location = new Point(0, 0);
-        _installButton.Click += async (_, _) => await InstallPluginAsync();
-        _togglePluginButton = Theme.CommandButton("停用", Theme.Amber, 76);
-        _togglePluginButton.Location = new Point(87, 0);
-        _togglePluginButton.Click += (_, _) => TogglePlugin();
-        _uninstallButton = Theme.CommandButton("卸载", Theme.Red, 76);
-        _uninstallButton.Location = new Point(174, 0);
-        _uninstallButton.Click += (_, _) => UninstallPlugin();
-        pluginActions.Controls.AddRange(new Control[] { _installButton, _togglePluginButton, _uninstallButton });
-        fields.Controls.Add(pluginActions);
-
-        _profileName = InputBox();
-        fields.Controls.Add(FieldPanel("隔离配置名称", _profileName));
-        _continueProfile = new CheckBox
-        {
-            Text = "继续隔离档中的未完成对局",
-            Width = 250,
-            Height = 24,
-            ForeColor = Theme.Ink,
-            Font = Theme.Body(8.5f),
-            Margin = new Padding(0, 0, 0, 5)
-        };
-        fields.Controls.Add(_continueProfile);
-
-        _launchButton = Theme.CommandButton("启动所选测试包", Theme.TealDark, 250);
-        _launchButton.Height = 37;
-        _launchButton.Margin = new Padding(0, 0, 0, 10);
-        _launchButton.Click += (_, _) => LaunchGame();
-        fields.Controls.Add(_launchButton);
-
-        _cheatButton = Theme.CommandButton("作弊工具", Theme.Amber, 250);
-        _cheatButton.Height = 35;
-        _cheatButton.Margin = new Padding(0, 0, 0, 10);
-        _cheatButton.AccessibleName = "打开作弊工具";
-        _cheatButton.Click += (_, _) => OpenCheatForm();
-        fields.Controls.Add(_cheatButton);
-        fields.Controls.Add(Divider());
-
-        _autoUpdateCheck = new CheckBox
-        {
-            Text = "启动 Manager 时检查更新",
-            Width = 250,
-            Height = 28,
-            ForeColor = Theme.Ink,
-            Font = Theme.Body(8.5f),
-            Margin = new Padding(0, 0, 0, 8)
-        };
-        fields.Controls.Add(_autoUpdateCheck);
-
-        return section;
-    }
-
-    private Control BuildRunPanel()
-    {
-        SectionPanel section = new() { Dock = DockStyle.Fill };
-        TableLayoutPanel layout = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 5,
-            BackColor = Theme.Surface
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        layout.Controls.Add(SectionHeading("运行轨道"), 0, 0);
-        FlowLayoutPanel commands = new()
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Padding = new Padding(0, 3, 0, 4)
-        };
-        _startButton = Theme.CommandButton("开始", Theme.Teal, 86);
-        _pauseButton = Theme.CommandButton("暂停", Theme.Amber, 78);
-        _resumeButton = Theme.CommandButton("继续", Theme.Blue, 78);
-        _stopButton = Theme.CommandButton("停止", Theme.Red, 78);
-        _startButton.Click += async (_, _) => await SendControlAsync("start");
-        _pauseButton.Click += async (_, _) => await SendControlAsync("pause");
-        _resumeButton.Click += async (_, _) => await SendControlAsync("resume");
-        _stopButton.Click += async (_, _) => await SendControlAsync("stop");
-        commands.Controls.AddRange(new Control[] { _startButton, _pauseButton, _resumeButton, _stopButton });
-        layout.Controls.Add(commands, 0, 1);
-
-        TableLayoutPanel options = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 1,
-            Margin = new Padding(0, 2, 0, 6)
-        };
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
-        _mode = new ComboBox
-        {
-            Dock = DockStyle.Bottom,
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Height = 29,
-            Font = Theme.Body(9f)
-        };
-        _mode.Items.AddRange(new object[] { "普通模式", "随机模式" });
-        _speed = NumberInput(0, 2, 2);
-        _maxMinutes = NumberInput(5, 480, 120);
-        options.Controls.Add(OptionField("模式", _mode), 0, 0);
-        options.Controls.Add(OptionField("速度", _speed), 1, 0);
-        options.Controls.Add(OptionField("最长分钟", _maxMinutes), 2, 0);
-        layout.Controls.Add(options, 0, 2);
-
-        _stageBanner = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(230, 242, 241),
-            Padding = new Padding(14, 9, 14, 8),
-            Margin = new Padding(0, 0, 0, 8)
-        };
-        _runState = new Label
-        {
-            Text = "待机 / 等待游戏",
-            Dock = DockStyle.Top,
-            Height = 24,
-            ForeColor = Theme.TealDark,
-            Font = Theme.Body(11f, FontStyle.Bold),
-            AutoEllipsis = true
-        };
-        _stageDetail = new Label
-        {
-            Text = "启动并完成安全握手后可开始自动游玩",
-            Dock = DockStyle.Fill,
-            ForeColor = Theme.Muted,
-            Font = Theme.Body(8.5f),
-            AutoEllipsis = true
-        };
-        _stageBanner.Controls.Add(_stageDetail);
-        _stageBanner.Controls.Add(_runState);
-        layout.Controls.Add(_stageBanner, 0, 3);
-
-        _timeline = new TimelineControl { Dock = DockStyle.Fill };
-        layout.Controls.Add(_timeline, 0, 4);
-        section.Controls.Add(layout);
-        return section;
-    }
-
-    private Control BuildTelemetryPanel()
-    {
-        SectionPanel section = new() { Dock = DockStyle.Fill };
-        TableLayoutPanel shell = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3
-        };
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
-        shell.Controls.Add(SectionHeading("运行遥测"), 0, 0);
-
-        Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty };
-        TableLayoutPanel values = new()
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Top,
-            ColumnCount = 2,
-            RowCount = 0,
-            Margin = Padding.Empty
-        };
-        values.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
-        values.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176));
-        AddTelemetry(values, "product", "产品");
-        AddTelemetry(values, "gameVersion", "游戏版本");
-        AddTelemetry(values, "pluginVersion", "插件版本");
-        AddTelemetry(values, "protocol", "协议");
-        AddTelemetry(values, "unity", "Unity");
-        AddTelemetry(values, "buildGuid", "构建 GUID");
-        AddTelemetry(values, "assembly", "程序集 SHA-256");
-        AddTelemetry(values, "mvid", "程序集 MVID");
-        AddTelemetry(values, "fingerprint", "指纹门禁");
-        AddTelemetry(values, "runtime", "运行时合同");
-        AddTelemetry(values, "isolation", "存档隔离");
-        AddTelemetry(values, "platform", "平台写入");
-        AddTelemetry(values, "artifacts", "产物重定向");
-        AddTelemetry(values, "profile", "隔离档目录");
-        AddTelemetry(values, "evidence", "证据目录");
-        AddTelemetry(values, "integrity", "测试完整性");
-        AddTelemetry(values, "outcome", "本局结果");
-        AddTelemetry(values, "waves", "波次");
-        AddTelemetry(values, "process", "进程状态");
-        scroll.Controls.Add(values);
-        shell.Controls.Add(scroll, 0, 1);
-
-        _openEvidenceButton = Theme.CommandButton("打开证据目录", Theme.Blue, 142);
-        _openEvidenceButton.Location = new Point(0, 10);
-        _openEvidenceButton.Margin = Padding.Empty;
-        _openEvidenceButton.Click += (_, _) => OpenEvidenceDirectory();
-        Panel footer = new()
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            BackColor = Theme.Surface
-        };
-        Panel footerDivider = new()
-        {
-            Dock = DockStyle.Top,
-            Height = 1,
-            BackColor = Theme.Line
-        };
-        footer.Controls.Add(_openEvidenceButton);
-        footer.Controls.Add(footerDivider);
-        shell.Controls.Add(footer, 0, 2);
-        section.Controls.Add(shell);
-        return section;
-    }
-
-    private Control BuildLogPanel()
-    {
-        SectionPanel section = new() { Dock = DockStyle.Fill, Margin = Padding.Empty };
-        Panel header = new() { Dock = DockStyle.Top, Height = 34 };
-        Label heading = SectionHeading("运行日志");
-        heading.Dock = DockStyle.Left;
-        Button clear = Theme.CommandButton("清空", Theme.Muted, 58);
-        clear.Dock = DockStyle.Right;
-        clear.Height = 27;
-        clear.Click += (_, _) => _logs.Clear();
-        header.Controls.Add(clear);
-        header.Controls.Add(heading);
-        _logs = new RichTextBox
-        {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            BorderStyle = BorderStyle.None,
-            BackColor = Theme.Console,
-            ForeColor = Theme.ConsoleText,
-            Font = Theme.Data(8.5f),
-            DetectUrls = false,
-            WordWrap = false,
-            ScrollBars = RichTextBoxScrollBars.Vertical,
-            ShortcutsEnabled = true
-        };
-        section.Controls.Add(_logs);
-        section.Controls.Add(header);
-        return section;
+        _telemetryItems.ItemsSource = _telemetryRows;
     }
 
     private void BindSettings()
     {
         _settings.NormalizeUpdateSource();
         _gamePath.Text = _settings.GameRoot;
-        _profileName.Text = string.IsNullOrWhiteSpace(_settings.ProfileName) ? "qa-default" : _settings.ProfileName;
-        _continueProfile.Checked = _settings.ContinueExistingProfile;
+        _profileName.Text = string.IsNullOrWhiteSpace(_settings.ProfileName) ? "player-default" : _settings.ProfileName;
+        _continueProfile.IsChecked = _settings.ContinueExistingProfile;
         _mode.SelectedIndex = _settings.GameMode == AutomationGameMode.Random ? 1 : 0;
-        _speed.Value = Math.Clamp(_settings.SpeedState, 0, 2);
-        _maxMinutes.Value = Math.Clamp(_settings.MaxRunMinutes, 5, 480);
-        _autoUpdateCheck.Checked = _settings.CheckUpdatesOnStart;
+        _speed.SelectedIndex = Math.Clamp(_settings.SpeedState, 0, 2);
+        _maxMinutes.Text = Math.Clamp(_settings.MaxRunMinutes, 5, 480).ToString();
+        _autoUpdateCheck.IsChecked = _settings.CheckUpdatesOnStart;
     }
 
     private async Task OnShownAsync(string settingsWarning)
     {
         if (!string.IsNullOrWhiteSpace(settingsWarning))
         {
-            AppendLog("WARN", settingsWarning, Theme.Amber);
+            AppendLog("WARN", settingsWarning, GoldBrush);
         }
 
         if (_launchOptions.DemoMode)
@@ -584,6 +179,7 @@ internal sealed class MainForm : Form
                 OpenCheatForm();
                 _cheatForm?.SelectDemoTab(_launchOptions.DemoCheatTab);
             }
+
             if (_launchOptions.ScreenshotMode)
             {
                 await CaptureScreenshotAsync();
@@ -592,7 +188,7 @@ internal sealed class MainForm : Form
             return;
         }
 
-        AppendLog("INFO", "Manager 已启动；等待选择并验证 Skyspine 测试包。", Theme.ConsoleText);
+        AppendLog("INFO", "Manager 已启动；验证已安装的 Skyspine 游戏后会自动等待并连接游戏进程。", TextBrush);
         if (!string.IsNullOrWhiteSpace(_settings.GameRoot))
         {
             await ValidateGameAsync(_settings.GameRoot);
@@ -604,19 +200,37 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async void BrowseButtonOnClick(object sender, RoutedEventArgs eventArgs) => await BrowseForGameAsync();
+    private async void InstallButtonOnClick(object sender, RoutedEventArgs eventArgs) => await InstallPluginAsync();
+    private void TogglePluginButtonOnClick(object sender, RoutedEventArgs eventArgs) => TogglePlugin();
+    private void UninstallButtonOnClick(object sender, RoutedEventArgs eventArgs) => UninstallPlugin();
+    private void LaunchButtonOnClick(object sender, RoutedEventArgs eventArgs) => LaunchGame();
+    private void CheatButtonOnClick(object sender, RoutedEventArgs eventArgs) => OpenCheatForm();
+    private async void StartButtonOnClick(object sender, RoutedEventArgs eventArgs) => await SendControlAsync("start");
+    private async void PauseButtonOnClick(object sender, RoutedEventArgs eventArgs) => await SendControlAsync("pause");
+    private async void ResumeButtonOnClick(object sender, RoutedEventArgs eventArgs) => await SendControlAsync("resume");
+    private async void StopButtonOnClick(object sender, RoutedEventArgs eventArgs) => await SendControlAsync("stop");
+    private async void UpdateButtonOnClick(object sender, RoutedEventArgs eventArgs) => await UpdateButtonOnClickAsync();
+    private void OpenEvidenceButtonOnClick(object sender, RoutedEventArgs eventArgs) => OpenEvidenceDirectory();
+    private void ClearLogsButtonOnClick(object sender, RoutedEventArgs eventArgs) => _logs.Document.Blocks.Clear();
+
+    private void MaxMinutesOnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs eventArgs)
+    {
+        _maxMinutes.Text = ParseClamped(_maxMinutes.Text, 5, 480, 120).ToString();
+    }
+
     private async Task BrowseForGameAsync()
     {
         if (_launchOptions.DemoMode) return;
-        using FolderBrowserDialog dialog = new()
+        Microsoft.Win32.OpenFolderDialog dialog = new()
         {
-            Description = "选择 Loopstructor 2: Skyspine 的 Windows 打包目录",
-            UseDescriptionForTitle = true,
-            ShowNewFolderButton = false,
-            InitialDirectory = Directory.Exists(_gamePath.Text) ? _gamePath.Text : string.Empty
+            Title = "选择 Loopstructor 2: Skyspine 的 Windows 打包目录",
+            InitialDirectory = Directory.Exists(_gamePath.Text) ? _gamePath.Text : string.Empty,
+            Multiselect = false
         };
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        if (dialog.ShowDialog(this) == true)
         {
-            await ValidateGameAsync(dialog.SelectedPath);
+            await ValidateGameAsync(dialog.FolderName);
         }
     }
 
@@ -625,7 +239,7 @@ internal sealed class MainForm : Form
         SetBusy(true);
         _gamePath.Text = root;
         _validationState.Text = "正在验证构建...";
-        _validationState.ForeColor = Theme.Blue;
+        _validationState.Foreground = BlueBrush;
         try
         {
             GameInstallValidation validation = await _validator.ValidateAsync(root, _lifetime.Token);
@@ -635,24 +249,28 @@ internal sealed class MainForm : Form
                 _settings.GameRoot = validation.GameRoot;
                 _gamePath.Text = validation.GameRoot;
                 _validationState.Text = $"已验证 Skyspine {Display(validation.ProductVersion)} / {ShortHash(validation.AssemblySha256)}";
-                _validationState.ForeColor = Theme.TealDark;
-                AppendLog("SAFE", "已验证所选 Skyspine 包及自动化运行时合同。", Theme.Teal);
+                _validationState.Foreground = SignalBrush;
+                AppendLog("SAFE", "已验证所选 Skyspine 游戏及自动化运行时合同。", SignalBrush);
                 foreach (string warning in validation.Warnings)
                 {
-                    AppendLog("WARN", warning, Theme.Amber);
+                    AppendLog("WARN", warning, GoldBrush);
                 }
 
                 ApplyBuildTelemetry(validation);
                 RefreshPluginStatus();
+                if (_pluginStatus?.State == PluginState.Enabled)
+                {
+                    PrepareInstalledSession(validation, selectProfile: false, announce: true);
+                }
                 SaveSettings();
             }
             else
             {
                 _validationState.Text = validation.Errors.FirstOrDefault() ?? "构建验证失败";
-                _validationState.ForeColor = Theme.Red;
+                _validationState.Foreground = DangerBrush;
                 foreach (string error in validation.Errors)
                 {
-                    AppendLog("ERROR", error, Theme.Red);
+                    AppendLog("ERROR", error, DangerBrush);
                 }
 
                 ClearBuildTelemetry();
@@ -671,14 +289,17 @@ internal sealed class MainForm : Form
 
     private async Task InstallPluginAsync()
     {
-        if (_launchOptions.DemoMode) return;
-        if (_game == null) return;
+        if (_launchOptions.DemoMode || _game == null) return;
         SetBusy(true);
         try
         {
             PluginOperationResult result = await _installer.InstallAsync(_game, _lifetime.Token);
             AppendOperation(result);
             RefreshPluginStatus();
+            if (result.Success && _pluginStatus?.State == PluginState.Enabled)
+            {
+                PrepareInstalledSession(_game, selectProfile: true, announce: true);
+            }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -693,27 +314,34 @@ internal sealed class MainForm : Form
 
     private void TogglePlugin()
     {
-        if (_launchOptions.DemoMode) return;
-        if (_game == null || _pluginStatus == null) return;
+        if (_launchOptions.DemoMode || _game == null || _pluginStatus == null) return;
         bool enable = _pluginStatus.State == PluginState.Disabled;
         PluginOperationResult result = _installer.SetEnabled(_game.GameRoot, enable);
         AppendOperation(result);
         RefreshPluginStatus();
+        if (result.Success && enable && _pluginStatus?.State == PluginState.Enabled)
+        {
+            PrepareInstalledSession(_game, selectProfile: false, announce: true);
+        }
     }
 
     private void UninstallPlugin()
     {
-        if (_launchOptions.DemoMode) return;
-        if (_game == null) return;
-        DialogResult confirmation = MessageBox.Show(
+        if (_launchOptions.DemoMode || _game == null) return;
+        MessageBoxResult confirmation = System.Windows.MessageBox.Show(
             this,
-            "仅删除 AutoPlayer 插件与其配置，保留共享 BepInEx 运行时。继续？",
+            "仅删除 AutoPlayer 插件及其配置，保留共享 BepInEx 运行时。继续？",
             "卸载 AutoPlayer 插件",
-            MessageBoxButtons.OKCancel,
-            MessageBoxIcon.Warning);
-        if (confirmation != DialogResult.OK) return;
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.OK) return;
         PluginOperationResult result = _installer.Uninstall(_game.GameRoot);
         AppendOperation(result);
+        if (result.Success)
+        {
+            _installedSessions.Delete(_game.GameRoot);
+            ResetSession();
+        }
         RefreshPluginStatus();
     }
 
@@ -722,19 +350,106 @@ internal sealed class MainForm : Form
         if (_launchOptions.DemoMode) return;
         if (_game == null || _pluginStatus?.State != PluginState.Enabled)
         {
-            AppendLog("ERROR", "启动前必须验证测试包并启用插件。", Theme.Red);
+            AppendLog("ERROR", "启动前必须验证游戏并启用插件。", DangerBrush);
+            return;
+        }
+
+        if (_sessionTrusted && _session?.ProcessId is > 0)
+        {
+            AppendLog("INFO", "已经连接到当前 Skyspine 游戏，无需重复启动。", BlueBrush);
+            return;
+        }
+
+        int runningProcessId = FindRunningGameProcess(_game.ExecutablePath);
+        if (runningProcessId > 0)
+        {
+            PrepareInstalledSession(_game, selectProfile: false, announce: false);
+            if (_session != null) _session.ProcessId = runningProcessId;
+            SetConnectionState("正在连接", GoldBrush);
+            AppendLog(
+                "INFO",
+                $"检测到当前游戏已经运行（PID {runningProcessId}），不会重复启动；正在连接玩家模式插件。",
+                BlueBrush);
+            _pollTimer.Start();
+            _ = PollPluginAsync();
             return;
         }
 
         SaveSettings();
-        GameLaunchResult result = _gameLauncher.Launch(_game, _settings.ProfileName);
-        if (!result.Success || result.Session == null)
+        ActivationSession installedSession;
+        try
         {
-            AppendLog("ERROR", result.Message, Theme.Red);
+            installedSession = _installedSessions.Ensure(_game, _settings.ProfileName, selectProfile: true);
+        }
+        catch (Exception exception)
+        {
+            AppendLog("ERROR", "无法准备玩家模式本机控制注册：" + exception.Message, DangerBrush);
             return;
         }
 
-        _session = result.Session;
+        GameLaunchResult result = _gameLauncher.Launch(_game, installedSession);
+        if (!result.Success || result.Session == null)
+        {
+            AppendLog("ERROR", result.Message, DangerBrush);
+            return;
+        }
+
+        AdoptSession(result.Session);
+        SetConnectionState("等待插件", GoldBrush);
+        SetStageState("启动中 / 安全握手", "正在核对进程路径、程序集指纹与本机控制凭据", SignalBrush, NormalStageBackground);
+        AppendLog("INFO", result.Message, BlueBrush);
+        AppendLog("SAFE", "只接受所选游戏目录、当前 SHA-256 与本机令牌对应的插件。", SignalBrush);
+        AppendLog("INFO", "玩家模式不会重定向游戏存档或平台写入；连接后可随时开始、暂停或停止自动游玩。", TextBrush);
+        AppendLog("CHEAT", "安全握手通过后可随时打开作弊工具；关闭作弊模式后仍可开始自动游玩，运行记录会保留作弊标记。", GoldBrush);
+        _pollTimer.Start();
+        SetOperationAvailability();
+        _ = PollPluginAsync();
+    }
+
+    private void PrepareInstalledSession(
+        GameInstallValidation game,
+        bool selectProfile,
+        bool announce)
+    {
+        try
+        {
+            ActivationSession next = _installedSessions.Ensure(
+                game,
+                _profileName.Text,
+                selectProfile);
+            if (SameControlSession(_session, next))
+            {
+                _pollTimer.Start();
+                return;
+            }
+
+            AdoptSession(next);
+            SetConnectionState("等待游戏", GoldBrush);
+            SetStageState(
+                "玩家模式 / 后台待命",
+                "已安装本机控制凭据；游戏运行时 Manager 会自动连接",
+                GoldBrush,
+                NormalStageBackground);
+            if (announce)
+            {
+                AppendLog(
+                    "INFO",
+                    "玩家模式已就绪：可以先启动游戏，也可以让 Manager 启动；连接后可随时控制自动游玩。",
+                    TextBrush);
+            }
+
+            _pollTimer.Start();
+            _ = PollPluginAsync();
+        }
+        catch (Exception exception)
+        {
+            AppendLog("ERROR", "无法创建玩家模式本机控制注册：" + exception.Message, DangerBrush);
+        }
+    }
+
+    private void AdoptSession(ActivationSession session)
+    {
+        _session = session;
         _hello = null;
         _status = null;
         _sessionTrusted = false;
@@ -743,17 +458,60 @@ internal sealed class MainForm : Form
         _lastStatusSignature = string.Empty;
         _lastTrustError = string.Empty;
         _restartWarningReported = false;
+        _cheatMarkerReported = false;
         _cheatForm?.UpdateSession(false, null, null);
-        _logTail.Reset(_session.LogPath);
-        _connection.SetState("等待插件", Theme.Amber);
-        _runState.Text = "启动中 / 安全握手";
-        _stageDetail.Text = "正在核对进程、程序集指纹、隔离目录与平台写入门禁";
-        AppendLog("INFO", result.Message, Theme.Blue);
-        AppendLog("SAFE", "只接受所选目录、当前 SHA-256 与本次随机管道对应的插件。", Theme.Teal);
-        AppendLog("CHEAT", "安全握手通过后可随时打开作弊工具；作弊写操作会标记本进程并要求重启。", Theme.Amber);
-        _pollTimer.Start();
+        _logTail.Reset(session.LogPath);
+    }
+
+    private void ResetSession()
+    {
+        _pollTimer.Stop();
+        _session?.DeleteTicket();
+        _session = null;
+        _hello = null;
+        _status = null;
+        _sessionTrusted = false;
+        _transportFailures = 0;
+        _cheatForm?.UpdateSession(false, null, null);
+        SetConnectionState("未连接", MutedBrush);
         SetOperationAvailability();
-        _ = PollPluginAsync();
+    }
+
+    private static bool SameControlSession(ActivationSession? first, ActivationSession second) =>
+        first != null
+        && first.ActivationMode == second.ActivationMode
+        && string.Equals(first.Ticket.PipeName, second.Ticket.PipeName, StringComparison.Ordinal)
+        && string.Equals(first.Ticket.Token, second.Ticket.Token, StringComparison.Ordinal)
+        && string.Equals(first.Ticket.ExpectedAssemblySha256, second.Ticket.ExpectedAssemblySha256, StringComparison.OrdinalIgnoreCase)
+        && SamePath(first.Ticket.ProfileRoot, second.Ticket.ProfileRoot)
+        && SamePath(first.Ticket.ArtifactRoot, second.Ticket.ArtifactRoot);
+
+    private static int FindRunningGameProcess(string executablePath)
+    {
+        string expected = Path.GetFullPath(executablePath);
+        string processName = Path.GetFileNameWithoutExtension(expected);
+        foreach (Process process in Process.GetProcessesByName(processName))
+        {
+            using (process)
+            {
+                try
+                {
+                    string? processPath = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(processPath)
+                        && SamePath(processPath, expected)
+                        && !process.HasExited)
+                    {
+                        return process.Id;
+                    }
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+                {
+                    // Processes outside the current desktop/user boundary are not attachable.
+                }
+            }
+        }
+
+        return 0;
     }
 
     private async Task PollPluginAsync()
@@ -769,10 +527,10 @@ internal sealed class MainForm : Form
             if (!call.TransportSuccess)
             {
                 _transportFailures++;
-                _connection.SetState("未连接", Theme.Amber);
+                SetConnectionState("未连接", GoldBrush);
                 if (_transportFailures == 4)
                 {
-                    AppendLog("WARN", "尚未收到所选测试包的插件握手：" + call.Error, Theme.Amber);
+                    AppendLog("WARN", "尚未收到已安装游戏的插件握手；Manager 会继续等待：" + call.Error, GoldBrush);
                 }
 
                 if (_transportFailures >= 6 && !_legacyProbeDone)
@@ -783,8 +541,8 @@ internal sealed class MainForm : Form
                     {
                         AppendLog(
                             "ERROR",
-                            "检测到旧版固定管道，仅作诊断，Manager 不会向其发送控制命令。请重装当前插件并重启测试包。",
-                            Theme.Red);
+                            "检测到旧版固定管道，仅作诊断，Manager 不会向其发送控制命令。请重装当前插件并重启游戏。",
+                            DangerBrush);
                     }
                 }
 
@@ -794,15 +552,12 @@ internal sealed class MainForm : Form
 
             _transportFailures = 0;
             ControlResponse? response = call.Response;
-            if (response == null)
-            {
-                return;
-            }
+            if (response == null) return;
 
             if (!response.Success)
             {
-                _connection.SetState("插件拒绝", Theme.Red);
-                AppendLog("ERROR", response.Message, Theme.Red);
+                SetConnectionState("插件拒绝", DangerBrush);
+                AppendLog("ERROR", response.Message, DangerBrush);
                 return;
             }
 
@@ -812,11 +567,11 @@ internal sealed class MainForm : Form
                 _sessionTrusted = ValidateHello(_hello, out string trustError);
                 if (!_sessionTrusted)
                 {
-                    _connection.SetState("门禁失败", Theme.Red);
+                    SetConnectionState("门禁失败", DangerBrush);
                     if (!string.Equals(trustError, _lastTrustError, StringComparison.Ordinal))
                     {
                         _lastTrustError = trustError;
-                        AppendLog("ERROR", trustError, Theme.Red);
+                        AppendLog("ERROR", trustError, DangerBrush);
                     }
                 }
                 else
@@ -825,16 +580,22 @@ internal sealed class MainForm : Form
                     int launchProcessId = _session.ProcessId ?? 0;
                     _session.ProcessId = _hello.GameProcessId;
                     _session.DeleteTicket();
-                    _connection.SetState("安全连接", Theme.Teal);
-                    AppendLog("SAFE", "插件握手与本次构建指纹一致，控制通道已启用。", Theme.Teal);
+                    SetConnectionState("安全连接", SignalBrush);
+                    AppendLog("SAFE", "插件握手与本次构建指纹一致，控制通道已启用。", SignalBrush);
                     if (launchProcessId != _hello.GameProcessId)
                     {
                         AppendLog(
                             "SAFE",
                             $"已从启动进程 PID {launchProcessId} 切换为经路径验证的游戏 PID {_hello.GameProcessId}。",
-                            Theme.Teal);
+                            SignalBrush);
                     }
-                    AppendLog("SAFE", "一次性备用授权票据已在可信握手后清理。", Theme.Teal);
+
+                    AppendLog(
+                        "SAFE",
+                        _session.IsPersistent
+                            ? "玩家模式本机凭据、游戏路径和进程身份已经交叉验证。"
+                            : "一次性备用授权票据已在可信握手后清理。",
+                        SignalBrush);
                 }
 
                 ApplyHello(_hello);
@@ -852,7 +613,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception exception)
         {
-            AppendLog("ERROR", "轮询失败：" + exception.Message, Theme.Red);
+            AppendLog("ERROR", "轮询失败：" + exception.Message, DangerBrush);
         }
         finally
         {
@@ -871,13 +632,13 @@ internal sealed class MainForm : Form
             AppendLog(
                 "WARN",
                 "当前游戏进程已标记为必须重启，开始命令未发送。彻底关闭 Skyspine 后再由 Manager 重新启动。",
-                Theme.Amber);
+                GoldBrush);
             return;
         }
 
         if (!_sessionTrusted || _session == null)
         {
-            AppendLog("ERROR", "安全握手未通过，控制命令未发送。", Theme.Red);
+            AppendLog("ERROR", "安全握手未通过，控制命令未发送。", DangerBrush);
             return;
         }
 
@@ -894,12 +655,12 @@ internal sealed class MainForm : Form
             };
             if (!result.TransportSuccess)
             {
-                AppendLog("ERROR", $"{ControlCommandName(command)}发送失败：{result.Error}", Theme.Red);
+                AppendLog("ERROR", $"{ControlCommandName(command)}发送失败：{result.Error}", DangerBrush);
                 return;
             }
 
             ControlResponse response = result.Response!;
-            AppendLog(response.Success ? "ACT" : "ERROR", response.Message, response.Success ? Theme.Teal : Theme.Red);
+            AppendLog(response.Success ? "ACT" : "ERROR", response.Message, response.Success ? SignalBrush : DangerBrush);
             if (response.Status != null)
             {
                 ApplyStatus(response.Status);
@@ -917,7 +678,12 @@ internal sealed class MainForm : Form
 
     private async Task<ControlResponse?> SendCheatCommandAsync(string command, JObject? arguments)
     {
-        if (_launchOptions.DemoMode || !_sessionTrusted || _session == null)
+        if (_launchOptions.DemoMode)
+        {
+            return DemoData.CheatResponse(command, arguments);
+        }
+
+        if (!_sessionTrusted || _session == null)
         {
             return new ControlResponse
             {
@@ -935,7 +701,7 @@ internal sealed class MainForm : Form
                 string message = outcomeUnknown
                     ? "作弊写命令已发送，但连续两次未能取回同一请求 ID 的结果。为避免重复执行，本窗口已冻结写操作；请关闭游戏并重新启动测试进程。"
                     : result.Error;
-                AppendLog("ERROR", "作弊命令发送失败：" + message, Theme.Red);
+                AppendLog("ERROR", "作弊命令发送失败：" + message, DangerBrush);
                 return new ControlResponse
                 {
                     Success = false,
@@ -947,8 +713,9 @@ internal sealed class MainForm : Form
             ControlResponse response = result.Response!;
             if (!response.Success || !string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase))
             {
-                AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? Theme.Amber : Theme.Red);
+                AppendLog(response.Success ? "CHEAT" : "ERROR", response.Message, response.Success ? GoldBrush : DangerBrush);
             }
+
             if (response.Status != null)
             {
                 ApplyStatus(response.Status);
@@ -962,27 +729,41 @@ internal sealed class MainForm : Form
         }
         catch (Exception exception)
         {
-            AppendLog("ERROR", "作弊命令执行失败：" + exception.Message, Theme.Red);
+            AppendLog("ERROR", "作弊命令执行失败：" + exception.Message, DangerBrush);
             return new ControlResponse { Success = false, Message = exception.Message };
         }
     }
 
     private void OpenCheatForm()
     {
-        if (_cheatForm == null || _cheatForm.IsDisposed)
+        if (_cheatForm == null || !_cheatForm.IsLoaded)
         {
             _cheatForm = new CheatForm(SendCheatCommandAsync);
-            _cheatForm.FormClosed += (_, _) => _cheatForm = null;
+            ConfigureIndependentToolWindow(_cheatForm);
+            if (_launchOptions.DemoCheatWindow && _launchOptions.WindowSize is { } size)
+            {
+                _cheatForm.Width = Math.Max(_cheatForm.MinWidth, size.Width);
+                _cheatForm.Height = Math.Max(_cheatForm.MinHeight, size.Height);
+            }
+            _cheatForm.Closed += (_, _) => _cheatForm = null;
         }
 
         _cheatForm.UpdateSession(_sessionTrusted, _hello, _status);
-        if (!_cheatForm.Visible)
+        if (!_cheatForm.IsVisible)
         {
-            _cheatForm.Show(this);
+            _cheatForm.Show();
         }
 
-        _cheatForm.BringToFront();
         _cheatForm.Activate();
+    }
+
+    internal static void ConfigureIndependentToolWindow(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        window.Owner = null;
+        window.ShowInTaskbar = true;
+        window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        window.Topmost = false;
     }
 
     private AutomationRunOptions BuildRunOptions()
@@ -990,9 +771,9 @@ internal sealed class MainForm : Form
         return new AutomationRunOptions
         {
             Mode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common,
-            SpeedState = (int)_speed.Value,
-            MaxRunMinutes = (int)_maxMinutes.Value,
-            ContinueExistingProfile = _continueProfile.Checked
+            SpeedState = Math.Clamp(_speed.SelectedIndex, 0, 2),
+            MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120),
+            ContinueExistingProfile = _continueProfile.IsChecked == true
         };
     }
 
@@ -1019,38 +800,45 @@ internal sealed class MainForm : Form
             || !hello.ProductIdentityValid
             || !hello.FingerprintAccepted)
         {
-            error = "插件报告的产品身份或 Assembly-CSharp SHA-256 与所选测试包不一致。";
+            error = "插件报告的产品身份或 Assembly-CSharp SHA-256 与所选游戏不一致。";
             return false;
         }
 
         if (!hello.RuntimeContractAvailable)
         {
-            error = "所选测试包缺少自动化运行时成员：" + string.Join(", ", hello.MissingMembers);
+            error = "所选游戏缺少自动化运行时成员：" + string.Join(", ", hello.MissingMembers);
             return false;
         }
 
-        if (!hello.SaveIsolationApplied || !hello.SaveIsolationVerified)
+        if (hello.ActivationMode != _session.ActivationMode)
         {
-            error = "存档隔离未应用或未通过写入验证，拒绝自动游玩。";
+            error = "插件回报的自动游玩模式与 Manager 本机会话不一致。";
             return false;
         }
 
-        if (!hello.PlatformWritesBlocked || !hello.GameArtifactsRedirected)
+        if (!AutoPlayerSafetyGate.IsReady(
+                _session.ActivationMode,
+                hello.SaveIsolationApplied,
+                hello.SaveIsolationVerified,
+                hello.PlatformWritesBlocked,
+                hello.GameArtifactsRedirected))
         {
-            error = "平台写入或游戏产物重定向门禁未生效，拒绝自动游玩。";
+            error = _session.ActivationMode == AutoPlayerActivationMode.ResidentPlayer
+                ? "玩家模式意外启用了 QA 隔离补丁；为保护正常存档，拒绝控制。"
+                : "存档隔离、平台写入或游戏产物重定向门禁未通过，拒绝自动游玩。";
             return false;
         }
 
         if (!SamePath(hello.ProfileRoot, _session.Ticket.ProfileRoot)
             || !SamePath(hello.ArtifactRoot, _session.Ticket.ArtifactRoot))
         {
-            error = "插件使用的隔离档或证据目录不属于本次启动会话。";
+            error = "插件使用的本机状态目录或证据目录不属于当前控制注册。";
             return false;
         }
 
         if (hello.CheatSessionAuthorized != _session.Ticket.CheatModeAllowed)
         {
-            error = "插件回报的作弊控制授权与本次 Manager 启动票据不一致。";
+            error = "插件回报的作弊控制授权与当前本机控制注册不一致。";
             return false;
         }
 
@@ -1076,19 +864,20 @@ internal sealed class MainForm : Form
         SetTelemetry("mvid", Display(hello.AssemblyMvid));
         SetTelemetry("fingerprint", hello.FingerprintAccepted ? "通过" : "拒绝");
         SetTelemetry("runtime", hello.RuntimeContractAvailable ? "完整" : "缺失成员");
-        SetTelemetry("isolation", hello.SaveIsolationVerified ? "已应用并验证" : "未验证");
-        SetTelemetry("platform", hello.PlatformWritesBlocked ? "已阻断" : "未阻断");
-        SetTelemetry("artifacts", hello.GameArtifactsRedirected ? "已重定向" : "未重定向");
-        SetTelemetry("profile", hello.ProfileRoot);
+        bool playerMode = hello.ActivationMode == AutoPlayerActivationMode.ResidentPlayer;
+        SetTelemetry("isolation", playerMode ? "玩家原存档 / 未重定向" : hello.SaveIsolationVerified ? "已应用并验证" : "未验证");
+        SetTelemetry("platform", playerMode ? "玩家模式 / 未阻断" : hello.PlatformWritesBlocked ? "已阻断" : "未阻断");
+        SetTelemetry("artifacts", playerMode ? "仅记录 AutoPlayer 证据" : hello.GameArtifactsRedirected ? "已重定向" : "未重定向");
+        SetTelemetry("profile", playerMode ? "当前玩家存档" : hello.ProfileRoot);
         SetTelemetry("evidence", hello.ArtifactRoot);
     }
 
     private void ApplyStatus(AutoPlayerStatus status)
     {
         _status = status;
-        _runState.Text = RunStateName(status.RunState) + " / " + TimelineControl.StageName(status.Stage);
+        _runState.Text = RunStateName(status.RunState) + " / " + StageName(status.Stage);
         _stageDetail.Text = string.IsNullOrWhiteSpace(status.StageDetail) ? Display(status.LastMessage) : status.StageDetail;
-        _timeline.SetEvents(status.Timeline);
+        SetTimelineEvents(status.Timeline);
         SetTelemetry("product", Display(status.ProductName));
         SetTelemetry("gameVersion", Display(status.GameVersion));
         SetTelemetry("pluginVersion", Display(status.PluginVersion));
@@ -1099,93 +888,88 @@ internal sealed class MainForm : Form
         SetTelemetry("mvid", Display(status.AssemblyMvid));
         SetTelemetry("fingerprint", status.FingerprintAccepted ? "通过" : "拒绝");
         SetTelemetry("runtime", status.RuntimeContractAvailable ? "完整" : "缺失成员");
-        SetTelemetry("isolation", status.SaveIsolationVerified ? "已应用并验证" : "未验证");
-        SetTelemetry("platform", status.PlatformWritesBlocked ? "已阻断" : "未阻断");
-        SetTelemetry("artifacts", status.GameArtifactsRedirected ? "已重定向" : "未重定向");
-        SetTelemetry("profile", status.IsolatedSaveRoot);
+        bool playerMode = status.ActivationMode == AutoPlayerActivationMode.ResidentPlayer;
+        SetTelemetry("isolation", playerMode ? "玩家原存档 / 未重定向" : status.SaveIsolationVerified ? "已应用并验证" : "未验证");
+        SetTelemetry("platform", playerMode ? "玩家模式 / 未阻断" : status.PlatformWritesBlocked ? "已阻断" : "未阻断");
+        SetTelemetry("artifacts", playerMode ? "仅记录 AutoPlayer 证据" : status.GameArtifactsRedirected ? "已重定向" : "未重定向");
+        SetTelemetry("profile", playerMode ? "当前玩家存档" : status.IsolatedSaveRoot);
         SetTelemetry("evidence", string.IsNullOrWhiteSpace(status.EvidenceDirectory) ? status.ArtifactDirectory : status.EvidenceDirectory);
         SetTelemetry(
             "integrity",
             status.CheatUsed
-                ? status.CheatActionCount > 0
-                    ? $"QA 档已污染 / 本进程 {status.CheatActionCount} 项"
-                    : "QA 档已污染 / 历史作弊"
-                : "正常测试");
+                ? playerMode
+                    ? status.CheatActionCount > 0
+                        ? $"当前存档已使用作弊 / {status.CheatActionCount} 项"
+                        : "当前存档存在作弊记录"
+                    : status.CheatActionCount > 0
+                        ? $"隔离 QA 档已使用作弊 / {status.CheatActionCount} 项"
+                        : "隔离 QA 档存在作弊记录"
+                : playerMode ? "玩家模式 / 未使用作弊" : "隔离 QA / 未使用作弊");
         SetTelemetry("outcome", OutcomeName(status.Outcome));
         SetTelemetry("waves", $"{status.WavesCompleted} 完成 / {status.WavesStarted} 启动");
         int processId = _hello?.GameProcessId ?? _session?.ProcessId ?? 0;
         string processPrefix = processId > 0 ? $"PID {processId} / " : string.Empty;
         SetTelemetry(
             "process",
-            processPrefix + (status.CheatUsed
-                ? "QA 档只可用于作弊测试"
-                : status.NeedsProcessRestart ? "必须彻底重启" : "可继续测试"));
+            processPrefix + (status.NeedsProcessRestart
+                ? "必须彻底重启"
+                : status.CheatUsed ? "可自动游玩 / 已标记作弊" : "可随时控制"));
 
         string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CheatActionCount}";
         if (!string.Equals(signature, _lastStatusSignature, StringComparison.Ordinal))
         {
             _lastStatusSignature = signature;
-            AppendLog("STATE", $"{RunStateName(status.RunState)} / {TimelineControl.StageName(status.Stage)} / {status.LastMessage}", Theme.Blue);
+            AppendLog("STATE", $"{RunStateName(status.RunState)} / {StageName(status.Stage)} / {status.LastMessage}", BlueBrush);
         }
 
+        bool isolationTrusted = _session != null
+                                && status.ActivationMode == _session.ActivationMode
+                                && AutoPlayerSafetyGate.IsReady(
+                                    status.ActivationMode,
+                                    status.SaveIsolationApplied,
+                                    status.SaveIsolationVerified,
+                                    status.PlatformWritesBlocked,
+                                    status.GameArtifactsRedirected);
         bool statusTrusted = status.ProductIdentityValid
-                             && status.FingerprintAccepted
-                             && status.RuntimeContractAvailable
-                             && status.SaveIsolationApplied
-                             && status.SaveIsolationVerified
-                             && status.PlatformWritesBlocked
-                             && status.GameArtifactsRedirected
+                              && status.FingerprintAccepted
+                              && status.RuntimeContractAvailable
+                              && isolationTrusted
                              && (_game == null || string.Equals(
                                  status.AssemblySha256,
                                  _game.AssemblySha256,
                                  StringComparison.OrdinalIgnoreCase))
-                             && (_session == null
-                                 || (SamePath(status.IsolatedSaveRoot, _session.Ticket.ProfileRoot)
-                                     && SamePath(status.ArtifactDirectory, _session.Ticket.ArtifactRoot)));
+                              && (_session == null
+                                  || SamePath(status.ArtifactDirectory, _session.Ticket.ArtifactRoot))
+                              && (_session == null
+                                  || _session.ActivationMode == AutoPlayerActivationMode.ResidentPlayer
+                                  || SamePath(status.IsolatedSaveRoot, _session.Ticket.ProfileRoot));
         if (!statusTrusted)
         {
             _sessionTrusted = false;
-            _connection.SetState("门禁失败", Theme.Red);
+            SetConnectionState("门禁失败", DangerBrush);
         }
         else if (_sessionTrusted)
         {
-            _connection.SetState(StatusBadgeText(status.RunState), ColorForRunState(status.RunState));
+            SetConnectionState(StatusBadgeText(status.RunState), BrushForRunState(status.RunState));
         }
         else
         {
-            _connection.SetState("等待门禁", Theme.Amber);
+            SetConnectionState("等待门禁", GoldBrush);
         }
 
         if (status.CheatModeEnabled)
         {
-            _stageBanner.BackColor = Color.FromArgb(252, 242, 218);
-            _runState.ForeColor = Color.FromArgb(130, 82, 10);
+            _restartWarningReported = false;
             _runState.Text = "作弊模式 / 已启用";
             _stageDetail.Text = status.CheatUsed
                 ? status.CheatActionCount > 0
-                    ? $"本进程已尝试 {status.CheatActionCount} 项作弊操作；当前 QA 档已永久标记为污染。"
-                    : "当前 QA 档存在历史作弊污染标记，只能继续用于作弊测试。"
+                    ? $"已经执行 {status.CheatActionCount} 项作弊操作；关闭作弊模式后仍可开始自动游玩。"
+                    : "当前存档存在作弊记录；关闭作弊模式后仍可开始自动游玩。"
                 : "作弊工具已就绪；尚未执行会改变对局的操作。";
-            _connection.SetState("作弊模式", Theme.Amber);
-            SetTelemetry("process", status.CheatUsed ? "QA 档已污染 / 只能作弊测试" : "作弊模式已启用");
-            _restartWarningReported = status.CheatUsed;
-        }
-        else if (status.CheatUsed)
-        {
-            _stageBanner.BackColor = Color.FromArgb(252, 242, 218);
-            _runState.ForeColor = Color.FromArgb(130, 82, 10);
-            _runState.Text = "QA 档 / 已被作弊修改";
-            _stageDetail.Text = "普通自动游玩已禁用。请改用新的 QA 配置名称建立干净测试档；当前档仍可继续作弊测试。";
-            _connection.SetState("QA 档污染", Theme.Amber);
-            SetTelemetry("process", "QA 档已污染 / 只能作弊测试");
-            if (!_restartWarningReported)
-            {
-                _restartWarningReported = true;
-                AppendLog(
-                    "WARN",
-                    "当前 QA 档存在持久作弊污染标记，普通自动游玩已禁用。请使用新的 QA 配置名称建立干净测试档。",
-                    Theme.Amber);
-            }
+            SetStageVisual(GoldBrush, WarningStageBackground);
+            SetConnectionState("作弊模式", GoldBrush);
+            SetTelemetry("process", status.CheatUsed ? "作弊模式 / 已记录修改" : "作弊模式已启用");
+            _cheatMarkerReported = false;
         }
         else if (status.NeedsProcessRestart)
         {
@@ -1196,19 +980,75 @@ internal sealed class MainForm : Form
                 AppendLog(
                     "WARN",
                     "插件要求重启游戏进程。请彻底关闭 Skyspine，再由 Manager 重新启动；当前进程禁止开始新一轮自动游玩。",
-                    Theme.Amber);
+                    GoldBrush);
             }
         }
         else
         {
             _restartWarningReported = false;
-            _stageBanner.BackColor = Color.FromArgb(230, 242, 241);
-            _runState.ForeColor = Theme.TealDark;
+            if (status.CheatUsed && !_cheatMarkerReported)
+            {
+                _cheatMarkerReported = true;
+                AppendLog(
+                    "INFO",
+                    "作弊模式已关闭；现在可以开始自动游玩，本次运行证据会继续标记为 cheat-modified。",
+                    GoldBrush);
+            }
+            else if (!status.CheatUsed)
+            {
+                _cheatMarkerReported = false;
+            }
+
+            SetStageVisual(status.CheatUsed ? GoldBrush : SignalBrush, NormalStageBackground);
         }
 
         _cheatForm?.UpdateSession(_sessionTrusted, _hello, status);
         SetOperationAvailability();
     }
+
+    private void SetTimelineEvents(IReadOnlyList<TimelineEvent>? events)
+    {
+        IReadOnlyList<TimelineEvent> history = TimelineHistory(events);
+        string signature = string.Join(
+            '\u001e',
+            history.Select(item => $"{item.TimestampUtc.Ticks}|{item.Stage}|{item.Kind}|{item.Message}"));
+        if (string.Equals(signature, _timelineSignature, StringComparison.Ordinal)) return;
+
+        bool followLatest = _timeline.Count == 0
+                            || _timelineScroll.ScrollableHeight <= 0
+                            || _timelineScroll.VerticalOffset >= _timelineScroll.ScrollableHeight - 2;
+        double previousOffset = _timelineScroll.VerticalOffset;
+        _timelineSignature = signature;
+        _timeline.Clear();
+        foreach (TimelineEvent item in history)
+        {
+            string time = item.TimestampUtc == default
+                ? "--:--:--"
+                : item.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+            _timeline.Add(new TimelineDisplayItem(
+                $"{time}  {StageName(item.Stage)}",
+                Display(item.Message),
+                BrushForTimelineKind(item.Kind)));
+        }
+
+        _timelineEmpty.Visibility = _timeline.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _timelineItems.Visibility = _timeline.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(() =>
+            {
+                if (followLatest)
+                {
+                    _timelineScroll.ScrollToEnd();
+                    return;
+                }
+
+                _timelineScroll.ScrollToVerticalOffset(Math.Min(previousOffset, _timelineScroll.ScrollableHeight));
+            }));
+    }
+
+    internal static IReadOnlyList<TimelineEvent> TimelineHistory(IReadOnlyList<TimelineEvent>? events) =>
+        events?.ToArray() ?? Array.Empty<TimelineEvent>();
 
     private void ApplyBuildTelemetry(GameInstallValidation game)
     {
@@ -1245,12 +1085,12 @@ internal sealed class MainForm : Form
             PluginState.Incomplete => "插件安装不完整",
             _ => bepinex
         };
-        _pluginState.ForeColor = _pluginStatus.State switch
+        _pluginState.Foreground = _pluginStatus.State switch
         {
-            PluginState.Enabled => Theme.TealDark,
-            PluginState.Disabled => Theme.Amber,
-            PluginState.Incomplete => Theme.Red,
-            _ => Theme.Muted
+            PluginState.Enabled => SignalBrush,
+            PluginState.Disabled => GoldBrush,
+            PluginState.Incomplete => DangerBrush,
+            _ => MutedBrush
         };
         SetTelemetry("pluginVersion", Display(_pluginStatus.PluginVersion));
         SetOperationAvailability();
@@ -1266,73 +1106,73 @@ internal sealed class MainForm : Form
         }
 
         bool validGame = _game?.IsValid == true;
-        _installButton.Enabled = validGame;
-        _togglePluginButton.Enabled = validGame && _pluginStatus?.State is PluginState.Enabled or PluginState.Disabled;
-        _togglePluginButton.Text = _pluginStatus?.State == PluginState.Disabled ? "启用" : "停用";
-        _uninstallButton.Enabled = validGame && _pluginStatus?.State != PluginState.NotInstalled;
-        _launchButton.Enabled = validGame && _pluginStatus?.State == PluginState.Enabled;
-        _continueProfile.Enabled = validGame;
-        _cheatButton.Enabled = _sessionTrusted
-                               && (_status?.CheatSessionAuthorized == true
-                                   || _hello?.CheatSessionAuthorized == true
-                                   || _status?.CheatAvailable == true
-                                   || _hello?.CheatAvailable == true);
-        _openEvidenceButton.Enabled = !string.IsNullOrWhiteSpace(EvidenceDirectory());
+        _installButton.IsEnabled = validGame;
+        _togglePluginButton.IsEnabled = validGame && _pluginStatus?.State is PluginState.Enabled or PluginState.Disabled;
+        _togglePluginButton.Content = _pluginStatus?.State == PluginState.Disabled ? "启用" : "停用";
+        _uninstallButton.IsEnabled = validGame && _pluginStatus?.State != PluginState.NotInstalled;
+        _launchButton.IsEnabled = validGame
+                                  && _pluginStatus?.State == PluginState.Enabled
+                                  && !_sessionTrusted;
+        _continueProfile.IsEnabled = validGame;
+        _cheatButton.IsEnabled = _sessionTrusted
+                                 && (_status?.CheatSessionAuthorized == true
+                                     || _hello?.CheatSessionAuthorized == true
+                                     || _status?.CheatAvailable == true
+                                     || _hello?.CheatAvailable == true);
+        _openEvidenceButton.IsEnabled = !string.IsNullOrWhiteSpace(EvidenceDirectory());
         SetControlButtons(_sessionTrusted);
     }
 
     private void SetControlButtons(bool enabled)
     {
         RunControlAvailability availability = RunControlAvailability.From(enabled, _status);
-        _startButton.Enabled = availability.CanStart;
-        _pauseButton.Enabled = availability.CanPause;
-        _resumeButton.Enabled = availability.CanResume;
-        _stopButton.Enabled = availability.CanStop;
+        _startButton.IsEnabled = availability.CanStart;
+        _pauseButton.IsEnabled = availability.CanPause;
+        _resumeButton.IsEnabled = availability.CanResume;
+        _stopButton.IsEnabled = availability.CanStop;
     }
 
     private void ShowRestartRequired()
     {
-        _stageBanner.BackColor = Color.FromArgb(252, 237, 225);
-        _runState.ForeColor = Theme.Red;
-        _runState.Text = "必须重启 / 当前进程不可继续";
-        _stageDetail.Text = "彻底关闭 Skyspine 游戏进程后，再由 Manager 重新启动；当前进程不能开始新一轮自动游玩。";
-        _connection.SetState("需要重启", Theme.Red);
+        SetStageState(
+            "必须重启 / 当前进程不可继续",
+            "彻底关闭 Skyspine 游戏进程后，再由 Manager 重新启动；当前进程不能开始新一轮自动游玩。",
+            DangerBrush,
+            RestartStageBackground);
+        SetConnectionState("需要重启", DangerBrush);
         SetTelemetry("process", "必须彻底重启");
         SetControlButtons(_sessionTrusted);
     }
 
     private void SetBusy(bool busy)
     {
-        UseWaitCursor = busy;
-        _browseButton.Enabled = !busy;
-        _continueProfile.Enabled = !busy;
+        Cursor = busy ? Cursors.Wait : null;
+        _browseButton.IsEnabled = !busy;
+        _continueProfile.IsEnabled = !busy;
         if (busy)
         {
-            _installButton.Enabled = false;
-            _togglePluginButton.Enabled = false;
-            _uninstallButton.Enabled = false;
-            _launchButton.Enabled = false;
+            _installButton.IsEnabled = false;
+            _togglePluginButton.IsEnabled = false;
+            _uninstallButton.IsEnabled = false;
+            _launchButton.IsEnabled = false;
         }
     }
 
     private void SetInteractiveControls(bool enabled)
     {
-        foreach (Control control in new Control[]
+        foreach (UIElement control in new UIElement[]
                  {
                      _browseButton, _installButton, _togglePluginButton, _uninstallButton, _launchButton,
                      _cheatButton, _startButton, _pauseButton, _resumeButton, _stopButton, _updateButton
                  })
         {
-            control.Enabled = enabled;
+            control.IsEnabled = enabled;
         }
     }
 
     private void CheckSelectedProcessBoundary()
     {
-        if (_session?.ProcessId is not > 0 || _transportFailures != 5)
-        {
-            return;
-        }
+        if (_session?.ProcessId is not > 0 || _transportFailures != 5) return;
 
         try
         {
@@ -1346,8 +1186,15 @@ internal sealed class MainForm : Form
 
         AppendLog(
             "ERROR",
-            "所选测试包已退出。若 Steam RestartAppIfNecessary 启动了另一安装目录，Manager 不会跟随或控制该进程；请从正确目录重新启动测试包。",
-            Theme.Red);
+            "已连接的 Skyspine 游戏已经退出。Manager 会继续在后台等待同一受信游戏再次启动。",
+            DangerBrush);
+        _sessionTrusted = false;
+        _hello = null;
+        _status = null;
+        _session.ProcessId = null;
+        _lastStatusSignature = string.Empty;
+        SetConnectionState("等待游戏", GoldBrush);
+        SetOperationAvailability();
     }
 
     private void ReadPlayerLog()
@@ -1356,21 +1203,21 @@ internal sealed class MainForm : Form
         {
             foreach (string line in _logTail.ReadAvailable())
             {
-                Color color = line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                Brush color = line.Contains("error", StringComparison.OrdinalIgnoreCase)
                               || line.Contains("exception", StringComparison.OrdinalIgnoreCase)
                               || line.Contains("错误", StringComparison.Ordinal)
                               || line.Contains("异常", StringComparison.Ordinal)
-                    ? Theme.Red
+                    ? DangerBrush
                     : line.Contains("warning", StringComparison.OrdinalIgnoreCase)
                       || line.Contains("警告", StringComparison.Ordinal)
-                        ? Theme.Amber
-                        : Theme.ConsoleText;
+                        ? GoldBrush
+                        : TextBrush;
                 AppendLog("GAME", line, color);
             }
         }
         catch (Exception exception)
         {
-            AppendLog("WARN", "Player.log 暂时无法读取：" + exception.Message, Theme.Amber);
+            AppendLog("WARN", "Player.log 暂时无法读取：" + exception.Message, GoldBrush);
         }
     }
 
@@ -1380,15 +1227,15 @@ internal sealed class MainForm : Form
         SaveSettings();
         if (_updateAvailable)
         {
-            DialogResult confirmation = MessageBox.Show(
+            MessageBoxResult confirmation = System.Windows.MessageBox.Show(
                 this,
                 "Updater 将等待游戏与 Manager 退出，再校验并替换工具文件。现在开始？",
                 "安装 AutoPlayer 更新",
-                MessageBoxButtons.OKCancel,
-                MessageBoxIcon.Information);
-            if (confirmation != DialogResult.OK) return;
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Information);
+            if (confirmation != MessageBoxResult.OK) return;
             (bool success, string message) = _updates.StartApply(_settings, _session?.ProcessId);
-            AppendLog(success ? "INFO" : "ERROR", message, success ? Theme.Blue : Theme.Red);
+            AppendLog(success ? "INFO" : "ERROR", message, success ? BlueBrush : DangerBrush);
             if (success)
             {
                 Close();
@@ -1402,18 +1249,18 @@ internal sealed class MainForm : Form
 
     private async Task CheckForUpdatesAsync(bool userInitiated)
     {
-        _updateButton.Enabled = false;
+        _updateButton.IsEnabled = false;
         _updateState.Text = "正在检查...";
         ManagerUpdateStatus result = await _updates.CheckAsync(_settings, _lifetime.Token);
-        _updateButton.Enabled = true;
+        _updateButton.IsEnabled = true;
         _updateAvailable = result.Success && result.UpdateAvailable;
         _updateState.Text = result.UpdateAvailable
             ? $"可更新 {result.LatestVersion}"
-            : result.Success ? "当前已是最新版" : "更新检查不可用";
-        _updateButton.Text = result.UpdateAvailable ? "安装更新" : "检查更新";
+            : result.Success ? "当前已是最新版本" : "更新检查不可用";
+        _updateButton.Content = result.UpdateAvailable ? "安装更新" : "检查更新";
         if (userInitiated || result.UpdateAvailable)
         {
-            AppendLog(result.Success ? "INFO" : "WARN", result.Message, result.Success ? Theme.Blue : Theme.Amber);
+            AppendLog(result.Success ? "INFO" : "WARN", result.Message, result.Success ? BlueBrush : GoldBrush);
         }
     }
 
@@ -1426,42 +1273,58 @@ internal sealed class MainForm : Form
             : DemoData.Status(_launchOptions.DemoRestartRequired);
         _gamePath.Text = _game.GameRoot;
         _validationState.Text = "已验证 Skyspine 1.237 / " + ShortHash(_game.AssemblySha256);
-        _validationState.ForeColor = Theme.TealDark;
+        _validationState.Foreground = SignalBrush;
         _pluginState.Text = "插件已启用  " + _hello.PluginVersion;
-        _pluginState.ForeColor = Theme.TealDark;
+        _pluginState.Foreground = SignalBrush;
         _sessionTrusted = true;
-        _connection.SetState("安全连接", Theme.Teal);
+        SetConnectionState("安全连接", SignalBrush);
         ApplyBuildTelemetry(_game);
         ApplyHello(_hello);
         ApplyStatus(_status);
         _updateState.Text = "演示数据";
         foreach (string line in DemoData.LogLines())
         {
-            AppendLog(string.Empty, line, line.Contains("安全", StringComparison.Ordinal) ? Theme.Teal : Theme.ConsoleText);
+            AppendLog(string.Empty, line, line.Contains("安全", StringComparison.Ordinal) ? SignalBrush : TextBrush);
         }
 
-        _openEvidenceButton.Enabled = false;
+        _openEvidenceButton.IsEnabled = false;
     }
 
     private async Task CaptureScreenshotAsync()
     {
         await Task.Delay(450);
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         string output = string.IsNullOrWhiteSpace(_launchOptions.ScreenshotOutput)
             ? Path.Combine(Protocol.DataRoot, "artifacts", "manager-screenshot.png")
             : _launchOptions.ScreenshotOutput;
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-        Control captureTarget = _launchOptions.DemoCheatWindow && _cheatForm is { IsDisposed: false }
-            ? _cheatForm
+
+        FrameworkElement captureTarget = _launchOptions.DemoCheatWindow && _cheatForm is { IsLoaded: true }
+            ? (_cheatForm.Content as FrameworkElement ?? _cheatForm)
             : _captureSurface;
-        Size captureSize = _launchOptions.DemoCheatWindow
-            ? captureTarget.Size
-            : _launchOptions.WindowSize ?? captureTarget.ClientSize;
-        using Bitmap bitmap = new(captureSize.Width, captureSize.Height);
-        captureTarget.DrawToBitmap(bitmap, new Rectangle(Point.Empty, captureSize));
-        bitmap.Save(output, ImageFormat.Png);
+        captureTarget.UpdateLayout();
+        double width = Math.Max(1, captureTarget.ActualWidth);
+        double height = Math.Max(1, captureTarget.ActualHeight);
+        DpiScale dpi = VisualTreeHelper.GetDpi(captureTarget);
+        int pixelWidth = Math.Max(1, (int)Math.Ceiling(width * dpi.DpiScaleX));
+        int pixelHeight = Math.Max(1, (int)Math.Ceiling(height * dpi.DpiScaleY));
+        RenderTargetBitmap bitmap = new(
+            pixelWidth,
+            pixelHeight,
+            dpi.PixelsPerInchX,
+            dpi.PixelsPerInchY,
+            PixelFormats.Pbgra32);
+        bitmap.Render(captureTarget);
+        PngBitmapEncoder encoder = new();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using (FileStream stream = new(output, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            encoder.Save(stream);
+        }
+
         if (_launchOptions.ExitAfterScreenshot)
         {
-            BeginInvoke(Close);
+            _ = Dispatcher.BeginInvoke(new Action(Close));
         }
     }
 
@@ -1470,7 +1333,7 @@ internal sealed class MainForm : Form
         string directory = EvidenceDirectory();
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {
-            AppendLog("WARN", "证据目录尚未创建。", Theme.Amber);
+            AppendLog("WARN", "证据目录尚未创建。", GoldBrush);
             return;
         }
 
@@ -1482,7 +1345,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception exception)
         {
-            AppendLog("ERROR", "无法打开证据目录：" + exception.Message, Theme.Red);
+            AppendLog("ERROR", "无法打开证据目录：" + exception.Message, DangerBrush);
         }
     }
 
@@ -1495,29 +1358,52 @@ internal sealed class MainForm : Form
 
     private void AppendOperation(PluginOperationResult result)
     {
-        AppendLog(result.Success ? "INFO" : "ERROR", result.Message, result.Success ? Theme.Teal : Theme.Red);
+        AppendLog(result.Success ? "INFO" : "ERROR", result.Message, result.Success ? SignalBrush : DangerBrush);
     }
 
-    private void AppendLog(string category, string message, Color color)
+    private void AppendLog(string category, string message, Brush color)
     {
-        if (IsDisposed || string.IsNullOrWhiteSpace(message)) return;
+        if (string.IsNullOrWhiteSpace(message) || _lifetime.IsCancellationRequested) return;
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => AppendLog(category, message, color)));
+            return;
+        }
+
+        bool shouldFollowLatest = ShouldFollowLatest(
+            _logs.VerticalOffset,
+            _logs.ViewportHeight,
+            _logs.ExtentHeight);
         string prefix = string.IsNullOrWhiteSpace(category)
             ? string.Empty
             : DateTime.Now.ToString("HH:mm:ss.fff") + "  " + LogCategoryName(category).PadRight(4) + " ";
-        _logs.SelectionStart = _logs.TextLength;
-        _logs.SelectionLength = 0;
-        _logs.SelectionColor = color;
-        _logs.AppendText(prefix + message.Replace("\r", string.Empty).Replace("\n", " ") + Environment.NewLine);
-        _logs.SelectionColor = _logs.ForeColor;
-        if (_logs.Lines.Length > 1500)
+        Paragraph paragraph = new(new Run(prefix + message.Replace("\r", string.Empty).Replace("\n", " "))
         {
-            string[] keep = _logs.Lines.TakeLast(1000).ToArray();
-            _logs.Lines = keep;
+            Foreground = color
+        })
+        {
+            Margin = new Thickness(0),
+            LineHeight = 18
+        };
+        _logs.Document.Blocks.Add(paragraph);
+        while (_logs.Document.Blocks.Count > 1500)
+        {
+            while (_logs.Document.Blocks.Count > 1000 && _logs.Document.Blocks.FirstBlock is { } first)
+            {
+                _logs.Document.Blocks.Remove(first);
+            }
         }
 
-        _logs.SelectionStart = _logs.TextLength;
-        _logs.ScrollToCaret();
+        if (shouldFollowLatest) _logs.ScrollToEnd();
     }
+
+    internal static bool ShouldFollowLatest(
+        double verticalOffset,
+        double viewportHeight,
+        double extentHeight,
+        double tolerance = 2) =>
+        extentHeight <= viewportHeight ||
+        verticalOffset + viewportHeight >= extentHeight - Math.Max(0, tolerance);
 
     internal static string LogCategoryName(string category) => category.ToUpperInvariant() switch
     {
@@ -1545,24 +1431,24 @@ internal sealed class MainForm : Form
     {
         if (_launchOptions.DemoMode) return;
         _settings.GameRoot = _game?.GameRoot ?? _gamePath.Text.Trim();
-        _settings.ProfileName = string.IsNullOrWhiteSpace(_profileName.Text) ? "qa-default" : _profileName.Text.Trim();
-        _settings.ContinueExistingProfile = _continueProfile.Checked;
+        _settings.ProfileName = string.IsNullOrWhiteSpace(_profileName.Text) ? "player-default" : _profileName.Text.Trim();
+        _settings.ContinueExistingProfile = _continueProfile.IsChecked == true;
         _settings.GameMode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common;
-        _settings.SpeedState = (int)_speed.Value;
-        _settings.MaxRunMinutes = (int)_maxMinutes.Value;
+        _settings.SpeedState = Math.Clamp(_speed.SelectedIndex, 0, 2);
+        _settings.MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120);
         _settings.NormalizeUpdateSource();
-        _settings.CheckUpdatesOnStart = _autoUpdateCheck.Checked;
+        _settings.CheckUpdatesOnStart = _autoUpdateCheck.IsChecked == true;
         try
         {
             _settingsStore.Save(_settings);
         }
         catch (Exception exception)
         {
-            AppendLog("WARN", "Manager 设置无法保存：" + exception.Message, Theme.Amber);
+            AppendLog("WARN", "Manager 设置无法保存：" + exception.Message, GoldBrush);
         }
     }
 
-    private void OnFormClosing(object? sender, FormClosingEventArgs eventArgs)
+    private void OnWindowClosing(object? sender, CancelEventArgs eventArgs)
     {
         SaveSettings();
         _pollTimer.Stop();
@@ -1576,110 +1462,62 @@ internal sealed class MainForm : Form
         await PollPluginAsync();
     }
 
-    private void AddTelemetry(TableLayoutPanel table, string key, string caption)
-    {
-        int row = table.RowCount++;
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
-        Label name = new()
-        {
-            Text = caption,
-            Dock = DockStyle.Fill,
-            ForeColor = Theme.Muted,
-            Font = Theme.Body(8.3f),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(0, 0, 7, 0)
-        };
-        Label value = Theme.Value();
-        value.Padding = new Padding(0, 0, 4, 0);
-        table.Controls.Add(name, 0, row);
-        table.Controls.Add(value, 1, row);
-        _telemetry[key] = value;
-    }
-
     private void SetTelemetry(string key, string value)
     {
-        if (!_telemetry.TryGetValue(key, out Label? label)) return;
-        label.Text = Display(value);
-        _toolTip.SetToolTip(label, string.IsNullOrWhiteSpace(value) ? null : value);
+        if (!_telemetry.TryGetValue(key, out TelemetryRow? row)) return;
+        row.Value = Display(value);
     }
 
-    private static Label SectionHeading(string text) => new()
+    private void SetConnectionState(string text, Brush color)
     {
-        Text = text,
-        Height = 34,
-        AutoSize = false,
-        ForeColor = Theme.Ink,
-        Font = Theme.Body(11f, FontStyle.Bold),
-        TextAlign = ContentAlignment.MiddleLeft,
-        Margin = Padding.Empty
-    };
-
-    private static Panel FieldPanel(string caption, int height)
-    {
-        Panel panel = new() { Width = 250, Height = height, Margin = new Padding(0, 0, 0, 5) };
-        Label label = Theme.Caption(caption);
-        label.Location = Point.Empty;
-        panel.Controls.Add(label);
-        return panel;
+        _connectionText.Text = text;
+        _connectionLamp.Fill = color;
     }
 
-    private static Panel FieldPanel(string caption, Control input)
+    private void SetStageState(string title, string detail, Brush color, Brush background)
     {
-        Panel panel = FieldPanel(caption, 55);
-        input.Location = new Point(0, 22);
-        input.Width = 250;
-        panel.Controls.Add(input);
-        return panel;
+        _runState.Text = title;
+        _stageDetail.Text = detail;
+        SetStageVisual(color, background);
     }
 
-    private static Panel Divider() => new()
+    private void SetStageVisual(Brush color, Brush background)
     {
-        Width = 250,
-        Height = 1,
-        BackColor = Theme.Line,
-        Margin = new Padding(0, 2, 0, 2)
+        _stageBanner.Background = background;
+        _runState.Foreground = color;
+        _stageLamp.Fill = color;
+    }
+
+    private Brush ThemeBrush(string key) => (Brush)FindResource(key);
+
+    private Brush BrushForRunState(AutoPlayerRunState state) => state switch
+    {
+        AutoPlayerRunState.Running => SignalBrush,
+        AutoPlayerRunState.Paused => GoldBrush,
+        AutoPlayerRunState.Completed => BlueBrush,
+        AutoPlayerRunState.Faulted or AutoPlayerRunState.Incompatible => DangerBrush,
+        _ => SignalBrush
     };
 
-    private static TextBox InputBox() => new()
+    private Brush BrushForTimelineKind(string? kind) => kind?.ToLowerInvariant() switch
     {
-        Height = 30,
-        BorderStyle = BorderStyle.FixedSingle,
-        BackColor = Color.White,
-        ForeColor = Theme.Ink,
-        Font = Theme.Body(9f)
+        "error" or "fault" => DangerBrush,
+        "warning" => GoldBrush,
+        "complete" => BlueBrush,
+        "command" or "action" => SignalBrush,
+        _ => MutedBrush
     };
 
-    private static NumericUpDown NumberInput(decimal minimum, decimal maximum, decimal value) => new()
+    private static Brush CreateBrush(byte red, byte green, byte blue)
     {
-        Minimum = minimum,
-        Maximum = maximum,
-        Value = value,
-        Dock = DockStyle.Bottom,
-        Height = 29,
-        BorderStyle = BorderStyle.FixedSingle,
-        Font = Theme.Data(9f)
-    };
+        SolidColorBrush brush = new(Color.FromRgb(red, green, blue));
+        brush.Freeze();
+        return brush;
+    }
 
-    private static Control OptionField(string caption, Control input)
+    private static int ParseClamped(string? text, int minimum, int maximum, int fallback)
     {
-        TableLayoutPanel panel = new()
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            Padding = new Padding(0, 0, 10, 0),
-            Margin = Padding.Empty
-        };
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        Label label = Theme.Caption(caption);
-        label.Dock = DockStyle.Fill;
-        label.Margin = Padding.Empty;
-        input.Dock = DockStyle.Top;
-        input.Margin = Padding.Empty;
-        panel.Controls.Add(label, 0, 0);
-        panel.Controls.Add(input, 0, 1);
-        return panel;
+        return int.TryParse(text, out int value) ? Math.Clamp(value, minimum, maximum) : fallback;
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
@@ -1709,7 +1547,7 @@ internal sealed class MainForm : Form
     {
         if (processId <= 0)
         {
-            error = "插件握手未返回有效的游戏进程 PID；请重装当前插件并重新启动测试包。";
+            error = "插件握手未返回有效的游戏进程 PID；请重装当前插件并重新启动游戏。";
             return false;
         }
 
@@ -1725,7 +1563,7 @@ internal sealed class MainForm : Form
             string actualExecutable = process.MainModule?.FileName ?? string.Empty;
             if (!SamePath(actualExecutable, expectedExecutable))
             {
-                error = $"插件进程 PID {processId} 不属于当前选择的测试包，拒绝建立控制通道。";
+                error = $"插件进程 PID {processId} 不属于当前选择的游戏目录，拒绝建立控制通道。";
                 return false;
             }
 
@@ -1773,12 +1611,50 @@ internal sealed class MainForm : Form
         _ => "安全连接"
     };
 
-    private static Color ColorForRunState(AutoPlayerRunState state) => state switch
+    private static string StageName(AutomationStage stage) => stage switch
     {
-        AutoPlayerRunState.Running => Theme.Teal,
-        AutoPlayerRunState.Paused => Theme.Amber,
-        AutoPlayerRunState.Completed => Theme.Blue,
-        AutoPlayerRunState.Faulted or AutoPlayerRunState.Incompatible => Theme.Red,
-        _ => Theme.Teal
+        AutomationStage.WaitingForGame => "等待游戏",
+        AutomationStage.FrontEnd => "主菜单",
+        AutomationStage.RandomSelection => "随机模式选择",
+        AutomationStage.InitializingRun => "初始化对局",
+        AutomationStage.PreparingDefense => "准备防线",
+        AutomationStage.ManagingRewards => "处理奖励",
+        AutomationStage.ManagingEvent => "处理事件",
+        AutomationStage.ManagingShop => "处理商店",
+        AutomationStage.SelectingRoute => "选择路线",
+        AutomationStage.StartingWave => "启动波次",
+        AutomationStage.Battle => "战斗",
+        AutomationStage.Completed => "完成",
+        AutomationStage.Recovery => "恢复",
+        _ => stage.ToString()
     };
+
+    private sealed class TelemetryRow : INotifyPropertyChanged
+    {
+        private string _value = "-";
+
+        public TelemetryRow(string key, string caption)
+        {
+            Key = key;
+            Caption = caption;
+        }
+
+        public string Key { get; }
+        public string Caption { get; }
+
+        public string Value
+        {
+            get => _value;
+            set
+            {
+                if (string.Equals(_value, value, StringComparison.Ordinal)) return;
+                _value = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Value)));
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
+
+    private sealed record TimelineDisplayItem(string Heading, string Message, Brush Accent);
 }

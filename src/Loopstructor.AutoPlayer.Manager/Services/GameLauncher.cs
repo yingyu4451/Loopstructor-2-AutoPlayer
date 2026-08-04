@@ -29,8 +29,27 @@ public sealed class GameLauncher
         ActivationSession? session = null;
         try
         {
-            _configWriter.Write(game.GameRoot, game.AssemblySha256);
             session = _sessionFactory.Create(game, profileName);
+            return Launch(game, session);
+        }
+        catch (Exception exception)
+        {
+            session?.DeleteTicket();
+            return new GameLaunchResult { Message = "无法启动游戏。详细信息：" + exception.Message };
+        }
+    }
+
+    public GameLaunchResult Launch(GameInstallValidation game, ActivationSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (!game.IsValid)
+        {
+            return new GameLaunchResult { Message = "所选 Skyspine 游戏无效。" };
+        }
+
+        try
+        {
+            _configWriter.Write(game.GameRoot, game.AssemblySha256);
             ProcessStartInfo startInfo = CreateStartInfo(game, session);
 
             Process? process = Process.Start(startInfo);
@@ -51,7 +70,7 @@ public sealed class GameLauncher
         }
         catch (Exception exception)
         {
-            session?.DeleteTicket();
+            session.DeleteTicket();
             return new GameLaunchResult { Message = "无法启动游戏。详细信息：" + exception.Message };
         }
     }
@@ -92,6 +111,7 @@ public sealed class GameLauncher
             profileRoot = session.Ticket.ProfileRoot,
             artifactRoot = session.Ticket.ArtifactRoot,
             cheatModeAllowed = session.Ticket.CheatModeAllowed,
+            activationMode = session.ActivationMode.ToString(),
             steamAppId = GameInstallValidator.ExpectedSteamAppId,
             processId = session.ProcessId
         };
