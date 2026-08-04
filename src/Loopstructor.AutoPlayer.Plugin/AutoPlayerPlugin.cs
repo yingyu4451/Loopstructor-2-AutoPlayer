@@ -1,151 +1,30 @@
-using System;
-using System.IO;
 using BepInEx;
-using HarmonyLib;
-using Loopstructor.AutoPlayer.Core;
-using Newtonsoft.Json;
 
 namespace Loopstructor.AutoPlayer.Plugin;
 
-/// <summary>Hosts the process-local automation adapter in isolated QA or resident player mode.</summary>
+/// <summary>Bootstraps the process-local runtime in isolated QA or resident player mode.</summary>
 [BepInPlugin(PluginInfo.Guid, PluginInfo.Name, PluginInfo.Version)]
 public sealed class AutoPlayerPlugin : BaseUnityPlugin
 {
-    private Harmony? _harmony;
-    private AutoPlayController? _controller;
-    private CheatController? _cheatController;
-    private PipeControlServer? _controlServer;
-    private EvidenceRecorder? _evidence;
-    private string _statusPath = string.Empty;
-    private float _nextStatusWriteAt;
-    private bool _residentPlayerMode;
+    private bool _activationAccepted;
 
     private void Awake()
     {
-        if (!ActivationContext.TryLoad(Paths.GameRootPath, out ActivationContext? activation, out string activationReason) || activation == null)
+        if (!ActivationContext.TryLoad(Paths.GameRootPath, out ActivationContext? activation, out string activationReason)
+            || activation == null)
         {
             Logger.LogInfo("本次启动未激活 AutoPlayer：" + activationReason);
             return;
         }
 
-        _residentPlayerMode = activation.IsPlayerMode;
-
-        // Both activation modes must survive menu, map and battle scene loads.
-        // This only preserves the BepInEx host; player mode still installs no QA isolation patches.
-        ProtectActivatedManagerObject(hideFromSceneSerialization: !activation.IsPlayerMode);
-
-        PluginSettings settings = new(Config);
-        RuntimeBridge bridge = new();
-        bridge.Initialize();
-        if (!bridge.IsAvailable)
-        {
-            Logger.LogWarning("自动游玩运行时契约不完整：" + string.Join(", ", bridge.MissingMembers));
-        }
-
-        BuildFingerprint fingerprint = BuildFingerprint.Capture();
-        _harmony = new Harmony(PluginInfo.Guid);
-        bool baseContractAccepted = fingerprint.ProductIdentityValid
-                                    && fingerprint.MatchesExpectedAssembly(activation.ExpectedAssemblySha256)
-                                    && bridge.IsAvailable;
-        if (baseContractAccepted)
-        {
-            if (!activation.IsPlayerMode)
-            {
-                SaveIsolationPatch.Install(_harmony, activation.ProfileRoot, Logger.LogInfo);
-                PlatformWriteIsolationPatch.Install(_harmony, Logger.LogInfo);
-                GameArtifactIsolationPatch.Install(_harmony, activation.ArtifactRoot, Logger.LogInfo);
-            }
-            else
-            {
-                Logger.LogInfo("玩家模式已进入本机鉴权待命；不会重定向存档、平台写入或游戏诊断产物。");
-            }
-
-            GameOutcomeObserver.Install(_harmony, Logger.LogInfo);
-            if (!MapSkipPatch.Install(_harmony, Logger.LogInfo))
-            {
-                Logger.LogWarning("地图跳关未能接入游戏地图输入流程；该功能将保持不可用。");
-            }
-        }
-        else
-        {
-            Logger.LogWarning("兼容性检查未通过，补丁尚未安装；游戏进程保持未修改状态。");
-        }
-
-        _evidence = new EvidenceRecorder(activation.ArtifactRoot);
-        _controller = new AutoPlayController(bridge, settings, fingerprint, activation, _evidence, Logger);
-        _cheatController = new CheatController(_controller, activation, Logger, baseContractAccepted);
-        if (baseContractAccepted && !SpawnPointCaptureInputPatch.Install(_harmony, Logger.LogInfo))
-        {
-            Logger.LogWarning("怪物生成位置捕获未能接入游戏输入流水线；该功能将保持不可用。");
-        }
-        _controlServer = new PipeControlServer(_controller, _cheatController, activation);
-        _controlServer.Start();
-        _statusPath = Path.Combine(activation.ArtifactRoot, "status.json");
-        if (!_residentPlayerMode) WriteStatus();
-        Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} 已通过{ActivationSourceLabel(activation.Source)}激活，当前处于待命模式。");
-    }
-
-    private void ProtectActivatedManagerObject(bool hideFromSceneSerialization)
-    {
-        UnityEngine.Object.DontDestroyOnLoad(gameObject);
-        if (hideFromSceneSerialization)
-        {
-            gameObject.hideFlags |= UnityEngine.HideFlags.HideAndDontSave;
-        }
-        Logger.LogInfo("已保护激活的 BepInEx 管理器对象，避免其被场景清理。");
-    }
-
-    private void Update()
-    {
-        _controlServer?.Pump();
-        _cheatController?.Tick();
-        _controller?.Tick();
-        if (!_residentPlayerMode
-            && _controller != null
-            && UnityEngine.Time.realtimeSinceStartup >= _nextStatusWriteAt)
-        {
-            _nextStatusWriteAt = UnityEngine.Time.realtimeSinceStartup + 1f;
-            WriteStatus();
-        }
-    }
-
-    private void OnGUI()
-    {
-        _cheatController?.DrawEnemyIds();
+        _activationAccepted = AutoPlayerRuntimeSession.TryStart(activation, Config, Logger);
     }
 
     private void OnDestroy()
     {
-        Logger.LogInfo("AutoPlayer 插件宿主正在退出；本机控制通道已关闭。");
-        _controlServer?.Dispose();
-        _controlServer = null;
-        _cheatController?.Dispose();
-        _cheatController = null;
-        SpawnPointCaptureInputPatch.Detach();
-        MapSkipPatch.Reset();
-        if (!_residentPlayerMode) WriteStatus();
-        _controller = null;
-        _harmony?.UnpatchSelf();
-        _harmony = null;
-    }
-
-    private void WriteStatus()
-    {
-        if (_controller == null || string.IsNullOrWhiteSpace(_statusPath)) return;
-        try
+        if (_activationAccepted && AutoPlayerRuntimeSession.IsRunning)
         {
-            EvidenceRecorder.AtomicWrite(_statusPath, JsonConvert.SerializeObject(_controller.Snapshot(), Formatting.Indented));
-        }
-        catch (Exception exception)
-        {
-            Logger.LogWarning("无法写入自动游玩状态：" + exception.Message);
+            Logger.LogInfo("BepInEx 启动组件已退出；独立 AutoPlayer 运行时宿主继续保持本机控制通道。");
         }
     }
-
-    private static string ActivationSourceLabel(string source) =>
-        string.Equals(source, "environment", StringComparison.OrdinalIgnoreCase)
-            ? "环境变量"
-            : string.Equals(source, "ticket", StringComparison.OrdinalIgnoreCase)
-                ? "启动票据"
-                : source;
 }

@@ -381,7 +381,7 @@ static void VerifyInterruptedRecovery(string root)
         TargetRoot = target,
         BackupRoot = backup,
         StagingRoot = staging,
-        Version = "0.5.1",
+        Version = "0.5.2",
         Phase = "backup-created",
         UpdatedAtUtc = DateTime.UtcNow
     };
@@ -396,7 +396,7 @@ static void VerifyInterruptedRecovery(string root)
 static void VerifyInvalidInstallRollback(string root)
 {
     string target = Path.Combine(root, "invalid-release");
-    CreateRelease(target, "0.5.1");
+    CreateRelease(target, "0.5.2");
     string backup = Path.Combine(root, ".LoopstructorAutoPlayer-backup-invalid");
     string staging = Path.Combine(root, ".LoopstructorAutoPlayer-staging-invalid");
     Directory.Move(target, backup);
@@ -417,7 +417,7 @@ static void VerifyInvalidInstallRollback(string root)
     File.WriteAllText(journalPath, JsonSerializer.Serialize(journal));
     TransactionalInstaller installer = new(journalPath: journalPath);
     installer.RecoverIncomplete(target);
-    Require(ReadReleaseVersion(target) == "0.5.1", "invalid installed release rolled back");
+    Require(ReadReleaseVersion(target) == "0.5.2", "invalid installed release rolled back");
     Require(!File.Exists(journalPath), "rollback journal removed");
     Require(Directory.GetDirectories(root, ".LoopstructorAutoPlayer-failed-*", SearchOption.TopDirectoryOnly).Length > 0,
         "invalid installed release retained for diagnostics");

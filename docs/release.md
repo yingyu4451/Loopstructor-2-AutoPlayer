@@ -55,9 +55,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 默认防线的干净初始化暂态会重试且不累计连续失败；任何深层包装中的 `statePolluted=true`、`needsReset=true`，以及已提交动力站点后发生的后续失败，都必须被识别为不安全并要求新进程。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
 
+## 0.5.2 独立运行时宿主验收
+
+现场日志证明 `0.5.1` 的插件虽然对 BepInEx 管理对象调用了 `DontDestroyOnLoad`，该对象仍会在游戏第一次正式场景装载时被销毁，`OnDestroy` 随即关闭控制管道。`0.5.2` 将控制服务、控制器、Harmony 补丁和 Unity 帧回调迁移到隐藏的独立根对象；BepInEx 组件只负责验证激活并启动静态会话，其销毁不再释放运行时。独立宿主若意外消失，静态会话会通过 `sceneLoaded`、`activeSceneChanged` 和 `onBeforeRender` 在主线程限频重建；只有应用退出信号才执行逐项、失败互不影响的最终清理。
+
+发布前必须用程序集契约测试锁定 bootstrap、独立宿主、重建回调、退出事件和最终清理的所有权，且 Pipe 服务至少有一个监听器成功绑定后才能记录激活成功。同一进程出现部分初始化失败时必须失败关闭并要求重启，不能复用残留的静态补丁状态。真实包还应从启动场景进入主菜单并跨至少一次地图或战斗场景，持续握手不少于 60 秒；游戏退出前 BepInEx 日志不得出现“AutoPlayer 运行时正在退出”。
+
 ## 0.5.1 玩家常驻与作弊模式验收
 
-`0.5.1` 修复玩家模式在场景切换后插件宿主被销毁、随后所有控制请求超时的问题。控制服务改为有界读写和四路并发监听，健康握手不会再被长作弊命令挡住；Manager 使用相同请求 ID 取得耗时命令的最终缓存结果，并在首次断线时立即禁用控制、重新握手。玩家模式使用 PID 专属端点，绑定同时核对可执行路径、进程启动时间与随机进程实例标识；多个未绑定的同目录游戏进程不会被任意选择。游戏目录中的旧插件若与当前发布载荷不一致，Manager 会要求重新安装而不会把它误报为可用。
+`0.5.1` 引入了 BepInEx 管理对象跨场景保护、有界读写和四路并发监听；现场复验随后确认，仅保护 BepInEx 管理对象仍不足以跨过游戏的首次场景装载，因此生命周期修复由 `0.5.2` 的独立运行时宿主取代。Manager 使用相同请求 ID 取得耗时命令的最终缓存结果，并在首次断线时立即禁用控制、重新握手。玩家模式使用 PID 专属端点，绑定同时核对可执行路径、进程启动时间与随机进程实例标识；多个未绑定的同目录游戏进程不会被任意选择。游戏目录中的旧插件若与当前发布载荷不一致，Manager 会要求重新安装而不会把它误报为可用。
 
 玩家常驻验收必须覆盖：安装后手动启动游戏也能连接；Manager 最小化后保持后台且不因作弊窗口操作抢到前台；玩家模式四个 QA 隔离标志均为 false；PID、路径、程序集指纹、协议和 token 任一不符都会拒绝。作弊工具逐项覆盖中文名、枚举名和图标搜索；获取/删除战车、遗物、背包及场上弹射点；已有战车附魔图标与编辑；战斗操作；以及多点怪物生成。
 
@@ -70,25 +76,25 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.1
+.\scripts\package.ps1 -Version 0.5.2
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.1 -SkipBuild
+.\scripts\package.ps1 -Version 0.5.2 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.5.1-win-x64.zip
-  Loopstructor.AutoPlayer-0.5.1-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.2-win-x64.zip
+  Loopstructor.AutoPlayer-0.5.2-win-x64.zip.sha256
   autoplayer-update-manifest.json
 ```
 
-唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.1-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+唯一的 Release ZIP `Loopstructor.AutoPlayer-0.5.2-win-x64.zip` 同时用于手动下载和新版自动更新。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -118,9 +124,9 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.5.1-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.5.2-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 12345678
 }
@@ -185,8 +191,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.5.1
-git push origin v0.5.1
+git tag v0.5.2
+git push origin v0.5.2
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

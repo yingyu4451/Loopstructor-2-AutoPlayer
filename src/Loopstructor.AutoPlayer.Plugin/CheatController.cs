@@ -48,6 +48,11 @@ internal sealed class CheatController : IDisposable
 
     public void NotifyManagerCommandCompleted() => NotifyManagerHeartbeat();
 
+    public void OnRuntimeHostLost()
+    {
+        DisableAndReset("AutoPlayer 运行时宿主已中断，作弊模式和全部瞬态效果已立即关闭。");
+    }
+
     public void Tick()
     {
         if (Enabled)
@@ -227,10 +232,22 @@ internal sealed class CheatController : IDisposable
 
     private void ResetTransientFeatures()
     {
-        _runtime.ResetTransientFeatures();
-        MapSkipPatch.Reset();
-        _autoPlay.SetEnemyIdsVisible(false);
-        _autoPlay.SetBaseGodModeEnabled(false);
+        ResetStep("运行时作弊效果", _runtime.ResetTransientFeatures);
+        ResetStep("地图跳关", MapSkipPatch.Reset);
+        ResetStep("敌人 ID 显示", () => _autoPlay.SetEnemyIdsVisible(false));
+        ResetStep("基地无敌", () => _autoPlay.SetBaseGodModeEnabled(false));
+    }
+
+    private void ResetStep(string feature, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            try { _log.LogError($"关闭瞬态作弊功能失败（{feature}）：{exception}"); } catch { }
+        }
     }
 
     private CheatExecutionResult SetEnemyIdOverlay(JObject arguments)

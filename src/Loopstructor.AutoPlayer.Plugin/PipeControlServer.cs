@@ -20,6 +20,7 @@ internal sealed class PipeControlServer : IDisposable
     private static readonly TimeSpan QueueWaitTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan ConnectionReadTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ConnectionWriteTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ListenerStartTimeout = TimeSpan.FromSeconds(5);
 
     private readonly AutoPlayController _controller;
     private readonly CheatController _cheatController;
@@ -34,8 +35,11 @@ internal sealed class PipeControlServer : IDisposable
     private readonly object _serverSync = new();
     private readonly HashSet<NamedPipeServerStream> _activeServers = new();
     private readonly ManualResetEvent _shutdown = new(false);
+    private readonly ManualResetEventSlim _listenerReady = new(false);
     private readonly Thread[] _workers;
+    private Exception? _lastListenerError;
     private volatile bool _stopping;
+    private int _startState;
     private int _disposeState;
 
     public PipeControlServer(
@@ -67,7 +71,17 @@ internal sealed class PipeControlServer : IDisposable
 
     public void Start()
     {
+        if (Interlocked.Exchange(ref _startState, 1) != 0)
+        {
+            throw new InvalidOperationException("本机控制通道已经启动。");
+        }
+
         foreach (Thread worker in _workers) worker.Start();
+        if (_listenerReady.Wait(ListenerStartTimeout)) return;
+
+        string detail = Volatile.Read(ref _lastListenerError)?.Message ?? "监听器未在限定时间内就绪。";
+        Dispose();
+        throw new IOException("无法创建 AutoPlayer 本机控制管道：" + detail);
     }
 
     public void Pump()
@@ -188,12 +202,14 @@ internal sealed class PipeControlServer : IDisposable
             {
                 return;
             }
-            catch (IOException) when (!_stopping)
+            catch (IOException exception) when (!_stopping)
             {
+                Volatile.Write(ref _lastListenerError, exception);
                 Thread.Sleep(250);
             }
-            catch
+            catch (Exception exception)
             {
+                Volatile.Write(ref _lastListenerError, exception);
                 if (!_stopping) Thread.Sleep(1000);
             }
             finally
@@ -213,6 +229,7 @@ internal sealed class PipeControlServer : IDisposable
         {
             if (_stopping) return false;
             _activeServers.Add(server);
+            _listenerReady.Set();
             return true;
         }
     }

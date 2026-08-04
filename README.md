@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.5.1 -SkipBuild
+.\scripts\package.ps1 -Version 0.5.2 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.1
+.\scripts\package.ps1 -Version 0.5.2
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.5.1-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.5.2-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -86,7 +86,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ### 运行状态与彻底重启门禁
 
-玩家模式安装后，插件可从当前用户的本机控制注册进入后台待命，手动启动游戏也无需一次性票据。两种模式都会保护 BepInEx 插件宿主跨场景存活；该保护不会开始自动游玩，也不会为玩家模式启用存档、平台写入或诊断产物重定向。隔离 QA 模式仍通过一次性票据激活；两种模式都不会修改游戏程序集。控制服务使用有界读写和四路监听，健康握手可绕过长命令；耗时命令会释放监听通道，Manager 使用同一请求 ID 获取最终缓存结果，同一操作不会重复执行。
+玩家模式安装后，插件可从当前用户的本机控制注册进入后台待命，手动启动游戏也无需一次性票据。两种模式都由隐藏的独立运行时根对象持有控制通道，不再依赖会被游戏首次场景装载清理的 BepInEx 管理对象；场景切换若意外清除独立宿主，静态会话会在主线程重建它，而只有游戏进程真正退出才释放管道和补丁。该保护不会开始自动游玩，也不会为玩家模式启用存档、平台写入或诊断产物重定向。控制服务使用有界读写和四路监听，并且至少一个监听器成功绑定后才报告激活；耗时命令会释放监听通道，Manager 使用同一请求 ID 获取最终缓存结果，同一操作不会重复执行。
 
 自动化遇到不确定的部分写入、连续失败上限、停滞或隔离门禁故障时会进入 Faulted，并回传 `NeedsProcessRestart = true`。此时不能在同一游戏进程中开始新一轮：Manager 显示“必须彻底重启”，禁用“开始”并在命令发送层再次拒绝 `start`。单纯执行过作弊写操作只会标记结果，不再触发该门禁。开发截图可使用 `--demo-restart-required` 复现真正的重启门禁；该参数隐含 demo 模式，不连接真实游戏。
 
@@ -145,7 +145,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.5.1-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成唯一的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。`Loopstructor.AutoPlayer-0.5.2-win-x64.zip` 同时用于手动下载和新版自动更新，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。更新器从同一个 Release 获取清单指定的 ZIP，并在替换前校验文件大小、SHA-256、固定目录结构和包内 `autoplayer-release.json`。
 
 安装更新时会打开独立的更新窗口，按“准备、下载、校验、安装、重启”显示阶段进度。下载阶段显示已下载大小、总大小和实时速度；解压与事务替换阶段显示安装进度，完成后会显示最终结果。开始替换文件后窗口会锁定关闭操作，避免破坏更新或回滚。
 
