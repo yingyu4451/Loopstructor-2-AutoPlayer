@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Loopstructor.AutoPlayer.Plugin;
 
 /// <summary>
-/// 在地图跳关模式下开放当前已加载阶段的全部节点，并通过游戏原生地图流程完成跳转。
+/// 在地图跳关模式下开放当前进度之后的节点，并通过游戏原生地图流程完成跳转。
 /// </summary>
 internal static class MapSkipPatch
 {
@@ -143,7 +143,7 @@ internal static class MapSkipPatch
         _activeMapInstanceId = 0;
         _observedMap = false;
         _lastDiagnostic = string.Empty;
-        _log(enabled ? "地图跳关已开启，可以选择当前地图界面中的任意节点。" : "地图跳关已关闭，地图可达性已恢复。");
+        _log(enabled ? "地图跳关已开启，可以选择当前进度之后的任意节点。" : "地图跳关已关闭，地图可达性已恢复。");
         return true;
     }
 
@@ -198,7 +198,7 @@ internal static class MapSkipPatch
 
             if (!IsUnityNull(mapUi) && CanJumpNow(mapUi!))
             {
-                RevealAllLoadedNodes(mapUi!);
+                RevealFutureLoadedNodes(mapUi!);
             }
         }
         catch (Exception exception)
@@ -556,22 +556,34 @@ internal static class MapSkipPatch
         return true;
     }
 
-    private static void RevealAllLoadedNodes(object mapUi)
+    private static void RevealFutureLoadedNodes(object mapUi)
     {
         if (mapUi is not Component mapComponent || !mapComponent.gameObject.activeInHierarchy || _mapNodeUiType == null)
         {
             return;
         }
 
+        if (!TryResolveCurrentProgressLayer(mapUi, out int currentLayer))
+        {
+            return;
+        }
+
         bool changed = false;
-        // UpdateCurrentLayer 会关闭已通过层的父对象；先恢复已加载层，单独激活节点才会真正可见。
+        // 与游戏 UpdateCurrentLayer 保持一致：当前进度层及历史层必须隐藏，
+        // 只打开未来层，避免自由跳转把整张地图重新展开。
         if (GetMember(mapUi, "m_layerUIs") is IDictionary layerUis)
         {
             foreach (DictionaryEntry entry in layerUis)
             {
-                if (entry.Value is Component layerComponent && !layerComponent.gameObject.activeSelf)
+                if (entry.Key is not int layer || entry.Value is not Component layerComponent)
                 {
-                    layerComponent.gameObject.SetActive(true);
+                    continue;
+                }
+
+                bool shouldShow = MapJumpVisibilityPolicy.ShouldExposeForFreeJump(layer, currentLayer);
+                if (layerComponent.gameObject.activeSelf != shouldShow)
+                {
+                    layerComponent.gameObject.SetActive(shouldShow);
                     changed = true;
                 }
             }
@@ -581,7 +593,8 @@ internal static class MapSkipPatch
         for (int index = 0; index < nodes.Length; index++)
         {
             Component node = nodes[index];
-            if (!TryGetNodePosition(node, out _))
+            if (!TryGetNodePosition(node, out Vector2Int position) ||
+                !MapJumpVisibilityPolicy.ShouldExposeForFreeJump(position.y, currentLayer))
             {
                 continue;
             }
@@ -598,6 +611,29 @@ internal static class MapSkipPatch
         {
             FindMethod(_roomMapUiType, "ForceUpdateLine")?.Invoke(mapUi, null);
         }
+    }
+
+    private static bool TryResolveCurrentProgressLayer(object mapUi, out int currentLayer)
+    {
+        currentLayer = -1;
+        if (GetMember(mapUi, "path") is not IList path)
+        {
+            return false;
+        }
+
+        MapJumpCoordinate? latestVisitedNode = null;
+        if (path.Count > 0)
+        {
+            if (path[path.Count - 1] is not Vector2Int position)
+            {
+                return false;
+            }
+
+            latestVisitedNode = new MapJumpCoordinate(position.x, position.y);
+        }
+
+        currentLayer = MapJumpVisibilityPolicy.ResolveCurrentLayer(latestVisitedNode);
+        return true;
     }
 
     private static bool CanJumpNow(object mapUi)

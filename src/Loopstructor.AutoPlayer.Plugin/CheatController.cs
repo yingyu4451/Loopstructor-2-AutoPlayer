@@ -282,7 +282,7 @@ internal sealed class CheatController : IDisposable
 
         bool actualEnabled = MapSkipPatch.Enabled;
         string message = actualEnabled
-            ? "地图跳关已开启；可在当前地图界面点击已通过、当前或未来节点。"
+            ? "地图跳关已开启；可在当前地图界面点击进度之后的任意节点。"
             : "地图跳关已关闭。";
         return CheatExecutionResult.Changed(
             message,

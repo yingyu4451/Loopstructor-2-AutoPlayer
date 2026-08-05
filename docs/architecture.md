@@ -105,7 +105,7 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 | `cheat.setSpawnPointCapture` | 开启或取消左 Alt 加鼠标左键的位置捕获；每次捕获向点位列表追加一个点 |
 | `cheat.removeSpawnPoint` / `cheat.clearSpawnPoints` | 单删或清空当前场景保存的怪物生成点 |
 | `cheat.spawnEnemy` | 在一个或多个坐标周围分散生成普通敌人；默认使用当前波次 AI 等级 |
-| `cheat.setMapSkipEnabled` | 开启或关闭当前地图界面中全部节点的自由跳转 |
+| `cheat.setMapSkipEnabled` | 开启或关闭当前进度之后节点的自由跳转 |
 
 可信会话仅携带作弊能力时仍可执行 `start`；实际开启作弊模式后才与自动游玩互斥。在已启用的作弊模式中，每个写命令进入游戏 API 前都必须先在当前自动游玩配置创建持久作弊标记；无法确认标记已落盘时命令失效即关闭。写尝试会设置 `CheatUsed` 并把后续运行完整性标记为 `cheat-modified`，但关闭作弊模式后可以在同一进程继续自动游玩；只有真正的自动化故障或不确定部分写入才设置 `NeedsProcessRestart`。请求 ID 用于同一写请求的幂等重取：重复 ID 但参数不同会被拒绝，已在主线程开始的请求会返回其实际完成结果。
 
@@ -113,7 +113,7 @@ Manager 持续向插件提供控制租约。场景切换会重置基地无敌、
 
 Manager 的作弊选择器在获得焦点后保持结果列表打开，目录项同时携带中文名、枚举名、稳定 ID 和图标，可按任一文本字段搜索；协议仍只发送确认选择后的稳定 ID。属性显示名优先从游戏的简体中文属性配置解析，配置缺项时使用与 `BattleMemoryEnum` 逐项精确对应的中文表兜底。已有战车附魔编辑先读取完整附魔列表，再通过游戏车辆管理器重建附魔并刷新车辆状态；等级 `0` 表示移除目标项，不清除其他附魔。
 
-地图跳关补丁会显示当前地图界面已加载阶段中的全部节点，包括已通过、当前和未来节点。它在没有活动波次、没有运行节点、没有待选子关卡且游戏未结束时，按游戏原有流程加载目标的最小前置路径、重新取得目标节点、调用节点点击并请求保存；陈旧阶段请求、跨阶段和失效节点都会拒绝。跳转前会保存原阶段和路径，后续校验或调用失败时执行补偿恢复，恢复失败则自动关闭地图跳关。批量刷怪先读取 `WaveProgressController.CurrentAILevel`，与正式 `WaveNest` 一样把该内部等级传给 `AgentCreator.CreateAgent`，因此继续经过 `AITable.InitTable`、`BasicAIDataSO.GetBasicParameters`、全局难度及无尽倍率；只有显式自定义时才用 UI 等级减一覆盖。每个生成点在 `spawnRadius` 内产生带最小间距的坐标，再逐个确认对象已进入敌方阵营、具备启用的敌方碰撞层、战斗系统和可受击状态；验证失败的对象会通过游戏回收接口清理。
+地图跳关补丁使用 `RoomMapUI.path` 最后一个节点作为当前进度层，与游戏原生 `UpdateCurrentLayer` 一样隐藏当前层及历史层，只临时开放进度之后的节点。它在没有活动波次、没有运行节点、没有待选子关卡且游戏未结束时，按游戏原有流程加载目标的最小前置路径、重新取得目标节点、调用节点点击并请求保存；陈旧阶段请求、跨阶段和失效节点都会拒绝。跳转前会保存原阶段和路径，后续校验或调用失败时执行补偿恢复，恢复失败则自动关闭地图跳关。批量刷怪先读取 `WaveProgressController.CurrentAILevel`，与正式 `WaveNest` 一样把该内部等级传给 `AgentCreator.CreateAgent`，因此继续经过 `AITable.InitTable`、`BasicAIDataSO.GetBasicParameters`、全局难度及无尽倍率；只有显式自定义时才用 UI 等级减一覆盖。每个生成点在 `spawnRadius` 内产生带最小间距的坐标，再逐个确认对象已进入敌方阵营、具备启用的敌方碰撞层、战斗系统和可受击状态；验证失败的对象会通过游戏回收接口清理。
 
 ## 游戏运行时契约
 
@@ -180,7 +180,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.5.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.5.4-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

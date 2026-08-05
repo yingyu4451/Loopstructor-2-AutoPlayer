@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.3
+.\scripts\package.ps1 -Version 0.5.4
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.3 -SkipBuild
+.\scripts\package.ps1 -Version 0.5.4 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.5.3-win-x64.zip
-  Loopstructor.AutoPlayer-0.5.3-win-x64.zip.sha256
-  Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip        可选
-  Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip.sha256 可选
+  Loopstructor.AutoPlayer-0.5.4-win-x64.zip
+  Loopstructor.AutoPlayer-0.5.4-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.3-to-0.5.4-win-x64.delta.zip        可选
+  Loopstructor.AutoPlayer-0.5.3-to-0.5.4-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.5.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.5.4-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.5.3",
+  "version": "0.5.4",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.5.3-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.5.4-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 63851739,
   "deltaAssets": [
     {
-      "fromVersion": "0.5.2",
-      "assetName": "Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip",
+      "fromVersion": "0.5.3",
+      "assetName": "Loopstructor.AutoPlayer-0.5.3-to-0.5.4-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 1275090
     }
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.5.3
-git push origin v0.5.3
+git tag v0.5.4
+git push origin v0.5.4
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -226,7 +226,7 @@ git push origin v0.5.3
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
 - 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；Manager 与作弊工具可独立最小化且不会互相抢前台；验证仅携带作弊能力时允许自动游玩、启用作弊时拒绝、关闭后恢复；中文/枚举/图标搜索、多附魔、对象图标、已有附魔图标、战车/遗物/背包及场上弹射点删除、多点生成列表、游戏内点位标记、当前 AI 等级链、写命令前置作弊标记、场景复位和 Manager 租约失效关闭均符合预期；
-- 验证地图跳关允许当前地图界面已加载阶段中的已通过、当前和未来节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
+- 验证地图跳关仍隐藏当前进度层及历史层，只开放进度之后的节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 在支持构建和未知构建上分别验证通过与 fail-closed；
 - 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；

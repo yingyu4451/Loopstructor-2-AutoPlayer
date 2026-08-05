@@ -101,7 +101,6 @@ internal sealed partial class MainForm : Window
     {
         Title = $"Loopstructor 2.AutoPlayer Manager — v{ManagerProductInfo.Version}";
         ProductVersionLabel.Text = ManagerProductInfo.DisplayText;
-        _captureSurface.Subtitle = ManagerProductInfo.DisplayText;
         if (_launchOptions.WindowSize is { } size)
         {
             Width = size.Width;
