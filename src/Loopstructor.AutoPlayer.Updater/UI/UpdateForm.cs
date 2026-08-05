@@ -51,8 +51,8 @@ internal sealed partial class UpdateForm : Window
         DetailsBox.Document.PagePadding = new Thickness(0);
         DetailsBox.Document.Blocks.Clear();
         _progressTimer.Tick += (_, _) => DrainPendingSnapshot();
-        StateChanged += (_, _) =>
-            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+        StateChanged += UpdateFormOnStateChanged;
+        UpdateWindowStateVisuals();
 
         ApplySnapshot(new UpdateProgressSnapshot
         {
@@ -460,13 +460,59 @@ internal sealed partial class UpdateForm : Window
         RequestCancellationAndClose();
     }
 
+    private void UpdateFormOnStateChanged(object? sender, EventArgs eventArgs) =>
+        UpdateWindowStateVisuals();
+
+    private void UpdateWindowStateVisuals()
+    {
+        bool maximized = WindowState == WindowState.Maximized;
+        MaximizeIcon.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
+        RestoreIcon.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
+
+        string actionName = maximized ? "还原" : "最大化";
+        AutomationProperties.SetName(MaximizeButton, actionName);
+        MaximizeButton.ToolTip = actionName;
+        WindowFrame.Margin = maximized ? new Thickness(0) : new Thickness(8);
+        ResizeGrip.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void WindowMenuButtonOnClick(object sender, RoutedEventArgs eventArgs)
+    {
+        Point menuPoint = WindowMenuButton.PointToScreen(new Point(0d, WindowMenuButton.ActualHeight));
+        SystemCommands.ShowSystemMenu(this, menuPoint);
+    }
+
+    private void UpdateFormOnPreviewMouseRightButtonUp(object sender, MouseButtonEventArgs eventArgs)
+    {
+        Point titleBarPoint = eventArgs.GetPosition(TitleBarHost);
+        if (titleBarPoint.X < 0d
+            || titleBarPoint.X > TitleBarHost.ActualWidth
+            || titleBarPoint.Y < 0d
+            || titleBarPoint.Y > TitleBarHost.ActualHeight)
+        {
+            return;
+        }
+
+        SystemCommands.ShowSystemMenu(this, PointToScreen(eventArgs.GetPosition(this)));
+        eventArgs.Handled = true;
+    }
+
     private void MinimizeButtonOnClick(object sender, RoutedEventArgs eventArgs) =>
-        WindowState = WindowState.Minimized;
+        SystemCommands.MinimizeWindow(this);
 
-    private void MaximizeButtonOnClick(object sender, RoutedEventArgs eventArgs) =>
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void MaximizeButtonOnClick(object sender, RoutedEventArgs eventArgs)
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            SystemCommands.RestoreWindow(this);
+            return;
+        }
 
-    private void CloseButtonOnClick(object sender, RoutedEventArgs eventArgs) => Close();
+        SystemCommands.MaximizeWindow(this);
+    }
+
+    private void CloseButtonOnClick(object sender, RoutedEventArgs eventArgs) =>
+        SystemCommands.CloseWindow(this);
 
     private void ResizeGripOnDragDelta(object sender, DragDeltaEventArgs eventArgs)
     {

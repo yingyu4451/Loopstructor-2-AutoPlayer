@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <AssemblyName>Loopstructor.AutoPlayer.Launcher</AssemblyName>
     <RootNamespace>Loopstructor.AutoPlayer.Launcher</RootNamespace>
+    <ApplicationIcon>..\..\assets\branding\manager.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition="'$(PublishRootLauncher)' == 'true'">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

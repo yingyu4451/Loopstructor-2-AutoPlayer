@@ -1,16 +1,31 @@
 <Window x:Class="Loopstructor.AutoPlayer.Manager.UI.CheatForm"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="clr-namespace:Loopstructor.AutoPlayer.Manager.UI.Controls"
-        xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
-        x:ClassModifier="internal"
-        Title="Loopstructor 2.AutoPlayer 作弊工具"
-        Width="1280"
-        Height="860"
-        MinWidth="980"
-        MinHeight="680"
-        WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
+         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+         xmlns:controls="clr-namespace:Loopstructor.AutoPlayer.Manager.UI.Controls"
+         xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
+         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+         x:ClassModifier="internal"
+         Title="Loopstructor 2.AutoPlayer 作弊工具"
+         Icon="/Loopstructor.AutoPlayer.Manager;component/Assets/Branding/cheat-logo-256.png"
+         Width="1280"
+         Height="860"
+         MinWidth="980"
+         MinHeight="680"
+         WindowStartupLocation="CenterScreen"
+         ResizeMode="CanResize"
+         WindowStyle="None"
+         AllowsTransparency="False"
+         ShowInTaskbar="True"
+         SnapsToDevicePixels="True"
+         UseLayoutRounding="True">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="72"
+                            ResizeBorderThickness="7"
+                            GlassFrameThickness="0"
+                            CornerRadius="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -109,7 +124,12 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <controls:MechanicalShell x:Name="Shell" Title="SKYSPINE / 作弊工具" Subtitle="CHEAT CONTROL CONSOLE">
+    <controls:MechanicalShell x:Name="Shell"
+                              AccentBrush="{StaticResource DangerBrush}"
+                              BrandText="CHEAT TOOL"
+                              LogoSource="/Loopstructor.AutoPlayer.Manager;component/Assets/Branding/cheat-logo-256.png"
+                              Subtitle="CHEAT CONTROL CONSOLE"
+                              Title="SKYSPINE / 作弊工具">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

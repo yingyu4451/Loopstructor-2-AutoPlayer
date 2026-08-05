@@ -5,6 +5,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Loopstructor.AutoPlayer.Updater</AssemblyName>
     <RootNamespace>Loopstructor.AutoPlayer.Updater</RootNamespace>
+    <ApplicationIcon>..\..\assets\branding\manager.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Verification\**\*.cs" />
@@ -12,5 +13,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Verification" />
     <InternalsVisibleTo Include="Loopstructor.AutoPlayer.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="..\..\assets\branding\manager-logo-256.png">
+      <Link>Assets\Branding\manager-logo-256.png</Link>
+      <LogicalName>Assets/Branding/manager-logo-256.png</LogicalName>
+    </Resource>
   </ItemGroup>
 </Project>

@@ -66,7 +66,7 @@ internal sealed partial class CheatForm : Window
         InitializeComponent();
 
         Title = $"Loopstructor 2.AutoPlayer 作弊工具 - v{ManagerProductInfo.Version}";
-        Shell.Subtitle = $"{ManagerProductInfo.DisplayText} / CHEAT PROTOCOL {Protocol.CheatCurrentVersion}";
+        Shell.Subtitle = "CHEAT CONTROL CONSOLE";
         _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v-   /   作弊协议 v{Protocol.CheatCurrentVersion}";
         _enchantmentGrid.ItemsSource = _enchantmentSelections;
         _vehicleGrid.ItemsSource = _vehicleRows;

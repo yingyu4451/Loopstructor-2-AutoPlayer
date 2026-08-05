@@ -11,7 +11,9 @@
         MinHeight="600"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
+        AllowsTransparency="False"
         ResizeMode="CanResize"
+        Icon="/Loopstructor.AutoPlayer.Updater;component/Assets/Branding/manager-logo-256.png"
         Background="#080706"
         Foreground="#F1DFC0"
         FontFamily="Microsoft YaHei UI"
@@ -19,6 +21,7 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         ContentRendered="UpdateFormOnContentRendered"
+        PreviewMouseRightButtonUp="UpdateFormOnPreviewMouseRightButtonUp"
         Closing="UpdateFormOnClosing"
         Closed="UpdateFormOnClosed">
     <shell:WindowChrome.WindowChrome>
@@ -141,29 +144,79 @@
             </Setter>
         </Style>
 
-        <Style x:Key="WindowButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="42" />
-            <Setter Property="Height" Value="36" />
-            <Setter Property="Margin" Value="0" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="#D9C8AC" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
-            <Setter Property="FontSize" Value="15" />
+        <Style TargetType="ToolTip">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Background" Value="{StaticResource ScreenBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BrassBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style x:Key="WindowMenuButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="1" />
+            <Setter Property="Background" Value="{StaticResource ScreenBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DarkCopperBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="#8D5A2C"
-                                BorderThickness="1,0,0,0">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Border Background="#070604"
+                                BorderBrush="#070604"
+                                BorderThickness="2">
+                            <Border x:Name="BadgeSocket"
+                                    Margin="1"
+                                    Padding="{TemplateBinding Padding}"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Foreground" Value="#F0B33A" />
+                                <Setter TargetName="BadgeSocket" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                <Setter TargetName="BadgeSocket" Property="Background" Value="#2C2014" />
                             </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="BadgeSocket" Property="Opacity" Value="0.68" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WindowButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="Background" Value="#20160F" />
+            <Setter Property="Foreground" Value="#D9C8AC" />
+            <Setter Property="BorderBrush" Value="{StaticResource DarkCopperBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="#070604"
+                                BorderBrush="#070604"
+                                BorderThickness="2">
+                            <Border x:Name="Chrome"
+                                    Margin="1"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Border>
+                        <ControlTemplate.Triggers>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Chrome" Property="Opacity" Value="0.65" />
                             </Trigger>
@@ -171,6 +224,13 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3A2517" />
+                    <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource GoldBrush}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="CloseWindowButtonStyle" TargetType="Button" BasedOn="{StaticResource WindowButtonStyle}">
@@ -256,7 +316,8 @@
         </Style>
     </Window.Resources>
 
-    <Border Margin="8"
+    <Border x:Name="WindowFrame"
+            Margin="8"
             Background="{StaticResource CoalBrush}"
             BorderBrush="#1F130C"
             BorderThickness="3">
@@ -269,7 +330,8 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0"
+                <Border x:Name="TitleBarHost"
+                        Grid.Row="0"
                         Background="{StaticResource FrameBrush}"
                         BorderBrush="#D09A56"
                         BorderThickness="0,0,0,2">
@@ -279,45 +341,121 @@
                             <ColumnDefinition Width="276" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Margin="14,0,8,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="#E8D1A8"
-                                   FontFamily="Bahnschrift"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Text="LOOPSTRUCTOR 2  ·  AUTOPLAYER" />
+                        <Grid Margin="6,0,4,0" HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="WindowMenuButton"
+                                    AutomationProperties.Name="打开窗口菜单"
+                                    Click="WindowMenuButtonOnClick"
+                                    ToolTip="窗口菜单"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                                    Style="{StaticResource WindowMenuButtonStyle}">
+                                <Image Source="/Loopstructor.AutoPlayer.Updater;component/Assets/Branding/manager-logo-256.png"
+                                       Stretch="Uniform" />
+                            </Button>
+                            <StackPanel Grid.Column="1"
+                                        Margin="8,0,0,0"
+                                        VerticalAlignment="Center">
+                                <TextBlock Foreground="#E8D1A8"
+                                           FontFamily="Bahnschrift"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Text="LOOPSTRUCTOR 2" />
+                                <TextBlock Margin="0,1,0,0"
+                                           Foreground="{StaticResource GreenBrush}"
+                                           FontFamily="Cascadia Mono, Consolas"
+                                           FontSize="9"
+                                           FontWeight="Bold"
+                                           Text="AUTOPLAYER / UPDATE" />
+                            </StackPanel>
+                        </Grid>
                         <Border Grid.Column="1"
-                                Margin="10,5"
+                                Margin="8,4"
                                 Background="{StaticResource PlaqueBrush}"
                                 BorderBrush="#0A0704"
                                 BorderThickness="3">
                             <Border BorderBrush="{StaticResource BrassBrush}" BorderThickness="1">
-                                <TextBlock HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource GreenBrush}"
-                                           FontSize="18"
-                                           FontWeight="Bold"
-                                           Text="自动更新控制台" />
+                                <Grid>
+                                    <Ellipse Width="7"
+                                             Height="7"
+                                             Margin="8,0,0,0"
+                                             HorizontalAlignment="Left"
+                                             Fill="#17120C"
+                                             Stroke="{StaticResource CopperBrush}"
+                                             StrokeThickness="1" />
+                                    <TextBlock HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource GreenBrush}"
+                                               FontSize="17"
+                                               FontWeight="Bold"
+                                               Text="自动更新" />
+                                    <Ellipse Width="7"
+                                             Height="7"
+                                             Margin="0,0,8,0"
+                                             HorizontalAlignment="Right"
+                                             Fill="#17120C"
+                                             Stroke="{StaticResource CopperBrush}"
+                                             StrokeThickness="1" />
+                                </Grid>
                             </Border>
                         </Border>
                         <StackPanel Grid.Column="2"
+                                    Margin="0,0,4,0"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
                                     shell:WindowChrome.IsHitTestVisibleInChrome="True">
                             <Button AutomationProperties.Name="最小化"
                                     Click="MinimizeButtonOnClick"
-                                    Content="—"
-                                    Style="{StaticResource WindowButtonStyle}" />
+                                    ToolTip="最小化"
+                                    Style="{StaticResource WindowButtonStyle}">
+                                <Path Width="16"
+                                      Height="16"
+                                      Data="M 2,12 L 14,12"
+                                      Stretch="Uniform"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Square"
+                                      StrokeEndLineCap="Square" />
+                            </Button>
                             <Button x:Name="MaximizeButton"
-                                    AutomationProperties.Name="最大化或还原"
+                                    AutomationProperties.Name="最大化"
                                     Click="MaximizeButtonOnClick"
-                                    Content="□"
-                                    Style="{StaticResource WindowButtonStyle}" />
+                                    ToolTip="最大化"
+                                    Style="{StaticResource WindowButtonStyle}">
+                                <Grid Width="16" Height="16">
+                                    <Path x:Name="MaximizeIcon"
+                                          Data="M 2,2 L 14,2 14,14 2,14 Z"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5"
+                                          StrokeStartLineCap="Square"
+                                          StrokeEndLineCap="Square"
+                                          StrokeLineJoin="Miter" />
+                                    <Path x:Name="RestoreIcon"
+                                          Data="M 5,2 L 14,2 14,11 M 2,5 L 11,5 11,14 2,14 Z"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5"
+                                          StrokeStartLineCap="Square"
+                                          StrokeEndLineCap="Square"
+                                          StrokeLineJoin="Miter"
+                                          Visibility="Collapsed" />
+                                </Grid>
+                            </Button>
                             <Button AutomationProperties.Name="关闭"
                                     Click="CloseButtonOnClick"
-                                    Content="✕"
-                                    Style="{StaticResource CloseWindowButtonStyle}" />
+                                    ToolTip="关闭"
+                                    Style="{StaticResource CloseWindowButtonStyle}">
+                                <Path Width="16"
+                                      Height="16"
+                                      Data="M 3,3 L 13,13 M 13,3 L 3,13"
+                                      Stretch="Uniform"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Square"
+                                      StrokeEndLineCap="Square" />
+                            </Button>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -527,7 +665,7 @@
                 </Border>
 
                 <Ellipse Grid.Row="1" Width="11" Height="11" Margin="13" HorizontalAlignment="Left" VerticalAlignment="Bottom" Fill="#1A120C" Stroke="#B47B3D" StrokeThickness="2" />
-                <Thumb
+                <Thumb x:Name="ResizeGrip"
                     Grid.Row="1"
                     Margin="0,0,10,10"
                     HorizontalAlignment="Right"

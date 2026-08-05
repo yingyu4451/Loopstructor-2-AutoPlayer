@@ -1,0 +1,177 @@
+using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Media;
+using System.Windows.Shell;
+using System.Windows.Threading;
+using Loopstructor.AutoPlayer.Manager.UI;
+using Loopstructor.AutoPlayer.Manager.UI.Controls;
+using Loopstructor.AutoPlayer.Updater.UI;
+
+namespace Loopstructor.AutoPlayer.Tests;
+
+[Collection("WPF UI")]
+public sealed class CustomTitleBarWpfTests
+{
+    [Fact]
+    public void CheatTitleBar_UsesCurrentWindowCommandsAndDistinctBranding()
+    {
+        RunSta(() =>
+        {
+            Window other = new()
+            {
+                Width = 320,
+                Height = 240,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<Loopstructor.AutoPlayer.Core.ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                other.Show();
+                form.Show();
+                PumpDispatcher();
+
+                WindowChrome chrome = Assert.IsType<WindowChrome>(WindowChrome.GetWindowChrome(form));
+                Assert.Equal(72d, chrome.CaptionHeight);
+                Assert.Equal(new Thickness(7d), chrome.ResizeBorderThickness);
+                Assert.Equal(WindowStyle.None, form.WindowStyle);
+                Assert.False(form.AllowsTransparency);
+                Assert.NotNull(form.Icon);
+
+                MechanicalShell shell = Assert.IsType<MechanicalShell>(form.FindName("Shell"));
+                Assert.Equal("CHEAT TOOL", shell.BrandText);
+                Assert.NotNull(shell.LogoSource);
+
+                MechanicalWindowButton[] buttons = VisualDescendants<MechanicalWindowButton>(shell).ToArray();
+                Assert.Equal(3, buttons.Length);
+                Assert.All(buttons, button => Assert.Equal(button.ActualWidth, button.ActualHeight, precision: 3));
+
+                MechanicalWindowButton minimize = Assert.Single(buttons, button => button.Kind == MechanicalWindowButtonKind.Minimize);
+                MechanicalWindowButton maximize = Assert.Single(buttons, button => button.Kind == MechanicalWindowButtonKind.MaximizeRestore);
+                MechanicalWindowButton close = Assert.Single(buttons, button => button.Kind == MechanicalWindowButtonKind.Close);
+                Assert.Equal("最小化", AutomationProperties.GetName(minimize));
+                Assert.Equal("最大化", AutomationProperties.GetName(maximize));
+                Assert.Equal("关闭", AutomationProperties.GetName(close));
+
+                Invoke(minimize);
+                PumpDispatcher();
+                Assert.Equal(WindowState.Minimized, form.WindowState);
+                Assert.Equal(WindowState.Normal, other.WindowState);
+
+                SystemCommands.RestoreWindow(form);
+                Invoke(maximize);
+                PumpDispatcher();
+                Assert.Equal(WindowState.Maximized, form.WindowState);
+                Assert.True(maximize.IsRestoreAction);
+                Assert.Equal("还原", AutomationProperties.GetName(maximize));
+
+                Invoke(maximize);
+                PumpDispatcher();
+                Assert.Equal(WindowState.Normal, form.WindowState);
+                Assert.False(maximize.IsRestoreAction);
+            }
+            finally
+            {
+                form.Close();
+                other.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void UpdaterTitleBar_UsesCustomChromeAndEmbeddedManagerBrand()
+    {
+        RunSta(() =>
+        {
+            UpdateForm form = UpdateForm.CreateDemo("0.5.4", "0.5.5");
+            form.Width = 720;
+            form.Height = 600;
+            form.ShowInTaskbar = false;
+
+            try
+            {
+                form.Show();
+                PumpDispatcher();
+
+                WindowChrome chrome = Assert.IsType<WindowChrome>(WindowChrome.GetWindowChrome(form));
+                Assert.Equal(46d, chrome.CaptionHeight);
+                Assert.Equal(WindowStyle.None, form.WindowStyle);
+                Assert.False(form.AllowsTransparency);
+                Assert.NotNull(form.Icon);
+
+                FrameworkElement logo = Assert.IsAssignableFrom<FrameworkElement>(form.FindName("WindowMenuButton"));
+                FrameworkElement minimize = Assert.IsAssignableFrom<FrameworkElement>(
+                    VisualDescendants<FrameworkElement>(form)
+                        .Single(element => AutomationProperties.GetName(element) == "最小化"));
+                FrameworkElement maximize = Assert.IsAssignableFrom<FrameworkElement>(form.FindName("MaximizeButton"));
+
+                Assert.Equal("打开窗口菜单", AutomationProperties.GetName(logo));
+                Assert.Equal("最大化", AutomationProperties.GetName(maximize));
+                Assert.Equal(minimize.ActualWidth, minimize.ActualHeight, precision: 3);
+                Assert.Equal(maximize.ActualWidth, maximize.ActualHeight, precision: 3);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) yield return match;
+            foreach (T descendant in VisualDescendants<T>(child)) yield return descendant;
+        }
+    }
+
+    private static void Invoke(System.Windows.Controls.Button button)
+    {
+        ButtonAutomationPeer peer = new(button);
+        IInvokeProvider provider = Assert.IsAssignableFrom<IInvokeProvider>(
+            peer.GetPattern(PatternInterface.Invoke));
+        provider.Invoke();
+        PumpDispatcher();
+    }
+
+    private static void RunSta(Action action)
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            finally
+            {
+                Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+        });
+        thread.IsBackground = true;
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        Assert.True(thread.Join(TimeSpan.FromSeconds(20)), "WPF 标题栏测试超时。");
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static void PumpDispatcher() =>
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+}
