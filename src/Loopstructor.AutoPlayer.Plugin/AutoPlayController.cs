@@ -15,6 +15,7 @@ internal sealed class AutoPlayController
     private const int MaxTimelineEvents = 100;
     private const float SaveVerificationTimeoutSeconds = 30f;
     private const float OutcomeVerificationTimeoutSeconds = 10f;
+    private const float MinimumBattlePollIntervalSeconds = 2f;
     private static readonly TimeSpan FrontEndTransitionTimeout = TimeSpan.FromSeconds(20);
 
     private readonly object _sync = new();
@@ -42,6 +43,7 @@ internal sealed class AutoPlayController
     private int _wavesStarted;
     private int _wavesCompleted;
     private float _nextTickAt;
+    private float _nextSaveProbeAt;
     private float _lastProgressAt;
     private float _gameOverDetectedAt = -1f;
     private bool _defensePrepared;
@@ -61,9 +63,13 @@ internal sealed class AutoPlayController
     private IReadOnlyList<string> _cheatCapabilities = Array.Empty<string>();
     private bool _frontEndReadinessObserved;
     private bool _gameModeVerified;
+    private bool _runtimeInitialized;
+    private bool _waveQueryAvailable = true;
     private string _pendingActionKey = string.Empty;
     private DateTime _startedAtUtc;
     private DateTime _lastActionAtUtc;
+    private DateTime? _pausedAtUtc;
+    private TimeSpan _pausedDuration;
 
     public AutoPlayController(
         RuntimeBridge bridge,
@@ -145,18 +151,22 @@ internal sealed class AutoPlayController
                 SceneManager.GetActiveScene().name,
                 "NewGameScene",
                 StringComparison.OrdinalIgnoreCase);
-            _speedConfigured = false;
+            _speedConfigured = !_options.OverrideGameSpeed;
             _pendingSublevel = false;
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
             _gameModeVerified = false;
+            _runtimeInitialized = false;
+            _waveQueryAvailable = true;
             _pendingActionKey = string.Empty;
             _frontEndTransitionGate.Reset();
             GameOutcomeObserver.Reset();
             _gameOverDetectedAt = -1f;
             _startedAtUtc = DateTime.UtcNow;
             _lastActionAtUtc = _startedAtUtc;
+            _pausedAtUtc = null;
+            _pausedDuration = TimeSpan.Zero;
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
             _evidenceDirectory = _evidence.CreateRunDirectory();
@@ -250,6 +260,7 @@ internal sealed class AutoPlayController
             }
 
             _runState = AutoPlayerRunState.Paused;
+            _pausedAtUtc = DateTime.UtcNow;
             _stageDetail = "自动游玩命令已暂停；游戏本身并未暂停。";
             AddTimeline("pause", _stageDetail);
             message = "自动游玩已暂停。";
@@ -268,6 +279,11 @@ internal sealed class AutoPlayController
             }
 
             _runState = AutoPlayerRunState.Running;
+            if (_pausedAtUtc.HasValue)
+            {
+                _pausedDuration += DateTime.UtcNow - _pausedAtUtc.Value;
+                _pausedAtUtc = null;
+            }
             _stageDetail = "自动游玩已继续。";
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
@@ -305,11 +321,29 @@ internal sealed class AutoPlayController
     {
         // Isolated QA sessions verify the redirected save root before Start.
         // Resident player mode intentionally leaves the player's save path untouched.
-        if (!_activation.IsPlayerMode) SaveIsolationPatch.ProbeRuntimeSaveFolder();
+        if (!_activation.IsPlayerMode
+            && !SaveIsolationPatch.Verified
+            && !SaveIsolationPatch.VerificationFailed
+            && Time.realtimeSinceStartup >= _nextSaveProbeAt)
+        {
+            _nextSaveProbeAt = Time.realtimeSinceStartup + 0.5f;
+            SaveIsolationPatch.ProbeRuntimeSaveFolder();
+        }
         if (_runState != AutoPlayerRunState.Running || Time.realtimeSinceStartup < _nextTickAt) return;
-        _nextTickAt = Time.realtimeSinceStartup + Math.Max(0.2f, _settings.TickIntervalSeconds.Value);
+        float configuredInterval = Math.Max(0.2f, _settings.TickIntervalSeconds.Value);
+        float tickInterval = _wasInWave && _waveQueryAvailable
+            ? Math.Max(MinimumBattlePollIntervalSeconds, configuredInterval)
+            : configuredInterval;
+        _nextTickAt = Time.realtimeSinceStartup + tickInterval;
 
-        if (DateTime.UtcNow - _startedAtUtc >= TimeSpan.FromMinutes(_options.MaxRunMinutes))
+        AutomationOutcome observedOutcome = GameOutcomeObserver.Outcome;
+        if (observedOutcome is AutomationOutcome.Victory or AutomationOutcome.Defeat)
+        {
+            TickSettlement();
+            return;
+        }
+
+        if (DateTime.UtcNow - _startedAtUtc - _pausedDuration >= TimeSpan.FromMinutes(_options.MaxRunMinutes))
         {
             _outcome = AutomationOutcome.Timeout;
             Fault("已达到配置的运行时间上限，但尚未观察到游戏胜利。");
@@ -323,12 +357,14 @@ internal sealed class AutoPlayController
             _scene = activeScene;
             _defensePrepared = string.Equals(activeScene, "NewGameScene", StringComparison.OrdinalIgnoreCase) &&
                                !_openingDefenseRequired;
-            _speedConfigured = false;
+            _speedConfigured = !_options.OverrideGameSpeed;
             _pendingSublevel = false;
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
             _gameModeVerified = false;
+            _runtimeInitialized = false;
+            _waveQueryAvailable = true;
             _pendingActionKey = string.Empty;
             _gameOverDetectedAt = -1f;
             AddTimeline("scene", "已进入场景 " + activeScene + "。");
@@ -552,19 +588,7 @@ internal sealed class AutoPlayController
 
     private void TickInGame()
     {
-        JObject initialization = _bridge.Invoke("queryState");
-        switch (RuntimeResultInspector.Classify(initialization))
-        {
-            case RuntimeResultDisposition.Unsafe:
-                Fault("命令 queryState 报告状态已被污染，需要启动新的游戏进程：" + Message(initialization));
-                return;
-            case RuntimeResultDisposition.Pending:
-                SetStage(AutomationStage.InitializingRun, Message(initialization));
-                return;
-            case RuntimeResultDisposition.Failure:
-                RegisterFailure("命令 queryState 失败：" + Message(initialization));
-                return;
-        }
+        if (!EnsureInGameRuntimeReady()) return;
 
         if (!_gameModeVerified)
         {
@@ -586,6 +610,8 @@ internal sealed class AutoPlayController
             AddTimeline("guard", "已验证当前游戏模式为 " + gameMode + "。");
             MarkProgress();
         }
+
+        if (TryHandleObservedWave()) return;
 
         JObject affordances = _bridge.Invoke("queryAffordances");
         switch (RuntimeResultInspector.Classify(affordances))
@@ -642,7 +668,7 @@ internal sealed class AutoPlayController
             return;
         }
 
-        if (!inWave && !blocked && _defensePrepared && !_speedConfigured)
+        if (!inWave && !blocked && _defensePrepared && !_speedConfigured && _options.OverrideGameSpeed)
         {
             bool configured = Execute(new AutomationAction(
                 "setTimeSpeed",
@@ -672,6 +698,98 @@ internal sealed class AutoPlayController
         }
 
         Execute(action);
+    }
+
+    private bool EnsureInGameRuntimeReady()
+    {
+        if (_runtimeInitialized) return true;
+
+        JObject initialization = _bridge.Invoke("queryState");
+        switch (RuntimeResultInspector.Classify(initialization))
+        {
+            case RuntimeResultDisposition.Unsafe:
+                Fault("命令 queryState 报告状态已被污染，需要启动新的游戏进程：" + Message(initialization));
+                return false;
+            case RuntimeResultDisposition.Pending:
+                SetStage(AutomationStage.InitializingRun, Message(initialization));
+                return false;
+            case RuntimeResultDisposition.Failure:
+                RegisterFailure("命令 queryState 失败：" + Message(initialization));
+                return false;
+        }
+
+        _runtimeInitialized = true;
+        return true;
+    }
+
+    private bool TryHandleObservedWave()
+    {
+        if (!_wasInWave || !_waveQueryAvailable) return false;
+
+        JObject waveResult = _bridge.Invoke("queryWave");
+        switch (RuntimeResultInspector.Classify(waveResult))
+        {
+            case RuntimeResultDisposition.Unsafe:
+                Fault("命令 queryWave 报告状态已被污染，需要启动新的游戏进程：" + Message(waveResult));
+                return true;
+            case RuntimeResultDisposition.Pending:
+                SetStage(AutomationStage.Battle, Message(waveResult));
+                return true;
+            case RuntimeResultDisposition.Failure:
+                _waveQueryAvailable = false;
+                string warning = "命令 queryWave 失败，已回退到完整状态查询：" + Message(waveResult);
+                _lastMessage = warning;
+                _log.LogWarning(warning);
+                AddTimeline("warning", warning);
+                ScheduleNormalPoll();
+                return false;
+        }
+
+        _consecutiveFailures = 0;
+        JObject waveState = waveResult.SelectToken("data.state") as JObject ?? new JObject();
+        JArray blockers = waveState["blockers"] as JArray ?? new JArray();
+        bool inWave = waveState["isInWaving"]?.Value<bool>() == true;
+        bool gameOver = HasBlocker(blockers, "gameOver")
+                        || GameOutcomeObserver.Outcome is AutomationOutcome.Victory or AutomationOutcome.Defeat;
+        ObserveWaveTransition(inWave);
+
+        if (gameOver)
+        {
+            ScheduleNormalPoll();
+            TickSettlement();
+            return true;
+        }
+
+        if (!inWave)
+        {
+            ScheduleNormalPoll();
+            return false;
+        }
+
+        SetStage(AutomationStage.Battle, BuildWaveStageDetail(waveState));
+        return true;
+    }
+
+    private void ScheduleNormalPoll()
+    {
+        _nextTickAt = Time.realtimeSinceStartup + Math.Max(0.2f, _settings.TickIntervalSeconds.Value);
+    }
+
+    private static string BuildWaveStageDetail(JObject waveState)
+    {
+        int? remaining = waveState.SelectToken("enemy.remaining")?.Value<int?>();
+        string node = waveState["nodeType"]?.Value<string>() ?? string.Empty;
+        string nodeName = node switch
+        {
+            "common" => "普通节点",
+            "ferocityCommon" => "狂暴节点",
+            "elite" => "精英节点",
+            "boss" => "首领节点",
+            _ => "当前节点"
+        };
+        return remaining.HasValue
+            ? $"战斗中：{nodeName}，剩余 {remaining.Value} 个敌人。"
+            : $"战斗中：{nodeName}。";
     }
 
     private void TickSettlement()
@@ -857,6 +975,7 @@ internal sealed class AutoPlayController
         else if (!inWave && _wasInWave)
         {
             _wasInWave = false;
+            _waveQueryAvailable = true;
             _wavesCompleted++;
             AddTimeline("wave-complete", "已观察到第 " + _wavesCompleted + " 个波次完成。");
             MarkProgress();
@@ -928,10 +1047,10 @@ internal sealed class AutoPlayController
     {
         lock (_sync)
         {
-            bool changed = _stage != stage || !string.Equals(_stageDetail, detail, StringComparison.Ordinal);
+            bool stageChanged = _stage != stage;
             _stage = stage;
             _stageDetail = detail;
-            if (changed) _log.LogDebug(StageDisplayName(stage) + "：" + detail);
+            if (stageChanged) _log.LogDebug(StageDisplayName(stage) + "：" + detail);
         }
     }
 
@@ -1008,7 +1127,7 @@ internal sealed class AutoPlayController
         options.SuperModuleIndex = Math.Max(0, options.SuperModuleIndex);
         options.RandomVehicleIndex = Math.Max(0, options.RandomVehicleIndex);
         options.RandomFetterIndex = Math.Max(0, options.RandomFetterIndex);
-        options.SpeedState = Math.Max(0, Math.Min(2, options.SpeedState));
+        AutoPlayerGameSpeed.Normalize(options);
         options.MaxRunMinutes = Math.Max(1, Math.Min(1440, options.MaxRunMinutes));
         options.MaxWaves = Math.Max(0, options.MaxWaves);
         return options;

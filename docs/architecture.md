@@ -62,7 +62,7 @@ LOOPSTRUCTOR_AUTOPLAYER_CHEAT_ALLOWED=1  # 可信 Manager 会话固定提供能�
 
 ## IPC 协议
 
-IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响应。玩家模式对同一已安装游戏保存稳定的 pipe 基础名与 token，插件按当前 PID 派生进程专属端点；Manager 没有既有绑定且发现多个同目录游戏进程时拒绝任意选择。隔离 QA 模式每次启动重新生成端点与 token。协议 v2 的每个请求都携带请求 ID、对应 token、目标 PID；`hello` 返回随机进程实例标识，后续请求还必须携带并匹配该标识：
+IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响应。玩家模式对同一已安装游戏保存稳定的 pipe 基础名与 token，插件按当前 PID 派生进程专属端点；Manager 没有既有绑定且发现多个同目录游戏进程时拒绝任意选择。隔离 QA 模式每次启动重新生成端点与 token。协议 v3 的每个请求都携带请求 ID、对应 token、目标 PID；`hello` 返回随机进程实例标识，后续请求还必须携带并匹配该标识：
 
 ```json
 {"id":"request-1","token":"<session-token>","command":"status"}
@@ -180,7 +180,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.5.5-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.5.6-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

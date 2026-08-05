@@ -8,6 +8,37 @@ public sealed class PluginRuntimeHostContractTests
     private const string BootstrapType = "Loopstructor.AutoPlayer.Plugin.AutoPlayerPlugin";
     private const string SessionType = "Loopstructor.AutoPlayer.Plugin.AutoPlayerRuntimeSession";
     private const string HostType = "Loopstructor.AutoPlayer.Plugin.AutoPlayerRuntimeHost";
+    private const string ControllerType = "Loopstructor.AutoPlayer.Plugin.AutoPlayController";
+    private const string BridgeType = "Loopstructor.AutoPlayer.Plugin.RuntimeBridge";
+
+    [Fact]
+    public void BattlePolling_UsesWaveQueryAndAvoidsRepeatedFullStateSerialization()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tickInGame = RequireMethod(controller, "TickInGame");
+        MethodDefinition ensureReady = RequireMethod(controller, "EnsureInGameRuntimeReady");
+        MethodDefinition observedWave = RequireMethod(controller, "TryHandleObservedWave");
+
+        Assert.Contains(Calls(tickInGame), IsCall(ControllerType, "EnsureInGameRuntimeReady"));
+        Assert.Contains(Calls(tickInGame), IsCall(ControllerType, "TryHandleObservedWave"));
+        Assert.Contains(LoadedStrings(tickInGame), value => value == "queryAffordances");
+        Assert.DoesNotContain(LoadedStrings(tickInGame), value => value == "queryState" || value == "queryWave");
+        Assert.Contains(LoadedStrings(ensureReady), value => value == "queryState");
+        Assert.Contains(LoadedStrings(observedWave), value => value == "queryWave");
+
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        MethodDefinition invoke = RequireMethod(bridge, "Invoke");
+        Assert.Contains(Calls(invoke), IsCall(BridgeType, "AdaptRuntimeResult"));
+        Assert.DoesNotContain(
+            Calls(invoke),
+            call => call.DeclaringType.FullName == "Newtonsoft.Json.JsonConvert"
+                    && call.Name == "SerializeObject");
+        Assert.DoesNotContain(
+            Calls(invoke),
+            call => call.DeclaringType.FullName == "Newtonsoft.Json.Linq.JObject"
+                    && call.Name == "Parse");
+    }
 
     [Fact]
     public void Bootstrap_OnlyStartsSession_AndNeverOwnsRuntimeCleanup()
@@ -162,6 +193,12 @@ public sealed class PluginRuntimeHostContractTests
                 is Code.Call or Code.Callvirt or Code.Newobj or Code.Ldftn or Code.Ldvirtftn)
             .Select(instruction => instruction.Operand)
             .OfType<MethodReference>();
+
+    private static IEnumerable<string> LoadedStrings(MethodDefinition method) =>
+        method.Body.Instructions
+            .Where(instruction => instruction.OpCode.Code == Code.Ldstr)
+            .Select(instruction => instruction.Operand)
+            .OfType<string>();
 
     private static IEnumerable<MethodDefinition> AllMethods(TypeDefinition type) =>
         type.Methods.Concat(type.NestedTypes.SelectMany(AllMethods));

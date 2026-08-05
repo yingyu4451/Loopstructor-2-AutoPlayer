@@ -8,6 +8,69 @@ namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class ManagerDemoTests
 {
+    [Fact]
+    public void AutomationSpeed_DefaultUsesNormalGameSpeed()
+    {
+        AutomationRunOptions options = new();
+        ManagerSettings settings = new();
+
+        Assert.True(options.OverrideGameSpeed);
+        Assert.Equal(0, options.SpeedState);
+        Assert.True(settings.OverrideGameSpeed);
+        Assert.Equal(0, settings.SpeedState);
+        Assert.Equal(1, MainForm.SpeedSelectionIndex(settings.OverrideGameSpeed, settings.SpeedState));
+    }
+
+    [Fact]
+    public void AutomationSpeed_LegacyRunOptionsResetHistoricalThreeTimesDefaultToNormalSpeed()
+    {
+        AutomationRunOptions options = new()
+        {
+            GameSpeedControlVersion = 0,
+            OverrideGameSpeed = true,
+            SpeedState = 2
+        };
+
+        AutoPlayerGameSpeed.Normalize(options);
+
+        Assert.Equal(AutoPlayerGameSpeed.CurrentOptionsVersion, options.GameSpeedControlVersion);
+        Assert.True(options.OverrideGameSpeed);
+        Assert.Equal(0, options.SpeedState);
+    }
+
+    [Fact]
+    public void AutomationSpeed_CurrentFollowGameSelectionIsPreserved()
+    {
+        AutomationRunOptions options = new()
+        {
+            GameSpeedControlVersion = AutoPlayerGameSpeed.CurrentOptionsVersion,
+            OverrideGameSpeed = false,
+            SpeedState = 2
+        };
+
+        AutoPlayerGameSpeed.Normalize(options);
+
+        Assert.False(options.OverrideGameSpeed);
+        Assert.Equal(2, options.SpeedState);
+    }
+
+    [Theory]
+    [InlineData(0, false, 0)]
+    [InlineData(1, true, 0)]
+    [InlineData(2, true, 1)]
+    [InlineData(3, true, 2)]
+    public void AutomationSpeed_SelectionMapsToExplicitOverrideOnlyWhenRequested(
+        int selectedIndex,
+        bool expectedOverride,
+        int expectedSpeedState)
+    {
+        Assert.Equal(expectedOverride, MainForm.ShouldOverrideGameSpeed(selectedIndex));
+        Assert.Equal(expectedSpeedState, MainForm.SpeedStateFromSelectionIndex(selectedIndex));
+        Assert.Equal(
+            selectedIndex,
+            MainForm.SpeedSelectionIndex(expectedOverride, expectedSpeedState));
+    }
+
     [Theory]
     [InlineData("0.1.7", "AutoPlayer 版本 v0.1.7")]
     [InlineData("0.2.0-beta.1", "AutoPlayer 版本 v0.2.0-beta.1")]

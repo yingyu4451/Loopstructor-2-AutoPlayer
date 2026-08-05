@@ -1,10 +1,33 @@
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
+using Loopstructor.AutoPlayer.Manager.UI;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class ManagerSettingsStoreTests
 {
+    [Fact]
+    public void Load_LegacySpeedStateDoesNotEnableAutomaticSpeedOverride()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            File.WriteAllText(settingsPath, "{\"SpeedState\":2}");
+
+            ManagerSettings settings = new ManagerSettingsStore(settingsPath).Load(out string warning);
+
+            Assert.Contains("1x", warning);
+            Assert.True(settings.OverrideGameSpeed);
+            Assert.Equal(0, settings.SpeedState);
+            Assert.Equal(1, MainForm.SpeedSelectionIndex(settings.OverrideGameSpeed, settings.SpeedState));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Load_MigratesBlankLegacyUpdateSourceToPublishedRepository()
     {

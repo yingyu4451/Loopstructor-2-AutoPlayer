@@ -111,7 +111,7 @@ internal sealed partial class MainForm : Window
     private void InitializeSelectors()
     {
         _mode.ItemsSource = new[] { "普通模式", "随机模式" };
-        _speed.ItemsSource = new[] { "0 · 暂停", "1 · 常速", "2 · 加速" };
+        _speed.ItemsSource = new[] { "跟随游戏", "1x · 常速（推荐）", "2x · 加速", "3x · 高速" };
         _timelineItems.ItemsSource = _timeline;
         _logs.Document.PagePadding = new Thickness(0);
     }
@@ -158,7 +158,7 @@ internal sealed partial class MainForm : Window
         _profileName.Text = string.IsNullOrWhiteSpace(_settings.ProfileName) ? "player-default" : _settings.ProfileName;
         _continueProfile.IsChecked = _settings.ContinueExistingProfile;
         _mode.SelectedIndex = _settings.GameMode == AutomationGameMode.Random ? 1 : 0;
-        _speed.SelectedIndex = Math.Clamp(_settings.SpeedState, 0, 2);
+        _speed.SelectedIndex = SpeedSelectionIndex(_settings.OverrideGameSpeed, _settings.SpeedState);
         _maxMinutes.Text = Math.Clamp(_settings.MaxRunMinutes, 5, 480).ToString();
         _autoUpdateCheck.IsChecked = _settings.CheckUpdatesOnStart;
     }
@@ -1009,14 +1009,26 @@ internal sealed partial class MainForm : Window
 
     private AutomationRunOptions BuildRunOptions()
     {
+        int speedSelection = Math.Clamp(_speed.SelectedIndex, 0, 3);
         return new AutomationRunOptions
         {
             Mode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common,
-            SpeedState = Math.Clamp(_speed.SelectedIndex, 0, 2),
+            GameSpeedControlVersion = AutoPlayerGameSpeed.CurrentOptionsVersion,
+            OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection),
+            SpeedState = SpeedStateFromSelectionIndex(speedSelection),
             MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120),
             ContinueExistingProfile = _continueProfile.IsChecked == true
         };
     }
+
+    internal static int SpeedSelectionIndex(bool overrideGameSpeed, int speedState) =>
+        overrideGameSpeed ? Math.Clamp(speedState, 0, 2) + 1 : 0;
+
+    internal static bool ShouldOverrideGameSpeed(int selectedIndex) =>
+        Math.Clamp(selectedIndex, 0, 3) > 0;
+
+    internal static int SpeedStateFromSelectionIndex(int selectedIndex) =>
+        Math.Clamp(selectedIndex - 1, 0, 2);
 
     private bool ValidateHello(BridgeHello hello, out string error)
     {
@@ -1751,7 +1763,9 @@ internal sealed partial class MainForm : Window
         _settings.ProfileName = string.IsNullOrWhiteSpace(_profileName.Text) ? "player-default" : _profileName.Text.Trim();
         _settings.ContinueExistingProfile = _continueProfile.IsChecked == true;
         _settings.GameMode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common;
-        _settings.SpeedState = Math.Clamp(_speed.SelectedIndex, 0, 2);
+        int speedSelection = Math.Clamp(_speed.SelectedIndex, 0, 3);
+        _settings.OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection);
+        _settings.SpeedState = SpeedStateFromSelectionIndex(speedSelection);
         _settings.MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120);
         _settings.NormalizeUpdateSource();
         _settings.CheckUpdatesOnStart = _autoUpdateCheck.IsChecked == true;

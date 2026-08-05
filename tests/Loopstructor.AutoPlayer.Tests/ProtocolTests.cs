@@ -18,7 +18,7 @@ public sealed class ProtocolTests
             ProcessInstanceId = "0123456789abcdef0123456789abcdef"
         });
 
-        Assert.Equal(2, Protocol.CurrentVersion);
+        Assert.Equal(3, Protocol.CurrentVersion);
         Assert.Equal(0, legacy.GameProcessId);
         Assert.Empty(legacy.ProcessInstanceId);
         Assert.Contains("\"GameProcessId\":4321", current, StringComparison.Ordinal);
@@ -110,7 +110,7 @@ public sealed class ProtocolTests
         BridgeHello helloRoundTrip = JsonConvert.DeserializeObject<BridgeHello>(JsonConvert.SerializeObject(hello))!;
         AutoPlayerStatus statusRoundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(JsonConvert.SerializeObject(status))!;
 
-        Assert.Equal(2, Protocol.CurrentVersion);
+        Assert.Equal(3, Protocol.CurrentVersion);
         Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, helloRoundTrip.ActivationMode);
         Assert.Equal(AutoPlayerActivationMode.ResidentPlayer, statusRoundTrip.ActivationMode);
     }

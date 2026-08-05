@@ -429,7 +429,11 @@
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="速度" />
-                                <ComboBox x:Name="_speed" IsTextSearchEnabled="True" />
+                                <ComboBox
+                                    x:Name="_speed"
+                                    AutomationProperties.Name="游戏速度"
+                                    IsTextSearchEnabled="True"
+                                    ToolTip="默认使用 1x 常速；也可选择跟随游戏当前速度。" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="最长分钟" />

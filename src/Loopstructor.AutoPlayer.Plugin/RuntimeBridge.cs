@@ -11,6 +11,11 @@ namespace Loopstructor.AutoPlayer.Plugin;
 internal sealed class RuntimeBridge
 {
     private readonly Dictionary<string, MethodInfo> _commands = new(StringComparer.OrdinalIgnoreCase);
+    private Type? _resultType;
+    private FieldInfo? _resultSuccess;
+    private FieldInfo? _resultMessage;
+    private FieldInfo? _resultData;
+    private FieldInfo? _resultSuggestion;
 
     private static readonly (string Command, string Type, string Method)[] Contract =
     {
@@ -76,6 +81,12 @@ internal sealed class RuntimeBridge
             _commands[command] = method;
         }
 
+        const string resultTypeName = "GuiGameAutomation.Runtime.GuiGameMcpResult";
+        _resultType = FindType(resultTypeName);
+        _resultSuccess = _resultType?.GetField("success", BindingFlags.Public | BindingFlags.Instance);
+        _resultMessage = _resultType?.GetField("message", BindingFlags.Public | BindingFlags.Instance);
+        _resultData = _resultType?.GetField("data", BindingFlags.Public | BindingFlags.Instance);
+        _resultSuggestion = _resultType?.GetField("suggestion", BindingFlags.Public | BindingFlags.Instance);
         MissingMembers = missing;
         IsAvailable = missing.Count == 0;
         return IsAvailable;
@@ -90,8 +101,14 @@ internal sealed class RuntimeBridge
 
         try
         {
-            object? result = method.Invoke(null, new object[] { (arguments ?? new JObject()).ToString(Formatting.None) });
-            return JObject.Parse(JsonConvert.SerializeObject(result));
+            string jsonArguments = arguments == null ? "{}" : arguments.ToString(Formatting.None);
+            object? result = method.Invoke(null, new object[] { jsonArguments });
+            if (result == null)
+            {
+                return Error("自动游玩运行时返回了空结果：" + command);
+            }
+
+            return AdaptRuntimeResult(result);
         }
         catch (TargetInvocationException exception)
         {
@@ -103,6 +120,35 @@ internal sealed class RuntimeBridge
             return Error("调用自动游玩运行时失败（" + exception.GetType().Name + "）：" + exception.Message);
         }
     }
+
+    private JObject AdaptRuntimeResult(object result)
+    {
+        if (result is JObject json) return json;
+        if (_resultType == null
+            || !_resultType.IsInstanceOfType(result)
+            || _resultSuccess == null
+            || _resultMessage == null
+            || _resultData == null
+            || _resultSuggestion == null)
+        {
+            return JObject.FromObject(result);
+        }
+
+        return new JObject
+        {
+            ["success"] = ToJsonToken(_resultSuccess.GetValue(result)),
+            ["message"] = ToJsonToken(_resultMessage.GetValue(result)),
+            ["data"] = ToJsonToken(_resultData.GetValue(result)),
+            ["suggestion"] = ToJsonToken(_resultSuggestion.GetValue(result))
+        };
+    }
+
+    private static JToken ToJsonToken(object? value) => value switch
+    {
+        null => JValue.CreateNull(),
+        JToken token => token,
+        _ => JToken.FromObject(value)
+    };
 
     public bool IsFrontEndInitializationComplete(out string message)
     {

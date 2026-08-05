@@ -90,7 +90,9 @@ public sealed class AutomationRunOptions
     public int SuperModuleIndex { get; set; }
     public int RandomVehicleIndex { get; set; }
     public int RandomFetterIndex { get; set; }
-    public int SpeedState { get; set; } = 2;
+    public int GameSpeedControlVersion { get; set; }
+    public bool OverrideGameSpeed { get; set; } = true;
+    public int SpeedState { get; set; }
     public int MaxRunMinutes { get; set; } = 120;
     public int MaxWaves { get; set; }
     public bool ContinueExistingProfile { get; set; }
@@ -222,6 +224,24 @@ public sealed class ControlRequest
     public JObject? Arguments { get; set; }
 }
 
+public static class AutoPlayerGameSpeed
+{
+    public const int CurrentOptionsVersion = 1;
+
+    public static void Normalize(AutomationRunOptions options)
+    {
+        if (options.GameSpeedControlVersion < CurrentOptionsVersion)
+        {
+            // Older Managers always sent their historical 3x default. Reset that persisted game setting once.
+            options.OverrideGameSpeed = true;
+            options.SpeedState = 0;
+        }
+
+        options.GameSpeedControlVersion = CurrentOptionsVersion;
+        options.SpeedState = Math.Max(0, Math.Min(2, options.SpeedState));
+    }
+}
+
 public sealed class ControlResponse
 {
     public string Id { get; set; } = string.Empty;
@@ -247,7 +267,7 @@ public sealed class LaunchTicket
 
 public static class Protocol
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     public const int CheatCurrentVersion = 4;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";

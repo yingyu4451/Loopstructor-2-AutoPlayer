@@ -107,7 +107,8 @@ public sealed class ManagerSettings
     public string ProfileName { get; set; } = "player-default";
     public bool ContinueExistingProfile { get; set; }
     public AutomationGameMode GameMode { get; set; } = AutomationGameMode.Common;
-    public int SpeedState { get; set; } = 2;
+    public bool OverrideGameSpeed { get; set; } = true;
+    public int SpeedState { get; set; }
     public int MaxRunMinutes { get; set; } = 120;
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;

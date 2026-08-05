@@ -29,6 +29,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
     private PipeControlServer? _controlServer;
     private AutoPlayerRuntimeHost? _host;
     private string _statusPath = string.Empty;
+    private string _lastStatusPayload = string.Empty;
     private float _nextStatusWriteAt;
     private bool _eventsAttached;
     private bool _quitting;
@@ -164,7 +165,11 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
         AttachLifecycleEvents();
         EnsureHost();
         _controlServer.Start();
-        if (!_activation.IsPlayerMode) WriteStatus();
+        if (!_activation.IsPlayerMode)
+        {
+            WriteStatus(force: true);
+            _nextStatusWriteAt = Time.realtimeSinceStartup + 5f;
+        }
         _logger.LogInfo(
             $"{PluginInfo.Name} {PluginInfo.Version} 已通过{ActivationSourceLabel(_activation.Source)}激活，当前处于待命模式。");
     }
@@ -262,7 +267,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
             && _controller != null
             && Time.realtimeSinceStartup >= _nextStatusWriteAt)
         {
-            _nextStatusWriteAt = Time.realtimeSinceStartup + 1f;
+            _nextStatusWriteAt = Time.realtimeSinceStartup + 5f;
             WriteStatus();
         }
     }
@@ -343,7 +348,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
             _cheatController = null;
             CleanupStep("移除怪物生成点输入补丁", SpawnPointCaptureInputPatch.Detach);
             CleanupStep("重置地图跳关补丁", MapSkipPatch.Reset);
-            if (!_activation.IsPlayerMode) CleanupStep("写入最终自动游玩状态", WriteStatus);
+            if (!_activation.IsPlayerMode) CleanupStep("写入最终自动游玩状态", () => WriteStatus(force: true));
             _controller = null;
             CleanupStep("移除 Harmony 补丁", () => _harmony?.UnpatchSelf());
             _harmony = null;
@@ -396,14 +401,15 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
         try { _logger.LogError(message); } catch { }
     }
 
-    private void WriteStatus()
+    private void WriteStatus(bool force = false)
     {
         if (_controller == null || string.IsNullOrWhiteSpace(_statusPath)) return;
         try
         {
-            EvidenceRecorder.AtomicWrite(
-                _statusPath,
-                JsonConvert.SerializeObject(_controller.Snapshot(), Formatting.Indented));
+            string payload = JsonConvert.SerializeObject(_controller.Snapshot(), Formatting.Indented);
+            if (!force && string.Equals(payload, _lastStatusPayload, StringComparison.Ordinal)) return;
+            EvidenceRecorder.AtomicWrite(_statusPath, payload);
+            _lastStatusPayload = payload;
         }
         catch (Exception exception)
         {

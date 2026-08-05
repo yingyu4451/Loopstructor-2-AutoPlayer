@@ -28,7 +28,7 @@ internal static class DemoData
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
         ProcessInstanceId = "cb866de72f7b45d4a2e35564bc19e515",
-        PluginVersion = "0.5.5",
+        PluginVersion = "0.5.6",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
