@@ -274,7 +274,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
 
     internal void DrawOverlay()
     {
-        if (!_disposed) _cheatController?.DrawEnemyIds();
+        if (!_disposed) _cheatController?.DrawEnemyOverlays();
     }
 
     internal void HostDestroyed(AutoPlayerRuntimeHost host)

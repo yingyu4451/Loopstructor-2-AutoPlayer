@@ -7,6 +7,9 @@ namespace Loopstructor.AutoPlayer.Manager.UI;
 
 internal static class DemoData
 {
+    [ThreadStatic] private static bool _enemyIdsVisible;
+    [ThreadStatic] private static bool _enemyBuffsVisible;
+
     public static GameInstallValidation Game()
     {
         return new GameInstallValidation
@@ -28,7 +31,7 @@ internal static class DemoData
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
         ProcessInstanceId = "cb866de72f7b45d4a2e35564bc19e515",
-        PluginVersion = "0.5.7",
+        PluginVersion = "0.5.9",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -113,6 +116,13 @@ internal static class DemoData
 
     public static AutoPlayerStatus CheatStatus()
     {
+        _enemyIdsVisible = false;
+        _enemyBuffsVisible = false;
+        return BuildCheatStatus();
+    }
+
+    private static AutoPlayerStatus BuildCheatStatus()
+    {
         AutoPlayerStatus status = Status();
         BridgeHello hello = CheatHello();
         status.RunState = AutoPlayerRunState.Standby;
@@ -122,6 +132,8 @@ internal static class DemoData
         status.CheatSessionAuthorized = true;
         status.CheatAvailable = true;
         status.CheatModeEnabled = true;
+        status.EnemyIdsVisible = _enemyIdsVisible;
+        status.EnemyBuffsVisible = _enemyBuffsVisible;
         status.RunIntegrity = "clean";
         status.LastCommand = CheatCommands.QueryCatalog;
         status.LastMessage = "作弊资源目录已就绪";
@@ -130,12 +142,13 @@ internal static class DemoData
 
     public static ControlResponse CheatResponse(string command, JObject? arguments)
     {
-        AutoPlayerStatus status = CheatStatus();
+        AutoPlayerStatus status = BuildCheatStatus();
         JObject state = new()
         {
             ["enabled"] = true,
             ["baseGodMode"] = false,
-            ["enemyIdsVisible"] = false,
+            ["enemyIdsVisible"] = _enemyIdsVisible,
+            ["enemyBuffsVisible"] = _enemyBuffsVisible,
             ["mapSkipEnabled"] = false,
             ["ownedRelics"] = new JArray(
                 new JObject
@@ -194,6 +207,24 @@ internal static class DemoData
             bool enabled = arguments?.Value<bool?>("enabled") ?? true;
             status.CheatModeEnabled = enabled;
             state["enabled"] = enabled;
+        }
+
+        if (string.Equals(command, CheatCommands.SetEnemyIdOverlay, StringComparison.OrdinalIgnoreCase))
+        {
+            bool visible = arguments?.Value<bool?>("visible") == true;
+            _enemyIdsVisible = visible;
+            status.EnemyIdsVisible = visible;
+            state["visible"] = visible;
+            state["enemyIdsVisible"] = visible;
+        }
+
+        if (string.Equals(command, CheatCommands.SetEnemyBuffOverlay, StringComparison.OrdinalIgnoreCase))
+        {
+            bool visible = arguments?.Value<bool?>("visible") == true;
+            _enemyBuffsVisible = visible;
+            status.EnemyBuffsVisible = visible;
+            state["visible"] = visible;
+            state["enemyBuffsVisible"] = visible;
         }
 
         return Success(

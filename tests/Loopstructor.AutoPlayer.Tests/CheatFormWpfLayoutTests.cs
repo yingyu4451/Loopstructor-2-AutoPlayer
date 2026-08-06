@@ -80,6 +80,10 @@ public sealed class CheatFormWpfLayoutTests
                 AssertTabFits(form, 0);
                 AssertTopAligned(form, "_enchantmentCatalog", "_enchantmentLevel", "_addEnchantmentButton");
 
+                AssertTabFits(form, 1);
+                AssertTopAligned(form, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
+                AssertMinimumWidth(form, 180, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
+
                 AssertTabFits(form, 2);
                 AssertTopAligned(form, "_vehicleAttribute", "_vehicleCurrentValueFrame", "_vehicleAttributeValue", "_modifyVehicleButton");
                 AssertTopAligned(form, "_vehicleEnchantmentCatalog", "_vehicleEnchantmentCurrentFrame", "_vehicleEnchantmentLevel", "_setVehicleEnchantmentButton");
@@ -88,6 +92,111 @@ public sealed class CheatFormWpfLayoutTests
                 AssertTabFits(form, 3);
                 AssertTopAligned(form, "_enemyCatalog", "_enemyLevel", "_followCurrentLevelCheck", "_enemyCount");
                 AssertTopAligned(form, "_spawnX", "_spawnY", "_spawnZ", "_spawnRadius", "_capturePointButton", "_cancelCaptureButton", "_addSpawnPointButton");
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void EnemyBuffOverlay_SendsIndependentVisibleCommand()
+    {
+        RunSta(() =>
+        {
+            List<(string Command, JObject? Payload)> calls = new();
+            CheatForm form = new((command, payload) =>
+            {
+                calls.Add((command, payload?.DeepClone() as JObject));
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.SelectDemoTab(1);
+                PumpDispatcher();
+
+                CheckBox idOverlay = Assert.IsType<CheckBox>(form.FindName("_enemyIdOverlayCheck"));
+                CheckBox buffOverlay = Assert.IsType<CheckBox>(form.FindName("_enemyBuffOverlayCheck"));
+                Assert.False(idOverlay.IsChecked);
+                Assert.False(buffOverlay.IsChecked);
+
+                buffOverlay.IsChecked = true;
+                buffOverlay.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                PumpDispatcher();
+
+                JObject payload = Assert.Single(
+                    calls,
+                    call => call.Command == CheatCommands.SetEnemyBuffOverlay).Payload!;
+                Assert.True(payload.Value<bool>("visible"));
+                Assert.True(buffOverlay.IsChecked);
+                Assert.False(idOverlay.IsChecked);
+
+                idOverlay.IsChecked = true;
+                idOverlay.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                PumpDispatcher();
+
+                Assert.Single(calls, call => call.Command == CheatCommands.SetEnemyIdOverlay);
+                Assert.True(idOverlay.IsChecked);
+                Assert.True(buffOverlay.IsChecked);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void EnemyBuffOverlay_FailedCommandUsesReturnedPluginState()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+            {
+                if (!string.Equals(command, CheatCommands.SetEnemyBuffOverlay, StringComparison.Ordinal))
+                {
+                    return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+                }
+
+                AutoPlayerStatus status = DemoData.CheatStatus();
+                status.EnemyBuffsVisible = true;
+                return Task.FromResult<ControlResponse?>(new ControlResponse
+                {
+                    Success = false,
+                    Message = "模拟失败",
+                    Status = status
+                });
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.SelectDemoTab(1);
+                PumpDispatcher();
+
+                CheckBox buffOverlay = Assert.IsType<CheckBox>(form.FindName("_enemyBuffOverlayCheck"));
+                buffOverlay.IsChecked = true;
+                buffOverlay.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                PumpDispatcher();
+
+                Assert.True(buffOverlay.IsChecked);
             }
             finally
             {
@@ -319,6 +428,17 @@ public sealed class CheatFormWpfLayoutTests
         Assert.True(
             tops.Max() - tops.Min() <= 1,
             $"兄弟控件未水平对齐：{string.Join(", ", names.Zip(tops, (name, top) => $"{name}={top:0.##}"))}");
+    }
+
+    private static void AssertMinimumWidth(FrameworkElement ancestor, double minimumWidth, params string[] names)
+    {
+        foreach (string name in names)
+        {
+            FrameworkElement element = Assert.IsAssignableFrom<FrameworkElement>(ancestor.FindName(name));
+            Assert.True(
+                element.ActualWidth >= minimumWidth,
+                $"{name} 的可见宽度只有 {element.ActualWidth:0.##}，可能裁切文字。");
+        }
     }
 
     private static void RunSta(Action action)

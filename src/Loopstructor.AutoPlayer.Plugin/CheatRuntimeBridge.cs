@@ -27,6 +27,11 @@ internal sealed class CheatRuntimeBridge
     private const int MaxEnchantmentsPerVehicleFallback = 8;
     private const int MaxEnchantmentLevel = 100;
     private const int CatalogIconSize = 48;
+    private const float EnemyOverlayRefreshInterval = 0.5f;
+    private const float EnemyBuffIconSize = 30f;
+    private const float EnemyBuffCellWidth = 34f;
+    private const float EnemyBuffCellHeight = 45f;
+    private const int MaxEnemyBuffColumns = 8;
     private static readonly TimeSpan SpawnPointCaptureTimeout = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, string> BattleAttributeFallbackNames =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -246,9 +251,19 @@ internal sealed class CheatRuntimeBridge
     private readonly List<string> _missingMembers = new();
     private readonly object _godModeSource = new();
     private readonly Dictionary<int, CatalogIcon> _catalogIcons = new();
+    private readonly Dictionary<string, EnemyBuffIconSource> _enemyBuffIconSources =
+        new(StringComparer.Ordinal);
+    private List<EnemyOverlaySnapshot> _enemyOverlaySnapshots = new();
+    private List<EnemyOverlaySnapshot> _enemyOverlayRefreshBuffer = new();
+    private readonly List<EnemyTarget> _enemyTargetRefreshBuffer = new();
     private string _artifactRoot = string.Empty;
     private GUIStyle? _enemyIdStyle;
     private GUIStyle? _spawnPointStyle;
+    private GUIStyle? _enemyBuffFrameStyle;
+    private GUIStyle? _enemyBuffDurationStyle;
+    private GUIStyle? _enemyBuffFallbackStyle;
+    private GUIStyle? _enemyBuffTooltipStyle;
+    private float _nextEnemyOverlayRefreshAt;
     private object? _baseReceiver;
     private SpawnPointCapture _spawnPointCapture = SpawnPointCapture.Idle();
     private readonly List<SavedSpawnPoint> _spawnPoints = new();
@@ -312,9 +327,17 @@ internal sealed class CheatRuntimeBridge
     private Type? _linePointType;
     private Type? _guiSaveHandlerType;
     private Type? _updateVehicleStateEventHandlerType;
+    private Type? _buffAcceptorType;
+    private Type? _buffManagerType;
+    private Type? _buffType;
+    private Type? _buffDataPathSoType;
+    private Type? _buffFlagType;
+    private Type? _buffDisplayDataType;
+    private MethodInfo? _getBuffsMethod;
 
     public bool IsAvailable { get; private set; }
     public bool EnemyIdsVisible { get; set; }
+    public bool EnemyBuffsVisible { get; set; }
     public bool BaseGodModeRequested { get; private set; }
     public IReadOnlyList<string> MissingMembers => _missingMembers;
     public IReadOnlyList<string> Capabilities => IsAvailable ? CheatCommands.All : Array.Empty<string>();
@@ -382,6 +405,17 @@ internal sealed class CheatRuntimeBridge
         _linePointType = Require("MetroTD.LineSystem.LinePoint");
         _guiSaveHandlerType = Require("GuiSaveHandler");
         _updateVehicleStateEventHandlerType = Require("MetroTD.LineSystem.UpdateVehicleStateEventHandler");
+        _buffAcceptorType = Require("MetroTD.BuffSystem.IBuffAcceptor");
+        _buffManagerType = Require("ActFramework_ByHZR.StatusEffect.BuffManagerOnAgentMono");
+        _buffType = Require("ActFramework_ByHZR.StatusEffect.Buff");
+        _buffDataPathSoType = Require("MetroTD.BuffSystem.BuffDataPathSO");
+        _buffFlagType = Require("BuffFlag");
+        _buffDisplayDataType = Require("MetroTD.BuffSystem.BuffDisplayData");
+        _getBuffsMethod = _buffManagerType?
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+            .FirstOrDefault(method =>
+                string.Equals(method.Name, "GetBuffs", StringComparison.Ordinal)
+                && method.GetParameters().Length == 1);
         ValidateRuntimeContract();
         IsAvailable = _missingMembers.Count == 0;
         if (IsAvailable)
@@ -1437,11 +1471,299 @@ internal sealed class CheatRuntimeBridge
         }
     }
 
-    public void DrawEnemyIds()
+    public void TickEnemyOverlays()
     {
+        if (!EnemyIdsVisible && !EnemyBuffsVisible)
+        {
+            InvalidateEnemyOverlayCache();
+            return;
+        }
+
+        float now = Time.realtimeSinceStartup;
+        if (now < _nextEnemyOverlayRefreshAt) return;
+        _nextEnemyOverlayRefreshAt = now + EnemyOverlayRefreshInterval;
+
+        try
+        {
+            RefreshEnemyOverlayCache();
+        }
+        catch
+        {
+            _enemyOverlaySnapshots.Clear();
+        }
+    }
+
+    public void InvalidateEnemyOverlayCache()
+    {
+        _enemyOverlaySnapshots.Clear();
+        _enemyOverlayRefreshBuffer.Clear();
+        _enemyTargetRefreshBuffer.Clear();
+        _nextEnemyOverlayRefreshAt = 0f;
+    }
+
+    public void DrawEnemyOverlays()
+    {
+        if (Event.current == null || Event.current.type != EventType.Repaint) return;
         Camera camera = Camera.main;
         if (camera == null) return;
 
+        EnsureEnemyOverlayStyles();
+        DrawSpawnPointMarkers(camera);
+
+        string tooltip = string.Empty;
+        for (int index = 0; index < _enemyOverlaySnapshots.Count; index++)
+        {
+            EnemyOverlaySnapshot overlay = _enemyOverlaySnapshots[index];
+            if (overlay.GameObject == null || !overlay.GameObject.activeInHierarchy || overlay.Anchor == null) continue;
+
+            Vector3 screen = camera.WorldToScreenPoint(overlay.Anchor.position + (Vector3.up * overlay.WorldYOffset));
+            Rect viewport = camera.pixelRect;
+            if (screen.z <= 0f
+                || screen.x < viewport.xMin
+                || screen.x > viewport.xMax
+                || screen.y < viewport.yMin
+                || screen.y > viewport.yMax)
+            {
+                continue;
+            }
+            float guiY = Screen.height - screen.y;
+
+            if (EnemyBuffsVisible && overlay.Buffs.Count > 0)
+            {
+                DrawEnemyBuffIcons(overlay.Buffs, screen.x, guiY, EnemyIdsVisible, ref tooltip);
+            }
+
+            if (EnemyIdsVisible)
+            {
+                Rect rect = new(screen.x - 110f, guiY - 14f, 220f, 28f);
+                GUI.Label(rect, overlay.IdText, _enemyIdStyle);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(tooltip)) DrawEnemyBuffTooltip(tooltip);
+    }
+
+    private void RefreshEnemyOverlayCache()
+    {
+        List<EnemyOverlaySnapshot> refreshed = _enemyOverlayRefreshBuffer;
+        refreshed.Clear();
+        CollectEnemyTargets(_enemyTargetRefreshBuffer);
+        foreach (EnemyTarget target in _enemyTargetRefreshBuffer)
+        {
+            if (!GetBool(target.Ai, "AIIsRunning")) continue;
+            IReadOnlyList<EnemyBuffIconSnapshot> buffs = EnemyBuffsVisible
+                ? SnapshotEnemyBuffIcons(target)
+                : Array.Empty<EnemyBuffIconSnapshot>();
+            if (!EnemyIdsVisible && buffs.Count == 0) continue;
+
+            Transform? anchor = GetMember(target.Ai, "HpSliderTransform") as Transform;
+            float worldYOffset = 0.45f;
+            if (anchor == null)
+            {
+                anchor = target.GameObject.transform;
+                worldYOffset = 1.4f;
+            }
+
+            refreshed.Add(new EnemyOverlaySnapshot
+            {
+                GameObject = target.GameObject,
+                Anchor = anchor,
+                WorldYOffset = worldYOffset,
+                IdText = $"[{target.RuntimeId}] {target.TypeId}",
+                Buffs = buffs
+            });
+        }
+
+        (_enemyOverlaySnapshots, _enemyOverlayRefreshBuffer) =
+            (_enemyOverlayRefreshBuffer, _enemyOverlaySnapshots);
+    }
+
+    private IReadOnlyList<EnemyBuffIconSnapshot> SnapshotEnemyBuffIcons(EnemyTarget target)
+    {
+        if (_buffAcceptorType == null || _getBuffsMethod == null) return Array.Empty<EnemyBuffIconSnapshot>();
+
+        object? acceptor = target.GameObject.GetComponent(_buffAcceptorType)
+                           ?? GetMember(target.Ai, "m_buffAcceptor");
+        object? manager = GetMember(acceptor, "buffMr");
+        if (manager == null) return Array.Empty<EnemyBuffIconSnapshot>();
+
+        object? value = _getBuffsMethod.Invoke(manager, new object?[] { null });
+        if (value is not IEnumerable buffs) return Array.Empty<EnemyBuffIconSnapshot>();
+
+        List<EnemyBuffIconSnapshot> result = new();
+        foreach (object? buff in buffs)
+        {
+            if (buff == null || GetBool(buff, "IsEnd")) continue;
+            string key = GetMember(buff, "Key")?.ToString()?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(key)
+                || !TryResolveEnemyBuffIcon(key, out EnemyBuffIconSource icon))
+            {
+                continue;
+            }
+
+            result.Add(new EnemyBuffIconSnapshot
+            {
+                Key = key,
+                DisplayName = icon.DisplayName,
+                Texture = icon.Texture,
+                Uv = icon.Uv,
+                FallbackColor = icon.FallbackColor,
+                DurationText = ResolveEnemyBuffDuration(GetMember(buff, "LifeRule"))
+            });
+        }
+
+        return result;
+    }
+
+    private bool TryResolveEnemyBuffIcon(string key, out EnemyBuffIconSource source)
+    {
+        source = null!;
+        if (_enemyBuffIconSources.TryGetValue(key, out EnemyBuffIconSource? cached))
+        {
+            source = cached;
+            return true;
+        }
+
+        if (_buffDataPathSoType == null || _buffFlagType == null)
+        {
+            source = CreateEnemyBuffFallbackIcon(key);
+            _enemyBuffIconSources[key] = source;
+            return true;
+        }
+        try
+        {
+            object? configuration = TryGetSingleton(_buffDataPathSoType);
+            object? displayConfiguration = GetMember(configuration, "buffDisplayData");
+            if (GetMember(displayConfiguration, "Dic") is not IDictionary dictionary)
+            {
+                source = CreateEnemyBuffFallbackIcon(key);
+                _enemyBuffIconSources[key] = source;
+                return true;
+            }
+            if (!Enum.TryParse(_buffFlagType, key, false, out object? flag)
+                || flag == null
+                || !dictionary.Contains(flag))
+            {
+                source = CreateEnemyBuffFallbackIcon(key);
+                _enemyBuffIconSources[key] = source;
+                return true;
+            }
+
+            object? displayData = dictionary[flag];
+            if (GetMember(displayData, "sprite") is not Sprite sprite || sprite == null)
+            {
+                source = CreateEnemyBuffFallbackIcon(key);
+                _enemyBuffIconSources[key] = source;
+                return true;
+            }
+            Texture2D texture = sprite.texture;
+            Rect sourceRect = sprite.textureRect;
+            if (texture == null || texture.width <= 0 || texture.height <= 0
+                || sourceRect.width <= 0f || sourceRect.height <= 0f)
+            {
+                source = CreateEnemyBuffFallbackIcon(key);
+                _enemyBuffIconSources[key] = source;
+                return true;
+            }
+
+            string displayName = ResolveChineseLocalizedString(GetMember(displayData, "title"));
+            source = new EnemyBuffIconSource
+            {
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? key : displayName,
+                Texture = texture,
+                Uv = new Rect(
+                    sourceRect.x / texture.width,
+                    sourceRect.y / texture.height,
+                    sourceRect.width / texture.width,
+                    sourceRect.height / texture.height)
+            };
+            _enemyBuffIconSources[key] = source;
+            return true;
+        }
+        catch
+        {
+            source = CreateEnemyBuffFallbackIcon(key);
+            _enemyBuffIconSources[key] = source;
+            return true;
+        }
+    }
+
+    private static EnemyBuffIconSource CreateEnemyBuffFallbackIcon(string key)
+    {
+        uint hash = 2166136261;
+        for (int index = 0; index < key.Length; index++)
+        {
+            hash ^= key[index];
+            hash *= 16777619;
+        }
+
+        float red = 0.28f + (((hash >> 16) & 0xff) / 255f * 0.42f);
+        float green = 0.28f + (((hash >> 8) & 0xff) / 255f * 0.42f);
+        float blue = 0.28f + ((hash & 0xff) / 255f * 0.42f);
+        return new EnemyBuffIconSource
+        {
+            DisplayName = key,
+            Texture = null,
+            Uv = default,
+            FallbackColor = new Color(red, green, blue, 1f)
+        };
+    }
+
+    private static string ResolveEnemyBuffDuration(object? lifeRule)
+    {
+        if (lifeRule == null) return "--";
+        try
+        {
+            string typeName = lifeRule.GetType().Name;
+            if (typeName.IndexOf("NeverEnd", StringComparison.OrdinalIgnoreCase) >= 0) return "∞";
+
+            if (TryGetFiniteFloat(GetMember(lifeRule, "RemainingDuration"), out float remaining))
+            {
+                return FormatEnemyBuffDuration(Mathf.Max(0f, remaining));
+            }
+
+            bool hasDuration = TryGetFiniteFloat(GetMember(lifeRule, "Duration"), out float configuredDuration);
+            if (hasDuration && configuredDuration < 0f) return "∞";
+
+            object? timer = GetMember(lifeRule, "Timer");
+            if (timer != null
+                && TryGetFiniteFloat(GetMember(timer, "duration"), out float timerDuration)
+                && TryGetFiniteFloat(GetMember(timer, "time"), out float elapsed))
+            {
+                if (timerDuration < 0f) return "∞";
+                return FormatEnemyBuffDuration(Mathf.Max(0f, timerDuration - elapsed));
+            }
+
+            return "--";
+        }
+        catch
+        {
+            return "--";
+        }
+    }
+
+    private static bool TryGetFiniteFloat(object? value, out float result)
+    {
+        result = 0f;
+        if (value == null) return false;
+        try
+        {
+            result = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+            return !float.IsNaN(result) && !float.IsInfinity(result);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string FormatEnemyBuffDuration(float seconds) =>
+        seconds < 10f
+            ? seconds.ToString("0.0", CultureInfo.InvariantCulture) + "s"
+            : seconds.ToString("0", CultureInfo.InvariantCulture) + "s";
+
+    private void EnsureEnemyOverlayStyles()
+    {
         _spawnPointStyle ??= new GUIStyle(GUI.skin.label)
         {
             alignment = TextAnchor.MiddleCenter,
@@ -1449,16 +1771,6 @@ internal sealed class CheatRuntimeBridge
             fontStyle = FontStyle.Bold
         };
         _spawnPointStyle.normal.textColor = new Color(0.35f, 0.95f, 1f, 1f);
-        for (int index = 0; index < _spawnPoints.Count; index++)
-        {
-            SavedSpawnPoint point = _spawnPoints[index];
-            Vector3 screen = camera.WorldToScreenPoint(point.Position);
-            if (screen.z <= 0f) continue;
-            Rect marker = new(screen.x - 90f, Screen.height - screen.y - 30f, 180f, 60f);
-            GUI.Label(marker, $"＋\n#{index + 1} ({point.Position.x:0.##}, {point.Position.y:0.##})", _spawnPointStyle);
-        }
-
-        if (!EnemyIdsVisible) return;
 
         _enemyIdStyle ??= new GUIStyle(GUI.skin.label)
         {
@@ -1468,18 +1780,124 @@ internal sealed class CheatRuntimeBridge
         };
         _enemyIdStyle.normal.textColor = Color.yellow;
 
-        foreach (EnemyTarget target in SnapshotEnemyTargets())
+        _enemyBuffFrameStyle ??= new GUIStyle(GUI.skin.box)
         {
-            Vector3 screen = camera.WorldToScreenPoint(target.GameObject.transform.position + (Vector3.up * 1.4f));
+            alignment = TextAnchor.MiddleCenter,
+            padding = new RectOffset(1, 1, 1, 1)
+        };
+        _enemyBuffDurationStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            clipping = TextClipping.Clip
+        };
+        _enemyBuffDurationStyle.normal.textColor = Color.white;
+        _enemyBuffFallbackStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 20,
+            fontStyle = FontStyle.Bold
+        };
+        _enemyBuffFallbackStyle.normal.textColor = Color.white;
+        _enemyBuffTooltipStyle ??= new GUIStyle(GUI.skin.box)
+        {
+            alignment = TextAnchor.MiddleLeft,
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            wordWrap = true,
+            padding = new RectOffset(8, 8, 6, 6)
+        };
+        _enemyBuffTooltipStyle.normal.textColor = Color.white;
+    }
+
+    private void DrawSpawnPointMarkers(Camera camera)
+    {
+        for (int index = 0; index < _spawnPoints.Count; index++)
+        {
+            SavedSpawnPoint point = _spawnPoints[index];
+            Vector3 screen = camera.WorldToScreenPoint(point.Position);
             if (screen.z <= 0f) continue;
-            Rect rect = new(screen.x - 110f, Screen.height - screen.y - 14f, 220f, 28f);
-            GUI.Label(rect, $"[{target.RuntimeId}] {target.TypeId}", _enemyIdStyle);
+            Rect marker = new(screen.x - 90f, Screen.height - screen.y - 30f, 180f, 60f);
+            GUI.Label(marker, $"＋\n#{index + 1} ({point.Position.x:0.##}, {point.Position.y:0.##})", _spawnPointStyle);
         }
+    }
+
+    private void DrawEnemyBuffIcons(
+        IReadOnlyList<EnemyBuffIconSnapshot> buffs,
+        float screenX,
+        float screenY,
+        bool leaveRoomForId,
+        ref string tooltip)
+    {
+        int screenColumns = Mathf.Max(1, Mathf.FloorToInt((Screen.width - 16f) / EnemyBuffCellWidth));
+        int columns = Mathf.Min(MaxEnemyBuffColumns, Mathf.Min(screenColumns, buffs.Count));
+        int rows = Mathf.CeilToInt(buffs.Count / (float)columns);
+        float totalHeight = rows * EnemyBuffCellHeight;
+        float top = screenY - totalHeight - (leaveRoomForId ? 20f : 8f);
+        if (top < 8f)
+        {
+            top = Mathf.Min(Screen.height - totalHeight - 8f, screenY + (leaveRoomForId ? 20f : 8f));
+        }
+        top = Mathf.Clamp(top, 8f, Mathf.Max(8f, Screen.height - totalHeight - 8f));
+
+        Vector2 mouse = Event.current.mousePosition;
+        for (int index = 0; index < buffs.Count; index++)
+        {
+            int row = index / columns;
+            int column = index % columns;
+            int rowCount = Mathf.Min(columns, buffs.Count - (row * columns));
+            float rowWidth = rowCount * EnemyBuffCellWidth;
+            float left = Mathf.Clamp(
+                screenX - (rowWidth * 0.5f),
+                8f,
+                Mathf.Max(8f, Screen.width - rowWidth - 8f));
+            float x = left + (column * EnemyBuffCellWidth) + ((EnemyBuffCellWidth - EnemyBuffIconSize) * 0.5f);
+            float y = top + (row * EnemyBuffCellHeight);
+            Rect iconFrame = new(x, y, EnemyBuffIconSize, EnemyBuffIconSize);
+            Rect textureRect = new(x + 2f, y + 2f, EnemyBuffIconSize - 4f, EnemyBuffIconSize - 4f);
+            Rect durationRect = new(x - 2f, y + EnemyBuffIconSize + 1f, EnemyBuffIconSize + 4f, 13f);
+            EnemyBuffIconSnapshot buff = buffs[index];
+
+            GUI.Box(iconFrame, GUIContent.none, _enemyBuffFrameStyle);
+            if (buff.Texture != null)
+            {
+                GUI.DrawTextureWithTexCoords(textureRect, buff.Texture, buff.Uv, true);
+            }
+            else
+            {
+                Color previousColor = GUI.color;
+                GUI.color = buff.FallbackColor;
+                GUI.DrawTexture(textureRect, Texture2D.whiteTexture);
+                GUI.color = previousColor;
+                GUI.Label(textureRect, "?", _enemyBuffFallbackStyle);
+            }
+            GUI.Box(durationRect, GUIContent.none, _enemyBuffFrameStyle);
+            GUI.Label(durationRect, buff.DurationText, _enemyBuffDurationStyle);
+
+            if (iconFrame.Contains(mouse) || durationRect.Contains(mouse))
+            {
+                tooltip = $"{buff.DisplayName} ({buff.Key})\n持续时间：{buff.DurationText}";
+            }
+        }
+    }
+
+    private void DrawEnemyBuffTooltip(string tooltip)
+    {
+        const float width = 260f;
+        const float height = 52f;
+        Vector2 mouse = Event.current.mousePosition;
+        float x = Mathf.Clamp(mouse.x + 14f, 8f, Mathf.Max(8f, Screen.width - width - 8f));
+        float y = Mathf.Clamp(mouse.y + 14f, 8f, Mathf.Max(8f, Screen.height - height - 8f));
+        GUI.Box(new Rect(x, y, width, height), tooltip, _enemyBuffTooltipStyle);
     }
 
     public void ResetTransientFeatures()
     {
         EnemyIdsVisible = false;
+        EnemyBuffsVisible = false;
+        InvalidateEnemyOverlayCache();
+        _enemyBuffIconSources.Clear();
         _spawnPointCapture = SpawnPointCapture.Idle();
         _spawnPoints.Clear();
         _lastCapturedPointId = string.Empty;
@@ -2076,12 +2494,20 @@ internal sealed class CheatRuntimeBridge
     private List<EnemyTarget> SnapshotEnemyTargets()
     {
         List<EnemyTarget> result = new();
-        foreach (GameObject gameObject in SnapshotEnemyGameObjects())
+        CollectEnemyTargets(result);
+        return result;
+    }
+
+    private void CollectEnemyTargets(List<EnemyTarget> result)
+    {
+        result.Clear();
+        object? creator = TryGetSingleton(_agentCreatorType!);
+        if (creator == null || GetMember(creator, "enemyAgents") is not IEnumerable source) return;
+        foreach (object? item in source)
         {
+            if (item is not GameObject gameObject || gameObject == null) continue;
             if (TryBuildEnemyTarget(gameObject, out EnemyTarget? target)) result.Add(target!);
         }
-
-        return result;
     }
 
     private List<GameObject> SnapshotEnemyGameObjects()
@@ -2275,8 +2701,22 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_basicAiType, "colliderOn");
         RequireMember(_basicAiType, "AIIsRunning");
         RequireMember(_basicAiType, "NeedToBattle");
+        RequireMember(_basicAiType, "HpSliderTransform");
         RequireMethodContract(_basicAiType, "SetSendMessage", typeof(bool));
         RequireMember(_basicAgentType, "AgentRegisterType");
+
+        RequireMember(_buffAcceptorType, "buffMr");
+        if (_buffManagerType != null && _getBuffsMethod == null)
+        {
+            AddMissing((_buffManagerType.FullName ?? _buffManagerType.Name) + ".GetBuffs(Func<Buff,bool>)");
+        }
+        RequireMember(_buffType, "Key");
+        RequireMember(_buffType, "IsEnd");
+        RequireMember(_buffType, "LifeRule");
+        RequireSingletonAccessor(_buffDataPathSoType);
+        RequireMember(_buffDataPathSoType, "buffDisplayData");
+        RequireMember(_buffDisplayDataType, "sprite");
+        RequireMember(_buffDisplayDataType, "title");
 
         RequireMember(_battleSystemType, "memoryBlackboard");
         RequireMember(_battleSystemType, "TimeScale");
@@ -3461,6 +3901,34 @@ internal sealed class CheatRuntimeBridge
         public string Kind { get; set; } = "float";
         public double Value { get; set; }
         public double BaseValue { get; set; }
+    }
+
+    private sealed class EnemyOverlaySnapshot
+    {
+        public GameObject GameObject { get; set; } = null!;
+        public Transform Anchor { get; set; } = null!;
+        public float WorldYOffset { get; set; }
+        public string IdText { get; set; } = string.Empty;
+        public IReadOnlyList<EnemyBuffIconSnapshot> Buffs { get; set; } =
+            Array.Empty<EnemyBuffIconSnapshot>();
+    }
+
+    private sealed class EnemyBuffIconSource
+    {
+        public string DisplayName { get; set; } = string.Empty;
+        public Texture2D? Texture { get; set; }
+        public Rect Uv { get; set; }
+        public Color FallbackColor { get; set; } = Color.gray;
+    }
+
+    private sealed class EnemyBuffIconSnapshot
+    {
+        public string Key { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public Texture2D? Texture { get; set; }
+        public Rect Uv { get; set; }
+        public Color FallbackColor { get; set; } = Color.gray;
+        public string DurationText { get; set; } = "--";
     }
 
     private sealed class EnemyTarget

@@ -88,6 +88,7 @@ internal sealed class AutoPlayController
     private bool _cheatModeEnabled;
     private bool _cheatUsed;
     private bool _enemyIdsVisible;
+    private bool _enemyBuffsVisible;
     private bool _baseGodModeEnabled;
     private int _cheatActionCount;
     private string _cheatAvailabilityReason = string.Empty;
@@ -289,6 +290,14 @@ internal sealed class AutoPlayController
         lock (_sync)
         {
             _enemyIdsVisible = visible;
+        }
+    }
+
+    public void SetEnemyBuffsVisible(bool visible)
+    {
+        lock (_sync)
+        {
+            _enemyBuffsVisible = visible;
         }
     }
 
@@ -524,6 +533,7 @@ internal sealed class AutoPlayController
                 CheatUsed = _cheatUsed,
                 CheatActionCount = _cheatActionCount,
                 EnemyIdsVisible = _enemyIdsVisible,
+                EnemyBuffsVisible = _enemyBuffsVisible,
                 BaseGodModeEnabled = _baseGodModeEnabled,
                 MapSkipEnabled = MapSkipPatch.Enabled,
                 RunIntegrity = _cheatUsed ? "cheat-modified" : "clean",

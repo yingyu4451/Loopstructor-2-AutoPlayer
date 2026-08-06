@@ -108,6 +108,7 @@ internal sealed partial class CheatForm : Window
         {
             _enableCheck.IsChecked = status?.CheatModeEnabled ?? hello?.CheatModeEnabled ?? false;
             _enemyIdOverlayCheck.IsChecked = status?.EnemyIdsVisible ?? false;
+            _enemyBuffOverlayCheck.IsChecked = status?.EnemyBuffsVisible ?? false;
             _baseGodModeCheck.IsChecked = status?.BaseGodModeEnabled ?? false;
             _mapSkipCheck.IsChecked = status?.MapSkipEnabled ?? hello?.MapSkipEnabled ?? false;
         }
@@ -154,6 +155,7 @@ internal sealed partial class CheatForm : Window
         _baseGodModeCheck.Click += async (_, _) => await BaseGodModeChangedAsync();
         _mapSkipCheck.Click += async (_, _) => await MapSkipChangedAsync();
         _enemyIdOverlayCheck.Click += async (_, _) => await EnemyIdOverlayChangedAsync();
+        _enemyBuffOverlayCheck.Click += async (_, _) => await EnemyBuffOverlayChangedAsync();
         _endWaveButton.Click += async (_, _) => await ConfirmAndExecuteAsync(
             "结束当前波次",
             "确定要立即结束当前波次吗？此操作会改变本轮测试结果。",
@@ -220,7 +222,8 @@ internal sealed partial class CheatForm : Window
             _grantVehicleButton, _disposableCatalog, _disposableCount, _grantDisposableButton,
             _relicCatalog, _ownedRelicCatalog, _grantRelicButton, _removeRelicButton,
             _catapultCatalog, _ownedCatapultCatalog, _catapultCount, _grantCatapultButton, _removeCatapultButton,
-            _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton, _enemyIdOverlayCheck,
+            _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
+            _enemyIdOverlayCheck, _enemyBuffOverlayCheck,
             _removeFieldCatapultButton, _clearFieldCatapultsButton,
             _vehicleAttribute, _vehicleAttributeValue, _modifyVehicleButton,
             _vehicleEnchantmentCatalog, _vehicleEnchantmentLevel, _setVehicleEnchantmentButton, _removeVehicleButton,
@@ -550,11 +553,39 @@ internal sealed partial class CheatForm : Window
             new JObject { ["visible"] = requested });
         if (response?.Success != true)
         {
-            SetCheckedSilently(_enemyIdOverlayCheck, !requested);
+            SetCheckedSilently(
+                _enemyIdOverlayCheck,
+                response?.Status?.EnemyIdsVisible
+                ?? _status?.EnemyIdsVisible
+                ?? !requested);
             return;
         }
 
         SetCheckedSilently(_enemyIdOverlayCheck, response.Data?.Value<bool?>("visible") ?? requested);
+    }
+
+    private async Task EnemyBuffOverlayChangedAsync()
+    {
+        if (_synchronizing) return;
+        bool requested = _enemyBuffOverlayCheck.IsChecked == true;
+        ControlResponse? response = await ExecuteCommandAsync(
+            CheatCommands.SetEnemyBuffOverlay,
+            new JObject { ["visible"] = requested });
+        if (response?.Success != true)
+        {
+            SetCheckedSilently(
+                _enemyBuffOverlayCheck,
+                response?.Status?.EnemyBuffsVisible
+                ?? _status?.EnemyBuffsVisible
+                ?? !requested);
+            return;
+        }
+
+        SetCheckedSilently(
+            _enemyBuffOverlayCheck,
+            response.Data?.Value<bool?>("enemyBuffsVisible")
+            ?? response.Data?.Value<bool?>("visible")
+            ?? requested);
     }
 
     private async Task ConfirmAndExecuteAsync(string title, string prompt, string command)
@@ -1128,8 +1159,10 @@ internal sealed partial class CheatForm : Window
         {
             bool? enabled = ReadBoolean(data["enabled"]);
             if (enabled.HasValue) _enableCheck.IsChecked = enabled.Value;
-            bool? overlay = ReadBoolean(data["enemyIdsVisible"]) ?? ReadBoolean(data["visible"]);
+            bool? overlay = ReadBoolean(data["enemyIdsVisible"]);
             if (overlay.HasValue) _enemyIdOverlayCheck.IsChecked = overlay.Value;
+            bool? buffOverlay = ReadBoolean(data["enemyBuffsVisible"]);
+            if (buffOverlay.HasValue) _enemyBuffOverlayCheck.IsChecked = buffOverlay.Value;
             bool? godMode = ReadBoolean(data["baseGodMode"]);
             if (godMode.HasValue) _baseGodModeCheck.IsChecked = godMode.Value;
             bool? mapSkip = ReadBoolean(data["mapSkipEnabled"]) ?? ReadBoolean(data["mapSkipRequested"]);
@@ -1340,6 +1373,7 @@ internal sealed partial class CheatForm : Window
         SetCheckedSilently(_baseGodModeCheck, false);
         SetCheckedSilently(_mapSkipCheck, false);
         SetCheckedSilently(_enemyIdOverlayCheck, false);
+        SetCheckedSilently(_enemyBuffOverlayCheck, false);
     }
 
     private void PopulateCatalog(CatalogPickerControl picker, JArray? items)

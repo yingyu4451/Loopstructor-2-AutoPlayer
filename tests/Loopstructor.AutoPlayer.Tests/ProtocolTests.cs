@@ -47,7 +47,7 @@ public sealed class ProtocolTests
 
         Assert.Null(legacy.Arguments);
         Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
-        Assert.Equal(4, Protocol.CheatCurrentVersion);
+        Assert.Equal(5, Protocol.CheatCurrentVersion);
         Assert.Equal(4321, roundTrip.TargetGameProcessId);
         Assert.Equal(current.TargetProcessInstanceId, roundTrip.TargetProcessInstanceId);
         Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
@@ -63,6 +63,7 @@ public sealed class ProtocolTests
             CheatSessionAuthorized = true,
             CheatAvailable = true,
             RunIntegrity = "cheat-modified",
+            EnemyBuffsVisible = true,
             BaseGodModeEnabled = true,
             MapSkipEnabled = true
         };
@@ -72,6 +73,7 @@ public sealed class ProtocolTests
 
         Assert.True(roundTrip.CheatSessionAuthorized);
         Assert.True(roundTrip.CheatAvailable);
+        Assert.True(roundTrip.EnemyBuffsVisible);
         Assert.True(roundTrip.BaseGodModeEnabled);
         Assert.True(roundTrip.MapSkipEnabled);
         Assert.Equal("cheat-modified", roundTrip.RunIntegrity);
@@ -80,14 +82,15 @@ public sealed class ProtocolTests
     [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
-        Assert.Equal(26, CheatCommands.All.Count);
-        Assert.Equal(18, CheatCommands.Mutations.Count);
+        Assert.Equal(27, CheatCommands.All.Count);
+        Assert.Equal(19, CheatCommands.Mutations.Count);
         Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
         Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SpawnEnemy));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetVehicleEnchantment));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetMapSkipEnabled));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetEnemyBuffOverlay));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveVehicle));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveRelic));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveCatapultPoint));

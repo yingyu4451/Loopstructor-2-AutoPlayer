@@ -10,6 +10,8 @@ public sealed class PluginRuntimeHostContractTests
     private const string HostType = "Loopstructor.AutoPlayer.Plugin.AutoPlayerRuntimeHost";
     private const string ControllerType = "Loopstructor.AutoPlayer.Plugin.AutoPlayController";
     private const string BridgeType = "Loopstructor.AutoPlayer.Plugin.RuntimeBridge";
+    private const string CheatControllerType = "Loopstructor.AutoPlayer.Plugin.CheatController";
+    private const string CheatBridgeType = "Loopstructor.AutoPlayer.Plugin.CheatRuntimeBridge";
 
     [Fact]
     public void BattlePolling_UsesWaveQueryAndAvoidsRepeatedFullStateSerialization()
@@ -233,6 +235,65 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(cleanup, IsCall("Loopstructor.AutoPlayer.Plugin.SpawnPointCaptureInputPatch", "Detach"));
         Assert.Contains(cleanup, IsCall("Loopstructor.AutoPlayer.Plugin.MapSkipPatch", "Reset"));
         Assert.Contains(cleanup, call => call.Name == "UnpatchSelf");
+    }
+
+    [Fact]
+    public void EnemyBuffOverlay_SnapshotsInTick_AndOnGuiOnlyDrawsCachedSprites()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition session = RequireType(assembly, SessionType);
+        TypeDefinition controller = RequireType(assembly, CheatControllerType);
+        TypeDefinition bridge = RequireType(assembly, CheatBridgeType);
+
+        Assert.Contains(
+            Calls(RequireMethod(session, "DrawOverlay")),
+            IsCall(CheatControllerType, "DrawEnemyOverlays"));
+        Assert.Contains(
+            Calls(RequireMethod(controller, "Tick")),
+            IsCall(CheatBridgeType, "TickEnemyOverlays"));
+        Assert.Contains(
+            Calls(RequireMethod(controller, "DrawEnemyOverlays")),
+            IsCall(CheatBridgeType, "DrawEnemyOverlays"));
+
+        MethodDefinition tick = RequireMethod(bridge, "TickEnemyOverlays");
+        MethodDefinition refresh = RequireMethod(bridge, "RefreshEnemyOverlayCache");
+        MethodDefinition snapshotBuffs = RequireMethod(bridge, "SnapshotEnemyBuffIcons");
+        MethodDefinition duration = RequireMethod(bridge, "ResolveEnemyBuffDuration");
+        MethodDefinition resolveIcon = RequireMethod(bridge, "TryResolveEnemyBuffIcon");
+        MethodDefinition draw = RequireMethod(bridge, "DrawEnemyOverlays");
+        MethodDefinition drawIcons = RequireMethod(bridge, "DrawEnemyBuffIcons");
+
+        Assert.Contains(Calls(tick), IsCall(CheatBridgeType, "RefreshEnemyOverlayCache"));
+        Assert.Contains(Calls(refresh), IsCall(CheatBridgeType, "CollectEnemyTargets"));
+        Assert.Contains(Calls(refresh), IsCall(CheatBridgeType, "SnapshotEnemyBuffIcons"));
+        Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "IsEnd");
+        Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "Key");
+        Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "LifeRule");
+        Assert.Contains(LoadedStrings(duration), value => value == "RemainingDuration");
+        Assert.Contains(LoadedStrings(duration), value => value == "Timer");
+        Assert.Contains(LoadedStrings(duration), value => value == "duration");
+        Assert.Contains(LoadedStrings(duration), value => value == "time");
+        Assert.Contains(
+            Calls(resolveIcon),
+            IsCall(CheatBridgeType, "CreateEnemyBuffFallbackIcon"));
+
+        Assert.Contains(Calls(draw), IsCall("UnityEngine.Event", "get_current"));
+        Assert.Contains(Calls(draw), IsCall("UnityEngine.Camera", "get_pixelRect"));
+        Assert.Contains(Calls(draw), IsCall(CheatBridgeType, "DrawEnemyBuffIcons"));
+        Assert.DoesNotContain(Calls(draw), IsCall(CheatBridgeType, "SnapshotEnemyTargets"));
+        Assert.DoesNotContain(Calls(draw), IsCall(CheatBridgeType, "SnapshotEnemyBuffIcons"));
+        Assert.Contains(
+            Calls(drawIcons),
+            IsCall("UnityEngine.GUI", "DrawTextureWithTexCoords"));
+        Assert.Contains(Calls(drawIcons), IsCall("UnityEngine.GUI", "DrawTexture"));
+        Assert.Contains(LoadedStrings(drawIcons), value => value == "?");
+        Assert.DoesNotContain(
+            Calls(drawIcons),
+            call => (call.DeclaringType.FullName is "UnityEngine.RenderTexture" or "UnityEngine.Texture2D")
+                    && (call.Name is ".ctor" or "ReadPixels" or "EncodeToPNG"));
+        Assert.DoesNotContain(
+            Calls(drawIcons),
+            call => call.DeclaringType.Namespace == "System.Reflection");
     }
 
     [Fact]

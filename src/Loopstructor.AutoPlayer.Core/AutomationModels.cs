@@ -172,6 +172,7 @@ public sealed class AutoPlayerStatus
     public bool CheatUsed { get; set; }
     public int CheatActionCount { get; set; }
     public bool EnemyIdsVisible { get; set; }
+    public bool EnemyBuffsVisible { get; set; }
     public bool BaseGodModeEnabled { get; set; }
     public bool MapSkipEnabled { get; set; }
     public string RunIntegrity { get; set; } = "clean";
@@ -268,7 +269,7 @@ public sealed class LaunchTicket
 public static class Protocol
 {
     public const int CurrentVersion = 3;
-    public const int CheatCurrentVersion = 4;
+    public const int CheatCurrentVersion = 5;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
     public const string PipeEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PIPE";
@@ -359,6 +360,7 @@ public static class CheatCommands
     public const string QueryEnemies = "cheat.queryEnemies";
     public const string ModifyEnemy = "cheat.modifyEnemy";
     public const string SetEnemyIdOverlay = "cheat.setEnemyIdOverlay";
+    public const string SetEnemyBuffOverlay = "cheat.setEnemyBuffOverlay";
     public const string GrantRelic = "cheat.grantRelic";
     public const string RemoveRelic = "cheat.removeRelic";
     public const string SetSpawnPointCapture = "cheat.setSpawnPointCapture";
@@ -388,6 +390,7 @@ public static class CheatCommands
         QueryEnemies,
         ModifyEnemy,
         SetEnemyIdOverlay,
+        SetEnemyBuffOverlay,
         GrantRelic,
         RemoveRelic,
         SetSpawnPointCapture,
@@ -413,6 +416,7 @@ public static class CheatCommands
         SetVehicleEnchantment,
         ModifyEnemy,
         SetEnemyIdOverlay,
+        SetEnemyBuffOverlay,
         GrantRelic,
         RemoveRelic,
         SpawnEnemy,

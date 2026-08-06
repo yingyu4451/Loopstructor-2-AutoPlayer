@@ -60,7 +60,7 @@ internal sealed class CheatController : IDisposable
             long lastHeartbeat = Interlocked.Read(ref _lastManagerHeartbeatUtcTicks);
             if (DateTime.UtcNow - new DateTime(lastHeartbeat, DateTimeKind.Utc) > ManagerLeaseTimeout)
             {
-                DisableAndReset("Manager 心跳已中断，作弊模式、基地无敌、敌人 ID 显示、位置捕获和地图跳关已自动关闭。");
+                DisableAndReset("Manager 心跳已中断，作弊模式、基地无敌、敌人信息显示、位置捕获和地图跳关已自动关闭。");
                 return;
             }
         }
@@ -70,20 +70,21 @@ internal sealed class CheatController : IDisposable
         {
             _sceneHandle = currentSceneHandle;
             ResetTransientFeatures();
-            _log.LogInfo("作弊工具已在场景切换后关闭基地无敌、敌人 ID 显示、位置捕获与地图跳关。");
+            _log.LogInfo("作弊工具已在场景切换后关闭基地无敌、敌人信息显示、位置捕获与地图跳关。");
         }
 
         if (Enabled)
         {
             MapSkipPatch.Tick();
+            _runtime.TickEnemyOverlays();
         }
     }
 
-    public void DrawEnemyIds()
+    public void DrawEnemyOverlays()
     {
         if (Enabled)
         {
-            _runtime.DrawEnemyIds();
+            _runtime.DrawEnemyOverlays();
         }
     }
 
@@ -173,6 +174,7 @@ internal sealed class CheatController : IDisposable
             "cheat.queryenemies" => CheatExecutionResult.Ok("已读取当前敌人。", _runtime.QueryEnemies()),
             "cheat.modifyenemy" => _runtime.ModifyEnemy(arguments),
             "cheat.setenemyidoverlay" => SetEnemyIdOverlay(arguments),
+            "cheat.setenemybuffoverlay" => SetEnemyBuffOverlay(arguments),
             "cheat.grantrelic" => _runtime.GrantRelic(arguments),
             "cheat.removerelic" => _runtime.RemoveRelic(arguments),
             "cheat.spawnenemy" => _runtime.SpawnEnemy(arguments),
@@ -235,6 +237,7 @@ internal sealed class CheatController : IDisposable
         ResetStep("运行时作弊效果", _runtime.ResetTransientFeatures);
         ResetStep("地图跳关", MapSkipPatch.Reset);
         ResetStep("敌人 ID 显示", () => _autoPlay.SetEnemyIdsVisible(false));
+        ResetStep("敌人 Buff 显示", () => _autoPlay.SetEnemyBuffsVisible(false));
         ResetStep("基地无敌", () => _autoPlay.SetBaseGodModeEnabled(false));
     }
 
@@ -254,9 +257,26 @@ internal sealed class CheatController : IDisposable
     {
         bool visible = arguments.Value<bool?>("visible") == true;
         _runtime.EnemyIdsVisible = visible;
+        _runtime.InvalidateEnemyOverlayCache();
         _autoPlay.SetEnemyIdsVisible(visible);
         string message = visible ? "已在游戏画面中显示敌人 ID。" : "已关闭游戏画面中的敌人 ID。";
-        return CheatExecutionResult.Changed(message, new JObject { ["visible"] = visible });
+        return CheatExecutionResult.Changed(
+            message,
+            new JObject { ["visible"] = visible, ["enemyIdsVisible"] = visible });
+    }
+
+    private CheatExecutionResult SetEnemyBuffOverlay(JObject arguments)
+    {
+        bool visible = arguments.Value<bool?>("visible") == true;
+        _runtime.EnemyBuffsVisible = visible;
+        _runtime.InvalidateEnemyOverlayCache();
+        _autoPlay.SetEnemyBuffsVisible(visible);
+        string message = visible
+            ? "已在游戏画面中显示怪物 Buff 图标与持续时间。"
+            : "已关闭游戏画面中的怪物 Buff 显示。";
+        return CheatExecutionResult.Changed(
+            message,
+            new JObject { ["visible"] = visible, ["enemyBuffsVisible"] = visible });
     }
 
     private CheatExecutionResult SetBaseGodMode(JObject arguments)
@@ -296,6 +316,7 @@ internal sealed class CheatController : IDisposable
             ["available"] = IsAvailable,
             ["enabled"] = Enabled,
             ["enemyIdsVisible"] = _runtime.EnemyIdsVisible,
+            ["enemyBuffsVisible"] = _runtime.EnemyBuffsVisible,
             ["baseGodMode"] = _runtime.BaseGodModeRequested,
             ["mapSkipEnabled"] = MapSkipPatch.Enabled,
             ["spawnPointCapture"] = _runtime.SpawnPointCaptureData(),

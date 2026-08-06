@@ -471,8 +471,25 @@
                             </Border>
                             <Border Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
-                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="敌人标识" />
-                                    <CheckBox x:Name="_enemyIdOverlayCheck" Margin="0,4,0,8" FontSize="15" FontWeight="Bold" Content="在游戏中显示敌人 ID" />
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="敌人信息" />
+                                    <Grid Margin="0,4,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="_enemyIdOverlayCheck"
+                                                  VerticalAlignment="Center"
+                                                  FontSize="15"
+                                                  FontWeight="Bold"
+                                                  Content="显示敌人 ID" />
+                                        <CheckBox x:Name="_enemyBuffOverlayCheck"
+                                                  Grid.Column="2"
+                                                  VerticalAlignment="Center"
+                                                  FontSize="15"
+                                                  FontWeight="Bold"
+                                                  Content="显示 Buff 图标与时间" />
+                                    </Grid>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
