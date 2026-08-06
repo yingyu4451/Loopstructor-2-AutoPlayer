@@ -719,6 +719,8 @@ internal sealed class AutoPlayController
 
         JArray blockers = state["blockers"] as JArray ?? new JArray();
         bool blocked = blockers.Count > 0;
+        bool mapOpen = state.SelectToken("map.mapOpen")?.Value<bool>() == true;
+        bool canStartWave = state.SelectToken("map.canStartWave")?.Value<bool>() == true;
         if (!inWave && !blocked && _defensePrepared && _defenseMaintenanceRequested)
         {
             _defenseMaintenanceReady = true;
@@ -732,7 +734,13 @@ internal sealed class AutoPlayController
             ? _bridge.Invoke("queryEventOptions")
             : null;
 
-        if (!inWave && !blocked && !_defensePrepared && !_pendingSublevel)
+        if (OpeningDefensePolicy.ShouldPrepare(
+                inWave,
+                blocked,
+                _defensePrepared,
+                _pendingSublevel,
+                mapOpen,
+                canStartWave))
         {
             bool prepared = Execute(new AutomationAction(
                 "prepareDefaultDefense",
@@ -744,6 +752,16 @@ internal sealed class AutoPlayController
                 _defensePrepared = true;
                 RequestDefenseMaintenance();
             }
+            return;
+        }
+
+        if (!inWave &&
+            !blocked &&
+            !_defensePrepared &&
+            !_pendingSublevel &&
+            canStartWave)
+        {
+            SetStage(AutomationStage.SelectingRoute, "地图节点已提交，正在等待地图界面关闭后准备默认防线。");
             return;
         }
 
@@ -1030,13 +1048,8 @@ internal sealed class AutoPlayController
             _mapSelectionPendingAt = -1f;
             _eventOptionsReadyAt = -1f;
             _pendingEventPanel = string.Empty;
-            _pendingMapAction = new AutomationAction(
-                "startWave",
-                null,
-                AutomationStage.StartingWave,
-                "地图节点已稳定提交，开始选定的波次。");
-            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
-            return true;
+            AddTimeline("route", "地图节点已稳定提交，返回完整准备流程。");
+            return false;
         }
 
         if (blockers.Count > 0 || state["canSelectNextNode"]?.Value<bool>() == true)

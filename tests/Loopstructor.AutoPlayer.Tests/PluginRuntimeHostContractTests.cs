@@ -50,12 +50,34 @@ public sealed class PluginRuntimeHostContractTests
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tickInGame = RequireMethod(controller, "TickInGame");
         MethodDefinition transition = RequireMethod(controller, "TryHandlePendingMapSelection");
         MethodDefinition execute = RequireMethod(controller, "Execute");
+        Instruction[] tickInstructions = tickInGame.Body.Instructions.ToArray();
 
+        int policy = FindCall(
+            tickInstructions,
+            "Loopstructor.AutoPlayer.Core.OpeningDefensePolicy",
+            "ShouldPrepare");
+        int prepareDefense = FindLoadedString(tickInstructions, "prepareDefaultDefense");
+        int decideInGame = FindCall(
+            tickInstructions,
+            "Loopstructor.AutoPlayer.Core.DecisionEngine",
+            "DecideInGame");
+        Assert.True(
+            policy >= 0 && policy < prepareDefense && prepareDefense < decideInGame,
+            "Opening-defense policy must guard preparation before the normal decision engine can emit startWave.");
+        Assert.Contains(
+            tickInstructions.Skip(policy + 1).Take(prepareDefense - policy - 1),
+            instruction => instruction.OpCode.FlowControl == FlowControl.Cond_Branch
+                           && instruction.Operand is Instruction target
+                           && Array.IndexOf(tickInstructions, target) > prepareDefense);
+        Assert.Contains(LoadedStrings(tickInGame), value => value == "map.mapOpen");
+        Assert.Contains(LoadedStrings(tickInGame), value => value == "map.canStartWave");
         Assert.Contains(LoadedStrings(transition), value => value == "queryWave");
         Assert.Contains(LoadedStrings(transition), value => value == "queryEventOptions");
         Assert.DoesNotContain(LoadedStrings(transition), value => value == "queryAffordances");
+        Assert.DoesNotContain(LoadedStrings(transition), value => value == "startWave");
         Assert.Contains(
             Calls(transition),
             call => call.DeclaringType.FullName == "System.Math" && call.Name == "Max");
@@ -309,6 +331,20 @@ public sealed class PluginRuntimeHostContractTests
                 && call.DeclaringType.FullName == declaringType
                 && call.Name == methodName
                 && call.GenericArguments.Any(argument => argument.FullName == genericArgument))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FindLoadedString(IReadOnlyList<Instruction> instructions, string value)
+    {
+        for (int index = 0; index < instructions.Count; index++)
+        {
+            if (instructions[index].OpCode.Code == Code.Ldstr
+                && string.Equals(instructions[index].Operand as string, value, StringComparison.Ordinal))
             {
                 return index;
             }
