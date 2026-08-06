@@ -26,6 +26,11 @@ public sealed class PluginRuntimeHostContractTests
         Assert.DoesNotContain(LoadedStrings(tickInGame), value => value == "queryState" || value == "queryWave");
         Assert.Contains(LoadedStrings(ensureReady), value => value == "queryState");
         Assert.Contains(LoadedStrings(observedWave), value => value == "queryWave");
+        Assert.Contains(
+            LoadedStrings(observedWave),
+            value => value.Contains("退避后重试", StringComparison.Ordinal));
+        Assert.Contains(Calls(observedWave), IsCall(ControllerType, "RunBattleTacticStep"));
+        Assert.DoesNotContain(controller.Fields, field => field.Name == "_waveQueryAvailable");
 
         TypeDefinition bridge = RequireType(assembly, BridgeType);
         MethodDefinition invoke = RequireMethod(bridge, "Invoke");
@@ -38,6 +43,71 @@ public sealed class PluginRuntimeHostContractTests
             Calls(invoke),
             call => call.DeclaringType.FullName == "Newtonsoft.Json.Linq.JObject"
                     && call.Name == "Parse");
+    }
+
+    [Fact]
+    public void RailGodTransition_UsesLightweightPollingAndDefersEventOptionScan()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition transition = RequireMethod(controller, "TryHandlePendingMapSelection");
+        MethodDefinition execute = RequireMethod(controller, "Execute");
+
+        Assert.Contains(LoadedStrings(transition), value => value == "queryWave");
+        Assert.Contains(LoadedStrings(transition), value => value == "queryEventOptions");
+        Assert.DoesNotContain(LoadedStrings(transition), value => value == "queryAffordances");
+        Assert.Contains(
+            Calls(transition),
+            call => call.DeclaringType.FullName == "System.Math" && call.Name == "Max");
+        Assert.Contains(
+            LoadedStrings(transition),
+            value => value.Contains("轨神事件正在播放入场动画", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            LoadedStrings(execute),
+            value => value.Contains("返回成功，但未提交", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ActivePlay_ValidatesDefenseAndRunsPlayerEquivalentBattleTactics()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tickInGame = RequireMethod(controller, "TickInGame");
+        MethodDefinition tactics = RequireMethod(controller, "RunBattleTacticStep");
+        MethodDefinition observedWave = RequireMethod(controller, "TryHandleObservedWave");
+        MethodDefinition maintenance = RequireMethod(controller, "TryMaintainDefense");
+        MethodDefinition releasePreview = RequireMethod(controller, "ReleaseOwnedDisposablePreview");
+        MethodDefinition executeBattle = RequireMethod(controller, "TryExecuteActiveBattleAction");
+        MethodDefinition ownsPreview = RequireMethod(controller, "IsOwnedDisposablePreview");
+        MethodDefinition bridgeContract = RequireMethod(RequireType(assembly, BridgeType), ".cctor");
+
+        Assert.Contains(Calls(tickInGame), IsCall(ControllerType, "HasPlacedCombatVehicle"));
+        Assert.Contains(Calls(tickInGame), IsCall(ControllerType, "TryMaintainDefense"));
+        Assert.Contains(LoadedStrings(tickInGame), value => value == "prepareDefaultDefense");
+        Assert.Contains(LoadedStrings(tactics), value => value == "queryWaveThreats");
+        Assert.Contains(LoadedStrings(tactics), value => value == "queryDisposable");
+        Assert.Contains(LoadedStrings(tactics), value => value == "cancelDisposable");
+        Assert.Contains(Calls(tactics), IsCall(ControllerType, "ResolveSelectedDisposableEnum"));
+        Assert.Contains(Calls(tactics), IsCall(ControllerType, "IsOwnedDisposablePreview"));
+        Assert.Contains(Calls(tactics), IsCall(ControllerType, "TryExecuteActiveBattleAction"));
+        Assert.Contains(LoadedStrings(executeBattle), value => value == "queryWave");
+        Assert.Contains(LoadedStrings(ownsPreview), value => value == "interactionInstanceId");
+        Assert.Contains(controller.Fields, field => field.Name == "_ownedDisposableInteractionInstanceId");
+        Assert.Contains(Calls(observedWave), IsCall(ControllerType, "BeginBattleTacticCycle"));
+        Assert.Contains(
+            LoadedStrings(tactics),
+            value => value.Contains("不会接管该交互", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(bridgeContract), value => value == "moveTrainToLine");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "queryTrain");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "queryVehicle");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "moveVehicleInTrain");
+        Assert.DoesNotContain(LoadedStrings(maintenance), value => value == "queryWave");
+        Assert.DoesNotContain(
+            LoadedStrings(tactics),
+            value => value.StartsWith("cheat.", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(Calls(RequireMethod(controller, "Pause")), IsCall(ControllerType, "ReleaseOwnedDisposablePreview"));
+        Assert.Contains(Calls(RequireMethod(controller, "Stop")), IsCall(ControllerType, "ReleaseOwnedDisposablePreview"));
+        Assert.Contains(LoadedStrings(releasePreview), value => value == "cancelDisposable");
     }
 
     [Fact]

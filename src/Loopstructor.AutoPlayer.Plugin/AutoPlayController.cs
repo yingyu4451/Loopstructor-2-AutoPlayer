@@ -12,10 +12,36 @@ namespace Loopstructor.AutoPlayer.Plugin;
 
 internal sealed class AutoPlayController
 {
+    private enum BattleTacticStep
+    {
+        QueryThreats,
+        QueryDisposable,
+        UseDisposable,
+        QueryDisposablePreview,
+        QueryDisposableGridOptions,
+        ConfirmDisposable,
+        CancelDisposable,
+        QueryRail,
+        QueryTrain,
+        MoveTrain,
+        Complete
+    }
+
+    private enum DefenseMaintenanceStep
+    {
+        QueryTrain,
+        QueryVehicle,
+        MoveVehicle
+    }
+
     private const int MaxTimelineEvents = 100;
     private const float SaveVerificationTimeoutSeconds = 30f;
     private const float OutcomeVerificationTimeoutSeconds = 10f;
     private const float MinimumBattlePollIntervalSeconds = 2f;
+    private const float BattleTacticFrameDelaySeconds = 0.05f;
+    private const float BattleTacticCycleIntervalSeconds = 8f;
+    private const float MapSelectionTransitionTimeoutSeconds = 12f;
+    private const float EventOptionGenerationDelaySeconds = 3.25f;
     private static readonly TimeSpan FrontEndTransitionTimeout = TimeSpan.FromSeconds(20);
 
     private readonly object _sync = new();
@@ -26,6 +52,7 @@ internal sealed class AutoPlayController
     private readonly EvidenceRecorder _evidence;
     private readonly ManualLogSource _log;
     private readonly DecisionEngine _decisionEngine = new();
+    private readonly BattleDecisionEngine _battleDecisionEngine = new();
     private readonly List<TimelineEvent> _timeline = new();
     private readonly SceneTransitionGate _frontEndTransitionGate = new();
 
@@ -47,9 +74,13 @@ internal sealed class AutoPlayController
     private float _lastProgressAt;
     private float _gameOverDetectedAt = -1f;
     private bool _defensePrepared;
-    private bool _openingDefenseRequired;
     private bool _speedConfigured;
     private bool _pendingSublevel;
+    private bool _mapSelectionPending;
+    private float _mapSelectionPendingAt;
+    private float _eventOptionsReadyAt = -1f;
+    private string _pendingEventPanel = string.Empty;
+    private AutomationAction? _pendingMapAction;
     private bool _wasInWave;
     private bool _wishReturnClicked;
     private bool _needsProcessRestart;
@@ -64,7 +95,25 @@ internal sealed class AutoPlayController
     private bool _frontEndReadinessObserved;
     private bool _gameModeVerified;
     private bool _runtimeInitialized;
-    private bool _waveQueryAvailable = true;
+    private BattleTacticStep _battleTacticStep;
+    private bool _battleTacticPending;
+    private float _nextBattleWaveProbeAt;
+    private float _nextBattleTacticCycleAt;
+    private bool _battleDisposableUsedThisWave;
+    private string _ownedDisposableEnum = string.Empty;
+    private int _ownedDisposableInteractionInstanceId;
+    private JObject? _battleWaveSnapshot;
+    private AutomationAction? _battlePendingAction;
+    private JObject? _battleThreats;
+    private JObject? _battleDisposable;
+    private JObject? _battleRail;
+    private JObject? _battleTrain;
+    private JObject? _battleConfirmationArguments;
+    private bool _defenseMaintenanceRequested;
+    private bool _defenseMaintenanceReady;
+    private DefenseMaintenanceStep _defenseMaintenanceStep;
+    private JObject? _defenseTrain;
+    private AutomationAction? _defensePendingAction;
     private string _pendingActionKey = string.Empty;
     private DateTime _startedAtUtc;
     private DateTime _lastActionAtUtc;
@@ -146,19 +195,21 @@ internal sealed class AutoPlayController
             _consecutiveFailures = 0;
             _wavesStarted = 0;
             _wavesCompleted = 0;
-            _openingDefenseRequired = false;
-            _defensePrepared = string.Equals(
-                SceneManager.GetActiveScene().name,
-                "NewGameScene",
-                StringComparison.OrdinalIgnoreCase);
+            _defensePrepared = false;
             _speedConfigured = !_options.OverrideGameSpeed;
             _pendingSublevel = false;
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            _pendingMapAction = null;
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
             _gameModeVerified = false;
             _runtimeInitialized = false;
-            _waveQueryAvailable = true;
+            ResetBattleTactics();
+            RequestDefenseMaintenance();
             _pendingActionKey = string.Empty;
             _frontEndTransitionGate.Reset();
             GameOutcomeObserver.Reset();
@@ -259,6 +310,7 @@ internal sealed class AutoPlayController
                 return false;
             }
 
+            ReleaseOwnedDisposablePreview();
             _runState = AutoPlayerRunState.Paused;
             _pausedAtUtc = DateTime.UtcNow;
             _stageDetail = "自动游玩命令已暂停；游戏本身并未暂停。";
@@ -303,6 +355,7 @@ internal sealed class AutoPlayController
                 return false;
             }
 
+            ReleaseOwnedDisposablePreview();
             _runState = AutoPlayerRunState.Standby;
             if (_outcome is AutomationOutcome.Unknown or AutomationOutcome.InProgress)
             {
@@ -331,7 +384,7 @@ internal sealed class AutoPlayController
         }
         if (_runState != AutoPlayerRunState.Running || Time.realtimeSinceStartup < _nextTickAt) return;
         float configuredInterval = Math.Max(0.2f, _settings.TickIntervalSeconds.Value);
-        float tickInterval = _wasInWave && _waveQueryAvailable
+        float tickInterval = _wasInWave
             ? Math.Max(MinimumBattlePollIntervalSeconds, configuredInterval)
             : configuredInterval;
         _nextTickAt = Time.realtimeSinceStartup + tickInterval;
@@ -355,16 +408,21 @@ internal sealed class AutoPlayController
         {
             bool completedTransition = _frontEndTransitionGate.ObserveScene(activeScene);
             _scene = activeScene;
-            _defensePrepared = string.Equals(activeScene, "NewGameScene", StringComparison.OrdinalIgnoreCase) &&
-                               !_openingDefenseRequired;
+            _defensePrepared = false;
             _speedConfigured = !_options.OverrideGameSpeed;
             _pendingSublevel = false;
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            _pendingMapAction = null;
             _wasInWave = false;
             _wishReturnClicked = false;
             _frontEndReadinessObserved = false;
             _gameModeVerified = false;
             _runtimeInitialized = false;
-            _waveQueryAvailable = true;
+            ResetBattleTactics();
+            RequestDefenseMaintenance();
             _pendingActionKey = string.Empty;
             _gameOverDetectedAt = -1f;
             AddTimeline("scene", "已进入场景 " + activeScene + "。");
@@ -612,6 +670,11 @@ internal sealed class AutoPlayController
         }
 
         if (TryHandleObservedWave()) return;
+        if (TryHandlePendingMapSelection()) return;
+        if (_defensePrepared &&
+            _defenseMaintenanceRequested &&
+            _defenseMaintenanceReady &&
+            TryMaintainDefense()) return;
 
         JObject affordances = _bridge.Invoke("queryAffordances");
         switch (RuntimeResultInspector.Classify(affordances))
@@ -638,6 +701,15 @@ internal sealed class AutoPlayController
             return;
         }
 
+        if (!_defensePrepared && HasPlacedCombatVehicle(state))
+        {
+            _defensePrepared = true;
+            RequestDefenseMaintenance();
+            AddTimeline("defense", "已检测到场上现有战车，将从当前防线继续自动游玩。");
+            SetStage(AutomationStage.PreparingDefense, "已识别现有防线，下一轮将检查背包战车与车列容量。");
+            return;
+        }
+
         if (_options.MaxWaves > 0 && _wavesCompleted >= _options.MaxWaves)
         {
             _outcome = AutomationOutcome.WaveLimit;
@@ -647,13 +719,20 @@ internal sealed class AutoPlayController
 
         JArray blockers = state["blockers"] as JArray ?? new JArray();
         bool blocked = blockers.Count > 0;
-        bool canSelectNextNode = state.SelectToken("map.canSelectNextNode")?.Value<bool>() == true;
+        if (!inWave && !blocked && _defensePrepared && _defenseMaintenanceRequested)
+        {
+            _defenseMaintenanceReady = true;
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(AutomationStage.PreparingDefense, "防线当前可编辑，准备检查背包战车与车列容量。");
+            return;
+        }
+
         JObject? reward = HasBlocker(blockers, "reward") ? _bridge.Invoke("queryReward") : null;
         JObject? events = HasBlocker(blockers, "EventUI") || HasBlocker(blockers, "RepairUI")
             ? _bridge.Invoke("queryEventOptions")
             : null;
 
-        if (!inWave && !blocked && !_defensePrepared && !_pendingSublevel && !canSelectNextNode)
+        if (!inWave && !blocked && !_defensePrepared && !_pendingSublevel)
         {
             bool prepared = Execute(new AutomationAction(
                 "prepareDefaultDefense",
@@ -663,7 +742,7 @@ internal sealed class AutoPlayController
             if (prepared && _runState == AutoPlayerRunState.Running)
             {
                 _defensePrepared = true;
-                _openingDefenseRequired = false;
+                RequestDefenseMaintenance();
             }
             return;
         }
@@ -724,7 +803,32 @@ internal sealed class AutoPlayController
 
     private bool TryHandleObservedWave()
     {
-        if (!_wasInWave || !_waveQueryAvailable) return false;
+        if (!_wasInWave) return false;
+
+        if (_battleTacticPending && _battleWaveSnapshot != null)
+        {
+            _battleTacticPending = false;
+            RunBattleTacticStep(_battleWaveSnapshot);
+            if (_battleTacticStep == BattleTacticStep.Complete &&
+                _nextBattleTacticCycleAt <= Time.realtimeSinceStartup)
+            {
+                _nextBattleTacticCycleAt = Time.realtimeSinceStartup + BattleTacticCycleIntervalSeconds;
+            }
+            if (_runState == AutoPlayerRunState.Running &&
+                _wasInWave &&
+                _battleTacticStep != BattleTacticStep.Complete)
+            {
+                _battleTacticPending = true;
+                _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            }
+            else if (_runState == AutoPlayerRunState.Running && _wasInWave)
+            {
+                _nextTickAt = Math.Max(
+                    Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds,
+                    _nextBattleWaveProbeAt);
+            }
+            return true;
+        }
 
         JObject waveResult = _bridge.Invoke("queryWave");
         switch (RuntimeResultInspector.Classify(waveResult))
@@ -736,13 +840,9 @@ internal sealed class AutoPlayController
                 SetStage(AutomationStage.Battle, Message(waveResult));
                 return true;
             case RuntimeResultDisposition.Failure:
-                _waveQueryAvailable = false;
-                string warning = "命令 queryWave 失败，已回退到完整状态查询：" + Message(waveResult);
-                _lastMessage = warning;
-                _log.LogWarning(warning);
-                AddTimeline("warning", warning);
-                ScheduleNormalPoll();
-                return false;
+                RegisterFailure("命令 queryWave 失败；为避免完整状态扫描拖慢战斗，将在退避后重试：" + Message(waveResult));
+                _nextTickAt = Time.realtimeSinceStartup + 5f;
+                return true;
         }
 
         _consecutiveFailures = 0;
@@ -763,12 +863,767 @@ internal sealed class AutoPlayController
         if (!inWave)
         {
             ScheduleNormalPoll();
-            return false;
+            return true;
         }
 
         SetStage(AutomationStage.Battle, BuildWaveStageDetail(waveState));
+        if (_battleTacticStep == BattleTacticStep.Complete &&
+            Time.realtimeSinceStartup >= _nextBattleTacticCycleAt)
+        {
+            BeginBattleTacticCycle();
+        }
+        _nextBattleWaveProbeAt = Time.realtimeSinceStartup + Math.Max(
+            MinimumBattlePollIntervalSeconds,
+            _settings.TickIntervalSeconds.Value);
+        _battleWaveSnapshot = waveResult;
+        _battleTacticPending = _battleTacticStep != BattleTacticStep.Complete;
+        if (_battleTacticPending)
+        {
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+        }
         return true;
     }
+
+    private bool TryHandlePendingMapSelection()
+    {
+        if (_pendingMapAction != null)
+        {
+            AutomationAction action = _pendingMapAction;
+            _pendingMapAction = null;
+            Execute(action);
+            if (string.Equals(action.Command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase))
+            {
+                _pendingEventPanel = string.Empty;
+                _eventOptionsReadyAt = -1f;
+            }
+            return true;
+        }
+
+        if (!_mapSelectionPending) return false;
+
+        if (!string.IsNullOrWhiteSpace(_pendingEventPanel))
+        {
+            if (_mapSelectionPendingAt >= 0f &&
+                Time.realtimeSinceStartup - _mapSelectionPendingAt >= MapSelectionTransitionTimeoutSeconds)
+            {
+                _mapSelectionPending = false;
+                _mapSelectionPendingAt = -1f;
+                _eventOptionsReadyAt = -1f;
+                _pendingEventPanel = string.Empty;
+                AddWarning("地图节点点击后的事件处理超过安全时限，将在下一轮重新读取完整状态。");
+                return true;
+            }
+
+            if (Time.realtimeSinceStartup < _eventOptionsReadyAt)
+            {
+                _nextTickAt = Math.Max(_nextTickAt, _eventOptionsReadyAt);
+                SetStage(AutomationStage.ManagingEvent, "轨神事件正在播放入场动画，等待游戏生成可选项。");
+                return true;
+            }
+
+            JObject eventResult = _bridge.Invoke("queryEventOptions");
+            switch (RuntimeResultInspector.Classify(eventResult))
+            {
+                case RuntimeResultDisposition.Unsafe:
+                    Fault("命令 queryEventOptions 报告状态已被污染，需要启动新的游戏进程：" + Message(eventResult));
+                    return true;
+                case RuntimeResultDisposition.Pending:
+                    SetStage(AutomationStage.ManagingEvent, Message(eventResult));
+                    return true;
+                case RuntimeResultDisposition.Failure:
+                    RegisterFailure("命令 queryEventOptions 失败：" + Message(eventResult));
+                    return true;
+            }
+
+            AutomationAction eventAction = _decisionEngine.DecideEvent(eventResult, _pendingEventPanel);
+            if (string.Equals(eventAction.Command, "wait", StringComparison.OrdinalIgnoreCase))
+            {
+                SetStage(eventAction.Stage, eventAction.Reason);
+                return true;
+            }
+
+            _pendingMapAction = eventAction;
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            return true;
+        }
+
+        JObject transitionResult = _bridge.Invoke("queryWave");
+        switch (RuntimeResultInspector.Classify(transitionResult))
+        {
+            case RuntimeResultDisposition.Unsafe:
+                Fault("命令 queryWave 报告状态已被污染，需要启动新的游戏进程：" + Message(transitionResult));
+                return true;
+            case RuntimeResultDisposition.Pending:
+                SetStage(AutomationStage.SelectingRoute, Message(transitionResult));
+                return true;
+            case RuntimeResultDisposition.Failure:
+                RegisterFailure("地图节点点击后的轻量状态查询失败，将在退避后重试：" + Message(transitionResult));
+                _nextTickAt = Time.realtimeSinceStartup + 2f;
+                return true;
+        }
+
+        _consecutiveFailures = 0;
+        JObject state = transitionResult.SelectToken("data.state") as JObject ?? new JObject();
+        JArray blockers = state["blockers"] as JArray ?? new JArray();
+        bool inWave = state["isInWaving"]?.Value<bool>() == true;
+        ObserveWaveTransition(inWave);
+
+        if (HasBlocker(blockers, "gameOver") ||
+            GameOutcomeObserver.Outcome is AutomationOutcome.Victory or AutomationOutcome.Defeat)
+        {
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            TickSettlement();
+            return true;
+        }
+
+        if (inWave)
+        {
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            SetStage(AutomationStage.Battle, BuildWaveStageDetail(state));
+            return true;
+        }
+
+        string? panel = HasBlocker(blockers, "EventUI")
+            ? "EventUI"
+            : HasBlocker(blockers, "RepairUI")
+                ? "RepairUI"
+                : null;
+        if (panel != null)
+        {
+            _pendingEventPanel = panel;
+            if (string.Equals(panel, "EventUI", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_eventOptionsReadyAt < 0f)
+                {
+                    float transitionStartedAt = _mapSelectionPendingAt >= 0f
+                        ? _mapSelectionPendingAt
+                        : Time.realtimeSinceStartup;
+                    _eventOptionsReadyAt = transitionStartedAt + EventOptionGenerationDelaySeconds;
+                }
+
+                if (Time.realtimeSinceStartup < _eventOptionsReadyAt)
+                {
+                    _nextTickAt = Math.Max(_nextTickAt, _eventOptionsReadyAt);
+                    SetStage(AutomationStage.ManagingEvent, "轨神事件正在播放入场动画，等待游戏生成可选项。");
+                    return true;
+                }
+            }
+            else
+            {
+                _eventOptionsReadyAt = Time.realtimeSinceStartup;
+            }
+
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(AutomationStage.ManagingEvent, "事件界面已打开，准备读取可用选项。");
+            return true;
+        }
+
+        if (state["canStartWave"]?.Value<bool>() == true)
+        {
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            _pendingMapAction = new AutomationAction(
+                "startWave",
+                null,
+                AutomationStage.StartingWave,
+                "地图节点已稳定提交，开始选定的波次。");
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            return true;
+        }
+
+        if (blockers.Count > 0 || state["canSelectNextNode"]?.Value<bool>() == true)
+        {
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            return true;
+        }
+
+        if (_mapSelectionPendingAt >= 0f &&
+            Time.realtimeSinceStartup - _mapSelectionPendingAt >= MapSelectionTransitionTimeoutSeconds)
+        {
+            _mapSelectionPending = false;
+            _mapSelectionPendingAt = -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            AddWarning("地图节点点击后的轨神事件过渡超过安全时限，将在下一轮重新读取完整状态。");
+            return true;
+        }
+
+        SetStage(AutomationStage.SelectingRoute, "地图节点已点击，正在等待轨神事件或关卡状态提交。");
+        return true;
+    }
+
+    private void RunBattleTacticStep(JObject waveResult)
+    {
+        switch (_battleTacticStep)
+        {
+            case BattleTacticStep.QueryThreats:
+                if (TryInvokeOptional("queryWaveThreats", null, out JObject threats))
+                {
+                    _battleThreats = threats;
+                    _battleConfirmationArguments = BuildThreatWorldArguments(threats);
+                }
+                _battleTacticStep = _battleDisposableUsedThisWave
+                    ? BattleTacticStep.QueryRail
+                    : BattleTacticStep.QueryDisposable;
+                return;
+
+            case BattleTacticStep.QueryDisposable:
+                if (!TryInvokeOptional("queryDisposable", null, out JObject disposable))
+                {
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                _battleDisposable = disposable;
+                if (State(disposable)["isInPreview"]?.Value<bool>() == true)
+                {
+                    if (IsOwnedDisposablePreview(disposable))
+                    {
+                        SetStage(AutomationStage.Battle, "检测到 AutoPlayer 上轮未完成的消耗品预览，准备安全清理。");
+                        _battleTacticStep = BattleTacticStep.CancelDisposable;
+                        return;
+                    }
+
+                    SetStage(AutomationStage.Battle, "检测到玩家正在预览消耗品；AutoPlayer 不会接管该交互。");
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+
+                AutomationAction? disposableAction = _battleDecisionEngine.Decide(
+                    new BattleDecisionContext
+                    {
+                        DisposablePhase = BattleDisposablePhase.Ready,
+                        AllowDisposableUse = true,
+                        AllowVehicleReinforcement = false
+                    },
+                    waveResult,
+                    disposable,
+                    null,
+                    null);
+                if (disposableAction == null)
+                {
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                if (!string.Equals(disposableAction.Command, "useDisposable", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                _ownedDisposableEnum = ResolveSelectedDisposableEnum(disposable, disposableAction.Arguments);
+                if (string.IsNullOrWhiteSpace(_ownedDisposableEnum))
+                {
+                    AddWarning("无法确认待使用消耗品的枚举身份，已跳过本次自动使用。");
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+                _battlePendingAction = disposableAction;
+                _battleTacticStep = BattleTacticStep.UseDisposable;
+                return;
+
+            case BattleTacticStep.UseDisposable:
+                AutomationAction? useAction = _battlePendingAction;
+                _battlePendingAction = null;
+                if (useAction == null ||
+                    !string.Equals(useAction.Command, "useDisposable", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                if (!TryInvokeOptional("queryDisposable", null, out JObject useCheck) ||
+                    State(useCheck)["isInPreview"]?.Value<bool>() == true)
+                {
+                    SetStage(AutomationStage.Battle, "玩家已开始消耗品预览；已放弃 AutoPlayer 待执行的道具操作。");
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+
+                bool used = TryExecuteActiveBattleAction(useAction, out JObject useResult);
+                if (used && _runState == AutoPlayerRunState.Running)
+                {
+                    _battleDisposableUsedThisWave = true;
+                    JObject usedState = State(useResult);
+                    if (usedState["isInPreview"]?.Value<bool>() == true)
+                    {
+                        _ownedDisposableInteractionInstanceId =
+                            usedState["interactionInstanceId"]?.Value<int?>() ?? 0;
+                        if (_ownedDisposableInteractionInstanceId == 0)
+                        {
+                            AddWarning("自动使用消耗品后无法取得预览实例身份；已立即尝试取消该预览。");
+                            Execute(new AutomationAction(
+                                "cancelDisposable",
+                                null,
+                                AutomationStage.Battle,
+                                "取消缺少实例身份的自动消耗品预览，恢复游戏输入。"), optional: true);
+                            ClearOwnedDisposable();
+                            _battleTacticStep = BattleTacticStep.Complete;
+                            return;
+                        }
+
+                        _battleTacticStep = BattleTacticStep.QueryDisposablePreview;
+                    }
+                    else
+                    {
+                        ClearOwnedDisposable();
+                        _battleTacticStep = BattleTacticStep.QueryRail;
+                    }
+                }
+                else
+                {
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                }
+                return;
+
+            case BattleTacticStep.QueryDisposablePreview:
+                if (!TryInvokeOptional("queryDisposable", null, out JObject preview))
+                {
+                    _battleTacticStep = BattleTacticStep.CancelDisposable;
+                    return;
+                }
+
+                _battleDisposable = preview;
+                JObject previewState = State(preview);
+                if (previewState["isInPreview"]?.Value<bool>() != true)
+                {
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                if (!IsOwnedDisposablePreview(preview))
+                {
+                    SetStage(AutomationStage.Battle, "当前消耗品预览不属于 AutoPlayer；已停止本轮战术以保留玩家操作。");
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+
+                string confirmKind = previewState.SelectToken("confirmContract.confirmKind")?.Value<string>() ?? string.Empty;
+                if (string.Equals(confirmKind, "grid", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battleTacticStep = BattleTacticStep.QueryDisposableGridOptions;
+                    return;
+                }
+
+                JObject? confirmationArguments = confirmKind is "world" or "positionRaycast"
+                    ? _battleConfirmationArguments
+                    : null;
+                AutomationAction? confirmAction = _battleDecisionEngine.Decide(
+                    new BattleDecisionContext
+                    {
+                        DisposablePhase = BattleDisposablePhase.Confirming,
+                        AllowDisposableUse = false,
+                        AllowVehicleReinforcement = false,
+                        DisposableConfirmationArguments = confirmationArguments
+                    },
+                    waveResult,
+                    preview,
+                    null,
+                    null);
+                if (confirmAction == null ||
+                    string.Equals(confirmAction.Command, "cancelDisposable", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battleTacticStep = BattleTacticStep.CancelDisposable;
+                    return;
+                }
+
+                _battlePendingAction = confirmAction;
+                _battleTacticStep = BattleTacticStep.ConfirmDisposable;
+                return;
+
+            case BattleTacticStep.QueryDisposableGridOptions:
+                if (!TryInvokeOptional(
+                        "queryDisposableGridOptions",
+                        JObject.FromObject(new { maxResults = 12 }),
+                        out JObject gridOptions))
+                {
+                    _battleTacticStep = BattleTacticStep.CancelDisposable;
+                    return;
+                }
+
+                AutomationAction? gridAction = _battleDecisionEngine.Decide(
+                    new BattleDecisionContext
+                    {
+                        DisposablePhase = BattleDisposablePhase.Confirming,
+                        AllowDisposableUse = false,
+                        AllowVehicleReinforcement = false,
+                        DisposableGridOptionsResult = gridOptions
+                    },
+                    waveResult,
+                    _battleDisposable,
+                    null,
+                    null);
+                if (gridAction == null ||
+                    string.Equals(gridAction.Command, "cancelDisposable", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battleTacticStep = BattleTacticStep.CancelDisposable;
+                    return;
+                }
+
+                _battlePendingAction = gridAction;
+                _battleTacticStep = BattleTacticStep.ConfirmDisposable;
+                return;
+
+            case BattleTacticStep.ConfirmDisposable:
+                AutomationAction? confirm = _battlePendingAction;
+                _battlePendingAction = null;
+                if (!TryInvokeOptional("queryDisposable", null, out JObject confirmCheck) ||
+                    !IsOwnedDisposablePreview(confirmCheck))
+                {
+                    SetStage(AutomationStage.Battle, "消耗品预览实例已变化；AutoPlayer 不会确认玩家的操作。");
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+
+                if (confirm != null && TryExecuteActiveBattleAction(confirm, out _))
+                {
+                    ClearOwnedDisposable();
+                    _battleTacticStep = BattleTacticStep.QueryRail;
+                }
+                else
+                {
+                    _battleTacticStep = BattleTacticStep.CancelDisposable;
+                }
+                return;
+
+            case BattleTacticStep.CancelDisposable:
+                if (!TryInvokeOptional("queryDisposable", null, out JObject cancelCheck))
+                {
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+
+                if (!IsOwnedDisposablePreview(cancelCheck))
+                {
+                    bool playerPreviewActive = State(cancelCheck)["isInPreview"]?.Value<bool>() == true;
+                    ClearOwnedDisposable();
+                    _battleTacticStep = playerPreviewActive
+                        ? BattleTacticStep.Complete
+                        : BattleTacticStep.QueryRail;
+                    return;
+                }
+
+                if (_bridge.HasCommand("cancelDisposable"))
+                {
+                    Execute(new AutomationAction(
+                        "cancelDisposable",
+                        null,
+                        AutomationStage.Battle,
+                        "取消无法安全确认的消耗品预览，恢复游戏输入。"), optional: true);
+                }
+                ClearOwnedDisposable();
+                _battleTacticStep = BattleTacticStep.QueryRail;
+                return;
+
+            case BattleTacticStep.QueryRail:
+                if (_battleThreats == null || !TryInvokeOptional("queryRail", null, out JObject rail))
+                {
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+                _battleRail = rail;
+                _battleTacticStep = BattleTacticStep.QueryTrain;
+                return;
+
+            case BattleTacticStep.QueryTrain:
+                if (!TryInvokeOptional("queryTrain", null, out JObject train))
+                {
+                    _battleTacticStep = BattleTacticStep.Complete;
+                    return;
+                }
+                _battleTrain = train;
+                AutomationAction movement = _battleDecisionEngine.DecideTrainMovement(
+                    _battleThreats,
+                    _battleRail,
+                    _battleTrain);
+                if (!string.Equals(movement.Command, "wait", StringComparison.OrdinalIgnoreCase))
+                {
+                    _battlePendingAction = movement;
+                    _battleTacticStep = BattleTacticStep.MoveTrain;
+                    return;
+                }
+                SetStage(AutomationStage.Battle, movement.Reason);
+                _battleTacticStep = BattleTacticStep.Complete;
+                return;
+
+            case BattleTacticStep.MoveTrain:
+                AutomationAction? move = _battlePendingAction;
+                _battlePendingAction = null;
+                if (move != null &&
+                    TryInvokeOptional("queryRail", null, out JObject latestRail) &&
+                    TryInvokeOptional("queryTrain", null, out JObject latestTrain))
+                {
+                    AutomationAction latestMovement = _battleDecisionEngine.DecideTrainMovement(
+                        _battleThreats,
+                        latestRail,
+                        latestTrain);
+                    if (!string.Equals(latestMovement.Command, "wait", StringComparison.OrdinalIgnoreCase))
+                    {
+                        TryExecuteActiveBattleAction(latestMovement, out _);
+                    }
+                }
+                _battleTacticStep = BattleTacticStep.Complete;
+                return;
+
+            case BattleTacticStep.Complete:
+            default:
+                return;
+        }
+    }
+
+    private bool TryMaintainDefense()
+    {
+        if (!_defenseMaintenanceRequested || !_defenseMaintenanceReady) return false;
+        if (!_bridge.HasCommand("queryTrain") || !_bridge.HasCommand("moveVehicleInTrain"))
+        {
+            _defenseMaintenanceRequested = false;
+            _defenseMaintenanceReady = false;
+            AddWarning("当前游戏构建缺少战车自动编列接口，已保留现有防线继续游玩。");
+            return true;
+        }
+
+        if (_defenseMaintenanceStep == DefenseMaintenanceStep.QueryTrain)
+        {
+            if (!TryInvokeOptional("queryTrain", null, out JObject train))
+            {
+                _defenseMaintenanceRequested = false;
+                _defenseMaintenanceReady = false;
+                return true;
+            }
+
+            _defenseTrain = train;
+            _defenseMaintenanceStep = DefenseMaintenanceStep.QueryVehicle;
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(AutomationStage.PreparingDefense, "正在检查现有车列容量。");
+            return true;
+        }
+
+        if (_defenseMaintenanceStep == DefenseMaintenanceStep.MoveVehicle)
+        {
+            AutomationAction? pendingAction = _defensePendingAction;
+            _defensePendingAction = null;
+            bool executed = pendingAction != null && Execute(pendingAction, optional: true);
+            _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
+            _defenseMaintenanceReady = false;
+            _defenseTrain = null;
+            if (!executed) _defenseMaintenanceRequested = false;
+            return true;
+        }
+
+        if (!TryInvokeOptional("queryVehicle", null, out JObject vehicles))
+        {
+            _defenseMaintenanceRequested = false;
+            _defenseMaintenanceReady = false;
+            return true;
+        }
+
+        AutomationAction? action = _battleDecisionEngine.Decide(
+            new BattleDecisionContext
+            {
+                AllowDisposableUse = false,
+                AllowVehicleReinforcement = true
+            },
+            null,
+            null,
+            _defenseTrain,
+            vehicles);
+        if (action == null)
+        {
+            _defenseMaintenanceRequested = false;
+            _defenseMaintenanceReady = false;
+            _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
+            _defenseTrain = null;
+            SetStage(AutomationStage.PreparingDefense, "防线维护完成，没有可继续编入的背包战车或车列容量。");
+            return true;
+        }
+
+        _defensePendingAction = action;
+        _defenseMaintenanceStep = DefenseMaintenanceStep.MoveVehicle;
+        _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+        return true;
+    }
+
+    private bool TryInvokeOptional(string command, JObject? arguments, out JObject result)
+    {
+        result = new JObject();
+        if (!_bridge.HasCommand(command))
+        {
+            AddWarning("当前游戏构建不支持可选自动战术命令 " + command + "，已跳过该战术。");
+            return false;
+        }
+
+        JObject invocation = _bridge.Invoke(command, arguments);
+        switch (RuntimeResultInspector.Classify(invocation))
+        {
+            case RuntimeResultDisposition.Unsafe:
+                Fault("命令 " + command + " 报告状态已被污染，需要启动新的游戏进程：" + Message(invocation));
+                return false;
+            case RuntimeResultDisposition.Pending:
+            case RuntimeResultDisposition.Failure:
+                AddWarning("可选自动战术命令 " + command + " 未执行：" + Message(invocation));
+                return false;
+            default:
+                result = invocation;
+                return true;
+        }
+    }
+
+    private void RequestDefenseMaintenance()
+    {
+        _defenseMaintenanceRequested = true;
+        _defenseMaintenanceReady = false;
+        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
+        _defenseTrain = null;
+        _defensePendingAction = null;
+    }
+
+    private void ResetBattleTactics()
+    {
+        _nextBattleWaveProbeAt = 0f;
+        _nextBattleTacticCycleAt = 0f;
+        _battleDisposableUsedThisWave = false;
+        _ownedDisposableEnum = string.Empty;
+        _ownedDisposableInteractionInstanceId = 0;
+        BeginBattleTacticCycle();
+    }
+
+    private void BeginBattleTacticCycle()
+    {
+        _battleTacticStep = BattleTacticStep.QueryThreats;
+        _battleTacticPending = false;
+        _battleWaveSnapshot = null;
+        _battlePendingAction = null;
+        _battleThreats = null;
+        _battleDisposable = null;
+        _battleRail = null;
+        _battleTrain = null;
+        _battleConfirmationArguments = null;
+    }
+
+    private void ReleaseOwnedDisposablePreview()
+    {
+        if (!string.IsNullOrWhiteSpace(_ownedDisposableEnum) &&
+            _bridge.HasCommand("queryDisposable") &&
+            _bridge.HasCommand("cancelDisposable"))
+        {
+            JObject current = _bridge.Invoke("queryDisposable");
+            if (RuntimeResultInspector.IsSuccess(current) && IsOwnedDisposablePreview(current))
+            {
+                JObject result = _bridge.Invoke("cancelDisposable");
+                if (RuntimeResultInspector.IsSuccess(result))
+                {
+                    AddTimeline("battle-action", "已取消自动游玩发起的消耗品预览，恢复玩家输入。");
+                }
+                else
+                {
+                    AddWarning("暂停自动游玩时未能取消消耗品预览：" + Message(result));
+                }
+            }
+        }
+
+        ResetBattleTactics();
+    }
+
+    private bool TryExecuteActiveBattleAction(AutomationAction action, out JObject result)
+    {
+        result = new JObject();
+        JObject validation = _bridge.Invoke("queryWave");
+        switch (RuntimeResultInspector.Classify(validation))
+        {
+            case RuntimeResultDisposition.Unsafe:
+                Fault("战术动作执行前的波次校验报告状态已被污染：" + Message(validation));
+                return false;
+            case RuntimeResultDisposition.Pending:
+            case RuntimeResultDisposition.Failure:
+                AddWarning("战术动作执行前无法确认波次仍在进行，已跳过该动作：" + Message(validation));
+                return false;
+        }
+
+        JObject state = State(validation);
+        if (state["isInWaving"]?.Value<bool>() != true)
+        {
+            SetStage(AutomationStage.Battle, "波次已经结束，已取消尚未执行的战术动作。");
+            return false;
+        }
+
+        _battleWaveSnapshot = validation;
+        return ExecuteWithResult(action, optional: true, out result);
+    }
+
+    private bool IsOwnedDisposablePreview(JObject result)
+    {
+        JObject state = State(result);
+        return !string.IsNullOrWhiteSpace(_ownedDisposableEnum) &&
+               _ownedDisposableInteractionInstanceId != 0 &&
+               state["isInPreview"]?.Value<bool>() == true &&
+               state["interactionInstanceId"]?.Value<int?>() == _ownedDisposableInteractionInstanceId &&
+               string.Equals(
+                   state["disposableEnum"]?.Value<string>(),
+                   _ownedDisposableEnum,
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ClearOwnedDisposable()
+    {
+        _ownedDisposableEnum = string.Empty;
+        _ownedDisposableInteractionInstanceId = 0;
+        _battlePendingAction = null;
+    }
+
+    private static string ResolveSelectedDisposableEnum(JObject result, JObject arguments)
+    {
+        JArray items = State(result)["items"] as JArray ?? new JArray();
+        int itemInstanceId = arguments["itemInstanceId"]?.Value<int?>() ?? 0;
+        int index = arguments["index"]?.Value<int?>() ?? -1;
+        string? path = arguments["path"]?.Value<string>();
+        JObject? item = items.OfType<JObject>().FirstOrDefault(candidate =>
+            (itemInstanceId != 0 && candidate["itemInstanceId"]?.Value<int?>() == itemInstanceId) ||
+            (index >= 0 && candidate["index"]?.Value<int?>() == index) ||
+            (!string.IsNullOrWhiteSpace(path) && string.Equals(
+                 candidate["path"]?.Value<string>() ?? candidate["itemPath"]?.Value<string>(),
+                 path,
+                 StringComparison.Ordinal)));
+        return item?["disposableEnum"]?.Value<string>() ?? string.Empty;
+    }
+
+    private static JObject? BuildThreatWorldArguments(JObject threatsResult)
+    {
+        JObject threats = State(threatsResult);
+        JObject? nest = (threats["nests"] as JArray)?.OfType<JObject>()
+            .Where(item => item["active"]?.Value<bool>() != false && item["world"] is JObject)
+            .OrderByDescending(item =>
+                (item.SelectToken("spawn.level")?.Value<int?>() ?? 1) *
+                (item.SelectToken("spawn.amount")?.Value<int?>() ?? 1))
+            .ThenBy(item => item["index"]?.Value<int?>() ?? int.MaxValue)
+            .FirstOrDefault();
+        return nest?["world"] is JObject world
+            ? new JObject { ["world"] = world.DeepClone() }
+            : null;
+    }
+
+    private static JObject State(JObject? result) =>
+        result?.SelectToken("data.state") as JObject
+        ?? result?["state"] as JObject
+        ?? result
+        ?? new JObject();
 
     private void ScheduleNormalPoll()
     {
@@ -869,8 +1724,12 @@ internal sealed class AutoPlayController
                 : "正在等待愿望清单提示或结算界面。");
     }
 
-    private bool Execute(AutomationAction action)
+    private bool Execute(AutomationAction action, bool optional = false) =>
+        ExecuteWithResult(action, optional, out _);
+
+    private bool ExecuteWithResult(AutomationAction action, bool optional, out JObject result)
     {
+        result = new JObject();
         SetStage(action.Stage, action.Reason);
         if (string.Equals(action.Command, "wait", StringComparison.Ordinal))
         {
@@ -889,7 +1748,7 @@ internal sealed class AutoPlayController
 
         _lastCommand = action.Command;
         _lastActionAtUtc = DateTime.UtcNow;
-        JObject result = _bridge.Invoke(action.Command, action.Arguments);
+        result = _bridge.Invoke(action.Command, action.Arguments);
         _lastMessage = Message(result);
         RuntimeResultDisposition disposition = RuntimeResultInspector.Classify(result);
         if (disposition == RuntimeResultDisposition.Unsafe)
@@ -903,8 +1762,9 @@ internal sealed class AutoPlayController
             if (RuntimeResultInspector.IsSuccess(result))
             {
                 _pendingActionKey = actionKey;
+                if (IsRewardAcquisitionCommand(action.Command)) RequestDefenseMaintenance();
                 MarkProgress();
-                AddTimeline("pending", action.Reason + " " + _lastMessage);
+                AddTimeline(optional ? "battle-pending" : "pending", action.Reason + " " + _lastMessage);
             }
 
             SetStage(action.Stage, _lastMessage);
@@ -913,6 +1773,12 @@ internal sealed class AutoPlayController
 
         if (disposition == RuntimeResultDisposition.Failure)
         {
+            if (optional)
+            {
+                AddWarning("可选自动战术命令 " + action.Command + " 失败：" + _lastMessage);
+                return false;
+            }
+
             if (string.Equals(action.Command, "prepareDefaultDefense", StringComparison.OrdinalIgnoreCase) &&
                 RuntimeResultInspector.IsRetryableDefaultDefenseFailure(result))
             {
@@ -927,23 +1793,22 @@ internal sealed class AutoPlayController
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase) &&
             !RuntimeResultInspector.HasCommittedMapNode(result))
         {
-            RegisterFailure("命令 selectMapNode 返回成功，但未提交已选择或待处理的子关卡节点。");
-            return false;
+            _consecutiveFailures = 0;
+            _mapSelectionPending = true;
+            _mapSelectionPendingAt = Time.realtimeSinceStartup;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            _pendingMapAction = null;
+            MarkProgress();
+            AddTimeline("pending", "地图节点已收到点击，正在等待轨神事件或关卡状态提交。");
+            SetStage(AutomationStage.SelectingRoute, "地图节点已点击，正在等待轨神事件或关卡状态提交。");
+            return true;
         }
 
         _consecutiveFailures = 0;
+        if (IsRewardAcquisitionCommand(action.Command)) RequestDefenseMaintenance();
         MarkProgress();
-        AddTimeline("action", action.Reason + " " + _lastMessage);
-        if (string.Equals(action.Command, "submitCommonMode", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(action.Command, "submitRandomMode", StringComparison.OrdinalIgnoreCase))
-        {
-            _openingDefenseRequired = true;
-        }
-        else if (string.Equals(action.Command, "continueGame", StringComparison.OrdinalIgnoreCase))
-        {
-            _openingDefenseRequired = false;
-        }
-
+        AddTimeline(optional ? "battle-action" : "action", action.Reason + " " + _lastMessage);
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase) &&
             result.SelectToken("data.state.pendingSubLevelNode") is JToken pendingNode &&
             pendingNode.Type != JTokenType.Null)
@@ -951,11 +1816,25 @@ internal sealed class AutoPlayController
             _pendingSublevel = true;
         }
 
+        if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
+        {
+            _mapSelectionPending = !_pendingSublevel;
+            _mapSelectionPendingAt = _mapSelectionPending ? Time.realtimeSinceStartup : -1f;
+            _eventOptionsReadyAt = -1f;
+            _pendingEventPanel = string.Empty;
+            _pendingMapAction = null;
+        }
+
         return true;
     }
 
     private static bool IsFrontEndMutation(string command) =>
         !string.Equals(command, "wait", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRewardAcquisitionCommand(string command) =>
+        string.Equals(command, "collectRewardObject", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "chooseRewardOption", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSceneTransitionCommand(string command) =>
         string.Equals(command, "submitCommonMode", StringComparison.OrdinalIgnoreCase) ||
@@ -969,14 +1848,16 @@ internal sealed class AutoPlayController
         {
             _wasInWave = true;
             _wavesStarted++;
+            ResetBattleTactics();
             AddTimeline("wave-start", "已观察到第 " + _wavesStarted + " 个波次开始。");
             MarkProgress();
         }
         else if (!inWave && _wasInWave)
         {
             _wasInWave = false;
-            _waveQueryAvailable = true;
             _wavesCompleted++;
+            ResetBattleTactics();
+            RequestDefenseMaintenance();
             AddTimeline("wave-complete", "已观察到第 " + _wavesCompleted + " 个波次完成。");
             MarkProgress();
         }
@@ -1053,6 +1934,19 @@ internal sealed class AutoPlayController
             if (stageChanged) _log.LogDebug(StageDisplayName(stage) + "：" + detail);
         }
     }
+
+    private void AddWarning(string message)
+    {
+        _lastMessage = message;
+        _log.LogWarning(message);
+        AddTimeline("warning", message);
+    }
+
+    private static bool HasPlacedCombatVehicle(JObject state) =>
+        (state.SelectToken("vehicle.vehicles") as JArray)?.OfType<JObject>().Any(vehicle =>
+            vehicle["active"]?.Value<bool>() == true &&
+            vehicle["inBag"]?.Value<bool>() != true &&
+            vehicle["isFixedHead"]?.Value<bool>() != true) == true;
 
     private void MarkProgress() => _lastProgressAt = Time.realtimeSinceStartup;
 

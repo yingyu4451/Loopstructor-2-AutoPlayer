@@ -17,7 +17,7 @@ internal sealed class RuntimeBridge
     private FieldInfo? _resultData;
     private FieldInfo? _resultSuggestion;
 
-    private static readonly (string Command, string Type, string Method)[] Contract =
+    private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
         ("queryState", "GuiGameAutomation.Runtime.GuiGameMcpStateRuntime", "QueryState"),
         ("queryUiInteractables", "GuiGameAutomation.Runtime.GuiGameMcpStateRuntime", "QueryUiInteractables"),
@@ -55,6 +55,20 @@ internal sealed class RuntimeBridge
         ("startWave", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "StartWave")
     };
 
+    private static readonly (string Command, string Type, string Method)[] OptionalBattleContract =
+    {
+        ("queryWaveThreats", "GuiGameAutomation.Runtime.GuiGameMcpWaveThreatRuntime", "QueryWaveThreats"),
+        ("queryDisposable", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "QueryDisposableState"),
+        ("queryDisposableGridOptions", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "QueryDisposableGridOptions"),
+        ("useDisposable", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "UseDisposable"),
+        ("confirmDisposableGrid", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableGrid"),
+        ("confirmDisposableWorld", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableWorld"),
+        ("confirmDisposableTarget", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableTarget"),
+        ("queryTrain", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "QueryTrainState"),
+        ("queryRail", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "QueryRailState"),
+        ("moveTrainToLine", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "MoveTrainToLine")
+    };
+
     public bool IsAvailable { get; private set; }
     public IReadOnlyList<string> MissingMembers { get; private set; } = Array.Empty<string>();
     public IReadOnlyList<string> AvailableCommands => new List<string>(_commands.Keys);
@@ -63,7 +77,7 @@ internal sealed class RuntimeBridge
     {
         List<string> missing = new();
         _commands.Clear();
-        foreach ((string command, string typeName, string methodName) in Contract)
+        foreach ((string command, string typeName, string methodName) in RequiredContract)
         {
             Type? type = FindType(typeName);
             MethodInfo? method = type?.GetMethod(
@@ -81,6 +95,18 @@ internal sealed class RuntimeBridge
             _commands[command] = method;
         }
 
+        foreach ((string command, string typeName, string methodName) in OptionalBattleContract)
+        {
+            Type? type = FindType(typeName);
+            MethodInfo? method = type?.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(string) },
+                null);
+            if (method != null) _commands[command] = method;
+        }
+
         const string resultTypeName = "GuiGameAutomation.Runtime.GuiGameMcpResult";
         _resultType = FindType(resultTypeName);
         _resultSuccess = _resultType?.GetField("success", BindingFlags.Public | BindingFlags.Instance);
@@ -91,6 +117,9 @@ internal sealed class RuntimeBridge
         IsAvailable = missing.Count == 0;
         return IsAvailable;
     }
+
+    public bool HasCommand(string command) =>
+        !string.IsNullOrWhiteSpace(command) && _commands.ContainsKey(command);
 
     public JObject Invoke(string command, JObject? arguments = null)
     {
