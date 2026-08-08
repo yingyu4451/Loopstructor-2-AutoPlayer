@@ -161,6 +161,19 @@ public sealed class AutoPlayerStatus
     public int ConsecutiveFailures { get; set; }
     public int WavesStarted { get; set; }
     public int WavesCompleted { get; set; }
+    public int CurrentMapStage { get; set; } = -1;
+    public int CurrentMapLayer { get; set; } = -1;
+    public int CurrentChapter => CurrentMapStage >= 0 ? CurrentMapStage + 1 : 0;
+    public string LastRuntimeCommand { get; set; } = string.Empty;
+    public double LastRuntimeCommandDurationMs { get; set; }
+    public string MaxRuntimeCommand { get; set; } = string.Empty;
+    public double MaxRuntimeCommandDurationMs { get; set; }
+    public int SlowRuntimeCommandCount { get; set; }
+    public double CurrentFps { get; set; }
+    public double OnePercentLowFps { get; set; }
+    public double FrameTimeP99Ms { get; set; }
+    public int FrameSampleCount { get; set; }
+    public double FrameTelemetryWindowSeconds { get; set; }
     public DateTime StartedAtUtc { get; set; }
     public DateTime LastActionAtUtc { get; set; }
     public string LastCommand { get; set; } = string.Empty;

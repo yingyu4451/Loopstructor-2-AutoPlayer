@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Loopstructor.AutoPlayer.Plugin;
@@ -29,11 +30,17 @@ internal sealed class EvidenceRecorder
         AtomicWrite(Path.Combine(directory, "status.json"), JsonConvert.SerializeObject(status, Formatting.Indented));
     }
 
-    public string CaptureFailure(string directory, string reason, object status)
+    public string CaptureFailure(string directory, string reason, object status, JObject? runtimeResult = null)
     {
         Directory.CreateDirectory(directory);
         string timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
         AtomicWrite(Path.Combine(directory, timestamp + "-failure.txt"), reason + Environment.NewLine);
+        if (runtimeResult != null)
+        {
+            AtomicWrite(
+                Path.Combine(directory, timestamp + "-runtime-result.json"),
+                runtimeResult.ToString(Formatting.Indented));
+        }
         WriteStatus(directory, status);
         string screenshot = Path.Combine(directory, timestamp + "-screen.png");
         try

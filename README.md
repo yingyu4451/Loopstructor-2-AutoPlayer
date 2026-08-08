@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.5.9 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.0 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.9
+.\scripts\package.ps1 -Version 0.6.0
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.5.9-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.0-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -88,7 +88,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 玩家模式安装后，插件可从当前用户的本机控制注册进入后台待命，手动启动游戏也无需一次性票据。两种模式都由隐藏的独立运行时根对象持有控制通道，不再依赖会被游戏首次场景装载清理的 BepInEx 管理对象；场景切换若意外清除独立宿主，静态会话会在主线程重建它，而只有游戏进程真正退出才释放管道和补丁。该保护不会开始自动游玩，也不会为玩家模式启用存档、平台写入或诊断产物重定向。控制服务使用有界读写和四路监听，并且至少一个监听器成功绑定后才报告激活；耗时命令会释放监听通道，Manager 使用同一请求 ID 获取最终缓存结果，同一操作不会重复执行。
 
-自动化遇到不确定的部分写入、连续失败上限、停滞或隔离门禁故障时会进入 Faulted，并回传 `NeedsProcessRestart = true`。此时不能在同一游戏进程中开始新一轮：Manager 显示“必须彻底重启”，禁用“开始”并在命令发送层再次拒绝 `start`。单纯执行过作弊写操作只会标记结果，不再触发该门禁。开发截图可使用 `--demo-restart-required` 复现真正的重启门禁；该参数隐含 demo 模式，不连接真实游戏。
+战败、普通超时、只读查询失败或有界重试耗尽可以进入 Faulted，但不会因此设置 `NeedsProcessRestart`；修正现场后仍可在同一游戏进程中开始新一轮。只有写命令已经开始后结果不确定、当前结果明确返回 `statePolluted=true` / `needsReset=true`、无法验证部分写入已完整回滚，或隔离门禁失效时，才回传 `NeedsProcessRestart = true`。此时 Manager 显示“必须彻底重启”，禁用“开始”并在命令发送层再次拒绝 `start`。单纯执行过作弊写操作只会标记结果，不再触发该门禁。开发截图可使用 `--demo-restart-required` 复现真正的重启门禁；该参数隐含 demo 模式，不连接真实游戏。
 
 安全握手通过后的运行按钮矩阵如下；“安装、启动测试包、更新”等管理按钮不属于此矩阵：
 
@@ -98,7 +98,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 | Standby / Completed，且无需重启 | 启用 | 禁用 | 禁用 | 禁用 |
 | Running | 禁用 | 启用 | 禁用 | 启用 |
 | Paused | 禁用 | 禁用 | 启用 | 启用 |
-| Faulted 或 `NeedsProcessRestart = true` | 禁用 | 禁用 | 禁用 | 禁用 |
+| Faulted，且无需重启 | 启用 | 禁用 | 禁用 | 禁用 |
+| `NeedsProcessRestart = true` | 禁用 | 禁用 | 禁用 | 禁用 |
 
 ## 安全边界
 
@@ -106,7 +107,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 - 隔离 QA 模式通过游戏的 `SavePathUtility.GetCompanyAppDataPath` 契约把存档重定向到独立 profile。
 - 隔离 QA 模式的平台写入门禁是强制条件：必须同时成功阻断 Steam 成就、IGP 成就、结算飞书自动上传和 `RestartAppIfNecessary` 四个已知入口，否则不能开始自动游玩。
 - 隔离 QA 模式还必须把游戏诊断产物重定向到本次 artifact；重定向失败同样拒绝开始。
-- 开局默认防线若明确报告 `prepared=false`、`statePolluted=false` 且不要求 reset，会视为初始化暂态并在干净状态下重试，不累计普通连续失败；返回结果任意嵌套层出现 `statePolluted=true`、`needsReset=true`，或证明动力站点放置已经提交但后续步骤失败，都会按不安全状态处理，停止并要求新进程。
+- 开局默认防线若明确返回 `prepared=false`、`statePolluted=false` 且不要求 reset，会视为可恢复暂态，不累计普通连续失败。安全检查只依据当前写命令的有效结果，不把 `before`、`previous`、`history` 等历史快照中的旧标志误判为当前污染；只有当前结果明确为 `statePolluted=true`、`needsReset=true`，或存在无法确认回滚的部分写入时，才停止并要求新进程。若动力站点步骤曾提交、但最终状态已验证为无轨道、无车列且无已放置战车，则按干净检查点重试。
 - 前端写操作会等待游戏的全局模块与当前场景 Main 完成初始化，并要求就绪状态稳定一个轮询周期。进入对局后，合法路线与子关卡选择优先于默认防线，避免在随机模式路线图背后提前放置道具或绘线。
 - “继续未完成对局”会操作当前模式正在使用的存档。成功执行 `continueGame` 后不会重新绘制开局默认防线，避免破坏存档中已有轨道和车辆。
 - Harmony 补丁只存在于当前游戏进程内；退出游戏后失效。
@@ -145,9 +146,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.5.9-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.0-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.0` 重构自动游玩的奖励、事件、战斗、防线扩建与写入对账流程：选择前会等待动画完整显示并额外保留 1.5 秒录像时间；运行时查询和写入被拆分到不同帧；动力弹射点按稳定背包身份一次确认且未知结果绝不重发。隔离 QA 已在 clean 状态完成 28 波并进入第三章。更新后需重新执行一次“安装 / 更新插件”并重启游戏。
 
 `v0.5.9` 在作弊工具中增加怪物 Buff 覆盖层，可在游戏内用原生图标查看每只怪物的 Buff 与剩余持续时间。敌人与 Buff 数据以低频快照缓存，`OnGUI` 只负责绘制，避免覆盖层反复扫描场上对象。更新后需重新执行一次“安装 / 更新插件”并重启游戏。
 

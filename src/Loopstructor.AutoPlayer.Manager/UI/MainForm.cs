@@ -138,6 +138,9 @@ internal sealed partial class MainForm : Window
             ("integrity", "运行标记"),
             ("outcome", "本局结果"),
             ("waves", "波次"),
+            ("chapter", "章节 / 地图层"),
+            ("frameTiming", "游戏帧率"),
+            ("runtimeTiming", "MCP 调用耗时"),
             ("process", "进程状态")
         };
 
@@ -1234,6 +1237,23 @@ internal sealed partial class MainForm : Window
                 : playerMode ? "玩家模式 / 未使用作弊" : "隔离 QA / 未使用作弊");
         SetTelemetry("outcome", OutcomeName(status.Outcome));
         SetTelemetry("waves", $"{status.WavesCompleted} 完成 / {status.WavesStarted} 启动");
+        SetTelemetry(
+            "chapter",
+            status.CurrentChapter > 0
+                ? $"第 {status.CurrentChapter} 章 / 第 {status.CurrentMapLayer} 层"
+                : "等待地图数据");
+        SetTelemetry(
+            "frameTiming",
+            status.FrameSampleCount > 0
+                ? $"{status.CurrentFps:F1} FPS / 1% Low {status.OnePercentLowFps:F1} / P99 {status.FrameTimeP99Ms:F1} ms / {status.FrameTelemetryWindowSeconds:F1} 秒"
+                : "等待采样");
+        SetTelemetry(
+            "runtimeTiming",
+            string.IsNullOrWhiteSpace(status.LastRuntimeCommand)
+                ? "等待采样"
+                : $"{status.LastRuntimeCommand} {status.LastRuntimeCommandDurationMs:F1} ms / 峰值 " +
+                  $"{(string.IsNullOrWhiteSpace(status.MaxRuntimeCommand) ? "未知命令" : status.MaxRuntimeCommand)} " +
+                  $"{status.MaxRuntimeCommandDurationMs:F1} ms / 慢调用 {status.SlowRuntimeCommandCount}");
         int processId = _hello?.GameProcessId ?? _session?.ProcessId ?? 0;
         string processPrefix = processId > 0 ? $"PID {processId} / " : string.Empty;
         SetTelemetry(
@@ -1242,7 +1262,7 @@ internal sealed partial class MainForm : Window
                 ? "必须彻底重启"
                 : status.CheatUsed ? "可自动游玩 / 已标记作弊" : "可随时控制"));
 
-        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CheatActionCount}";
+        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CheatActionCount}|{status.CurrentMapStage}|{status.CurrentMapLayer}";
         if (!string.Equals(signature, _lastStatusSignature, StringComparison.Ordinal))
         {
             _lastStatusSignature = signature;

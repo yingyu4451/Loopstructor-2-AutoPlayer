@@ -6,6 +6,8 @@ namespace Loopstructor.AutoPlayer.Core;
 
 public sealed class DecisionEngine
 {
+    private const int RailExpansionRewardBonus = 2400;
+
     public AutomationAction DecideFrontEnd(JObject result, AutomationRunOptions options)
     {
         JObject state = State(result);
@@ -95,10 +97,20 @@ public sealed class DecisionEngine
         if (state.SelectToken("map.canSelectNextNode")?.Value<bool>() == true)
         {
             JArray nodes = state.SelectToken("map.selectableNodes") as JArray ?? new JArray();
-            int? index = SelectRoute(nodes);
-            if (index.HasValue)
+            JObject? route = SelectRoute(nodes);
+            int? index = route?["readyIndex"]?.Value<int?>();
+            if (route != null && index.HasValue)
             {
-                return new AutomationAction("selectMapNode", JObject.FromObject(new { readyIndex = index.Value }), AutomationStage.SelectingRoute, $"选择路线选项 {index.Value}。");
+                string reward = route["rewardEnum"]?.Value<string>() ?? "未知奖励";
+                bool needFight = route["needFight"]?.Value<bool>() == true;
+                int enemies = RouteCount(route["totalEnemyAmount"], 250);
+                string risk = needFight ? $"，预计 {enemies} 个敌人" : "，非战斗节点";
+                string candidates = BuildRouteCandidateSummary(nodes);
+                return new AutomationAction(
+                    "selectMapNode",
+                    JObject.FromObject(new { readyIndex = index.Value }),
+                    AutomationStage.SelectingRoute,
+                    $"选择路线选项 {index.Value}（{reward}{risk}，策略评分 {RouteScore(route)}）。候选：{candidates}");
             }
 
             return AutomationAction.Wait(
@@ -109,7 +121,7 @@ public sealed class DecisionEngine
         return AutomationAction.Wait(AutomationStage.InitializingRun, "等待场景或界面状态稳定。");
     }
 
-    public AutomationAction DecideReward(JObject? result)
+    public AutomationAction DecideReward(JObject? result, JObject? vehicleResult = null)
     {
         JObject state = State(result);
         int rewardObjectCount = state["activeRewardObjectCount"]?.Value<int>() ?? 0;
@@ -118,17 +130,27 @@ public sealed class DecisionEngine
             JObject? rewardObject = (state["rewardObjects"] as JArray)?.OfType<JObject>()
                 .FirstOrDefault(item => item["active"]?.Value<bool>() != false);
             int? instanceId = rewardObject?["instanceId"]?.Value<int?>();
-            JObject arguments = instanceId.HasValue && instanceId.Value != 0
+            JObject? arguments = instanceId.HasValue && instanceId.Value != 0
                 ? JObject.FromObject(new { instanceId = instanceId.Value })
-                : JObject.FromObject(new { index = 0 });
+                : null;
+            if (arguments == null)
+            {
+                return AutomationAction.Wait(AutomationStage.ManagingRewards, "奖励物品仍在显示，但尚未提供可安全定位的实例或索引。");
+            }
+
             return new AutomationAction("collectRewardObject", arguments, AutomationStage.ManagingRewards, "收取场景中的第一个奖励物品。");
         }
 
         JArray options = state["options"] as JArray ?? new JArray();
         if (options.Count > 0)
         {
-            int index = SelectReward(options);
-            return new AutomationAction("chooseRewardOption", JObject.FromObject(new { index }), AutomationStage.ManagingRewards, $"选择奖励选项 {index}。");
+            int? index = SelectReward(options, vehicleResult);
+            if (index.HasValue)
+            {
+                return new AutomationAction("chooseRewardOption", JObject.FromObject(new { index = index.Value }), AutomationStage.ManagingRewards, $"选择奖励选项 {index.Value}。");
+            }
+
+            return AutomationAction.Wait(AutomationStage.ManagingRewards, "奖励选项仍在显示，但当前没有可点击的有效选项。");
         }
 
         return AutomationAction.Wait(AutomationStage.ManagingRewards, "等待奖励动画或队列处理完成。");
@@ -137,18 +159,108 @@ public sealed class DecisionEngine
     public AutomationAction DecideEvent(JObject? result, string panel)
     {
         JObject state = State(result);
-        string path = panel == "RepairUI" ? "repairPanel.options" : "eventPanel.options";
+        string panelPath = panel == "RepairUI" ? "repairPanel" : "eventPanel";
+        JObject panelState = state.SelectToken(panelPath) as JObject ?? new JObject();
+        string path = panelPath + ".options";
         string panelName = PanelDisplayName(panel);
         JArray options = state.SelectToken(path) as JArray ?? new JArray();
-        JObject? candidate = options.OfType<JObject>()
-            .FirstOrDefault(option => option["conditionPass"]?.Value<bool>() != false && option["buttonActive"]?.Value<bool>() != false);
+        IEnumerable<JObject> enabledOptions = options.OfType<JObject>()
+            .Where(option => option["conditionPass"]?.Value<bool>() != false
+                             && option["buttonActive"]?.Value<bool>() != false);
+        JObject? candidate = string.Equals(panel, "RepairUI", StringComparison.OrdinalIgnoreCase)
+            ? enabledOptions
+                .OrderByDescending(RepairOptionPriority)
+                .ThenBy(option => option["index"]?.Value<int>() ?? int.MaxValue)
+                .FirstOrDefault()
+            : enabledOptions
+                .OrderByDescending(EventOptionPriority)
+                .ThenBy(option => option["index"]?.Value<int>() ?? int.MaxValue)
+                .FirstOrDefault();
         if (candidate == null)
         {
             return AutomationAction.Wait(AutomationStage.ManagingEvent, $"等待{panelName}中出现可用选项。");
         }
 
         int index = candidate["index"]?.Value<int>() ?? 0;
-        return new AutomationAction("chooseWaveFunctionOption", JObject.FromObject(new { panel, index }), AutomationStage.ManagingEvent, $"选择{panelName}中可用的选项 {index}。");
+        return new AutomationAction(
+            "chooseWaveFunctionOption",
+            JObject.FromObject(new
+            {
+                panel,
+                index,
+                panelInstanceId = panelState["panelInstanceId"]?.Value<int>() ?? 0,
+                instanceId = candidate["instanceId"]?.Value<int>() ?? 0,
+                optionIdentity = WaveFunctionOptionSettlementGuard.BuildOptionIdentity(candidate) ?? string.Empty
+            }),
+            AutomationStage.ManagingEvent,
+            $"选择{panelName}中可用的选项 {index}。");
+    }
+
+    private static int RepairOptionPriority(JObject option)
+    {
+        bool opensSecondaryPanel = HasBehaviourType(option, "OpenUIPanelBehaviour")
+                                   || HasBehaviourType(option, "DisposableInvokeBehaviour");
+        bool closesRepairPanel = HasBehaviourType(option, "WaveFunctionBehaviour");
+        bool endsRepairWave = HasBehaviourType(option, "OverWaveBehaviour");
+        bool restoresFort = HasBehaviourType(option, "ResourcesControl_MainHp");
+
+        if (restoresFort && closesRepairPanel && endsRepairWave && !opensSecondaryPanel)
+        {
+            return 1000;
+        }
+
+        if (closesRepairPanel && endsRepairWave && !opensSecondaryPanel)
+        {
+            return 500;
+        }
+
+        return opensSecondaryPanel ? -1000 : 0;
+    }
+
+    private static int EventOptionPriority(JObject option)
+    {
+        bool opensSecondaryFlow = HasBehaviourType(option, "WaveFunctionOptionFlowBehaviour")
+                                  || HasBehaviourType(option, "OpenUIPanelBehaviour")
+                                  || HasBehaviourType(option, "DisposableInvokeBehaviour");
+        bool closesEventPanel = HasBehaviourType(option, "WaveFunctionBehaviour");
+        bool endsEventWave = HasBehaviourType(option, "OverWaveBehaviour");
+
+        if (opensSecondaryFlow)
+        {
+            return -1000;
+        }
+
+        if (closesEventPanel && endsEventWave)
+        {
+            return 1000;
+        }
+
+        if (endsEventWave)
+        {
+            return 750;
+        }
+
+        return closesEventPanel ? 500 : 100;
+    }
+
+    private static bool HasBehaviourType(JObject option, string typeName)
+    {
+        foreach (string propertyName in new[] { "behaviourTypeIds", "behaviourTypes" })
+        {
+            if (option[propertyName] is not JArray identifiers)
+            {
+                continue;
+            }
+
+            if (identifiers.Values<string>().Any(identifier =>
+                    string.Equals(identifier, typeName, StringComparison.Ordinal)
+                    || (identifier?.EndsWith("." + typeName, StringComparison.Ordinal) ?? false)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static AutomationAction DecideRandomSelection(JObject state, AutomationRunOptions options)
@@ -209,58 +321,302 @@ public sealed class DecisionEngine
         _ => "未知节点"
     };
 
-    private static int SelectReward(JArray options)
+    private static int? SelectReward(JArray options, JObject? vehicleResult)
     {
-        static int Score(JObject option)
+        JObject[] candidates = options.OfType<JObject>()
+            .Where(option => option["buttonActive"]?.Value<bool>() != false)
+            .Where(option => option["index"]?.Type == JTokenType.Integer && option["index"]!.Value<int>() >= 0)
+            .ToArray();
+        if (candidates.Length == 0)
         {
-            string kind = option["rewardKind"]?.Value<string>() ?? "unknown";
-            int baseScore = kind switch
-            {
-                "vehicle" => 400,
-                "superModule" => 300,
-                "disposable" => 200,
-                "money" => 100,
-                _ => 0
-            };
-            return baseScore + (option["rewardRare"]?.Value<string>() switch
-            {
-                "legend" => 30,
-                "rare" => 20,
-                "normal" => 10,
-                _ => 0
-            });
+            return null;
         }
 
-        return options.OfType<JObject>()
-            .OrderByDescending(Score)
+        JArray? vehicles = vehicleResult == null
+            ? null
+            : State(vehicleResult)["vehicles"] as JArray;
+        string mainFetter = vehicles == null ? string.Empty : ResolveMainFetter(vehicles);
+        return candidates
+            .OrderByDescending(option => RewardStrategicScore(option, vehicles, mainFetter))
+            .ThenByDescending(RewardRarityPriority)
             .ThenBy(option => option["index"]?.Value<int>() ?? int.MaxValue)
-            .Select(option => option["index"]?.Value<int>() ?? 0)
+            .Select(option => (int?)option["index"]!.Value<int>())
             .FirstOrDefault();
     }
 
-    private static int? SelectRoute(JArray nodes)
-    {
-        static int Score(JObject node)
+    private static int RewardKindPriority(JObject option) =>
+        (option["rewardKind"]?.Value<string>() ?? string.Empty).ToLowerInvariant() switch
         {
-            int score = node["rewardEnum"]?.Value<string>() switch
-            {
-                "vehicle" => 500,
-                "superModule" => 400,
-                "potion" => 300,
-                "money" => 200,
-                _ => 100
-            };
-            if (node["isBoss"]?.Value<bool>() == true) score -= 20;
-            if (node["needFight"]?.Value<bool>() != true) score += 10;
+            "vehicle" => 4,
+            "supermodule" => 3,
+            "disposable" => 2,
+            "money" => 1,
+            _ => 0
+        };
+
+    private static int RewardRarityPriority(JObject option) =>
+        (option["rewardRare"]?.Value<string>() ?? string.Empty).ToLowerInvariant() switch
+        {
+            "boss4" => 7,
+            "boss3" => 6,
+            "boss2" => 5,
+            "boss1" => 4,
+            "epic" => 3,
+            // Retained for packages that used the pre-runtime placeholder value.
+            "legend" => 3,
+            "rare" => 2,
+            "normal" => 1,
+            _ => 0
+        };
+
+    private static int RewardStrategicScore(JObject option, JArray? vehicles, string mainFetter)
+    {
+        int kindPriority = RewardKindPriority(option);
+        int score = kindPriority switch
+        {
+            4 => 300,
+            3 => 420,
+            2 => 220,
+            1 => 50,
+            _ => 0
+        };
+        score += RewardRarityPriority(option) * 40;
+        if (kindPriority == 2 && IsRailExpansionReward(option))
+        {
+            // AddNewPoint_Attribute is the auto-use reward that grants a
+            // FreePoint_Attribute item. Both are scarce, deterministic rail
+            // expansion resources and must beat ordinary power rewards.
+            score += RailExpansionRewardBonus;
+        }
+
+        if (kindPriority != 4)
+        {
             return score;
         }
 
+        score += RewardVehicleLevel(option) * 100;
+        if (vehicles != null)
+        {
+            score += RewardMergePriority(option, vehicles) switch
+            {
+                2 => 900,
+                1 => 250,
+                _ => 0
+            };
+            score += RewardMatchesFetter(option, mainFetter) * 120;
+        }
+
+        return score;
+    }
+
+    private static bool IsRailExpansionReward(JObject option)
+    {
+        return IsRailExpansionDisposableEnum(option["disposableEnum"]?.Value<string>())
+               || IsRailExpansionDisposableEnum(option["assignDisposableEnum"]?.Value<string>());
+    }
+
+    private static bool IsRailExpansionDisposableEnum(string? value)
+    {
+        string candidate = value?.Trim() ?? string.Empty;
+        return string.Equals(candidate, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(candidate, "AddNewPoint_Attribute", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int RewardMergePriority(JObject option, JArray vehicles)
+    {
+        if (RewardKindPriority(option) != 4) return 0;
+
+        string vehicleType = option["vehicleType"]?.Value<string>() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(vehicleType)) return 0;
+
+        int matchingCount = vehicles.OfType<JObject>()
+            .Where(vehicle => vehicle["isVirtual"]?.Value<bool>() != true && vehicle["isFixedHead"]?.Value<bool>() != true)
+            .Count(vehicle => string.Equals(
+                vehicle["vehicleType"]?.Value<string>() ?? vehicle["type"]?.Value<string>(),
+                vehicleType,
+                StringComparison.OrdinalIgnoreCase));
+        return matchingCount >= 2 ? 2 : matchingCount == 1 ? 1 : 0;
+    }
+
+    private static int RewardVehicleLevel(JObject option)
+    {
+        if (RewardKindPriority(option) != 4) return 0;
+
+        int? explicitLevel = option["level"]?.Value<int?>();
+        if (explicitLevel.HasValue) return Math.Max(explicitLevel.Value, 0);
+
+        string vehicleType = option["vehicleType"]?.Value<string>() ?? string.Empty;
+        int marker = vehicleType.LastIndexOf("_L", StringComparison.OrdinalIgnoreCase);
+        return marker >= 0 && int.TryParse(vehicleType.Substring(marker + 2), out int parsedLevel)
+            ? Math.Max(parsedLevel, 0)
+            : 0;
+    }
+
+    private static string ResolveMainFetter(JArray vehicles)
+    {
+        JObject[] allVehicles = vehicles.OfType<JObject>()
+            .Where(vehicle => vehicle["isVirtual"]?.Value<bool>() != true && vehicle["isFixedHead"]?.Value<bool>() != true)
+            .ToArray();
+        JObject[] deployedVehicles = allVehicles
+            .Where(vehicle => vehicle["inBag"]?.Value<bool>() != true && vehicle["active"]?.Value<bool>() != false)
+            .ToArray();
+
+        string deployedMain = ResolveMainFetter(deployedVehicles);
+        return !string.IsNullOrWhiteSpace(deployedMain)
+            ? deployedMain
+            : ResolveMainFetter(allVehicles);
+    }
+
+    private static string ResolveMainFetter(IEnumerable<JObject> vehicles)
+    {
+        return vehicles
+            .SelectMany(vehicle => (vehicle["fetters"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            .Where(fetter => fetter["count"]?.Value<int>() > 0)
+            .Select(fetter => new
+            {
+                Name = fetter["fetterEnum"]?.Value<string>() ?? string.Empty,
+                Count = fetter["count"]!.Value<int>()
+            })
+            .Where(fetter => !string.IsNullOrWhiteSpace(fetter.Name) && !string.Equals(fetter.Name, "None", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(fetter => fetter.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new { Name = group.Key, Count = group.Sum(fetter => fetter.Count) })
+            .OrderByDescending(fetter => fetter.Count)
+            .ThenBy(fetter => fetter.Name, StringComparer.Ordinal)
+            .Select(fetter => fetter.Name)
+            .FirstOrDefault() ?? string.Empty;
+    }
+
+    private static int RewardMatchesFetter(JObject option, string mainFetter)
+    {
+        if (string.IsNullOrWhiteSpace(mainFetter) || option["effectiveFetters"] is not JArray fetters) return 0;
+
+        return fetters.OfType<JObject>().Any(fetter =>
+            fetter["isActual"]?.Value<bool>() != false &&
+            (fetter["count"]?.Value<int>() ?? 0) > 0 &&
+            string.Equals(fetter["fetterEnum"]?.Value<string>(), mainFetter, StringComparison.OrdinalIgnoreCase))
+            ? 1
+            : 0;
+    }
+
+    private static JObject? SelectRoute(JArray nodes)
+    {
         return nodes.OfType<JObject>()
             .Where(node => node["canPlayerSelect"]?.Value<bool>() == true)
             .Where(node => node["readyIndex"]?.Type == JTokenType.Integer && node["readyIndex"]!.Value<int>() >= 0)
-            .OrderByDescending(Score)
+            .OrderByDescending(RouteScore)
+            .ThenBy(node => node["needFight"]?.Value<bool>() == true ? 1 : 0)
+            .ThenBy(node => RouteCount(node["totalEnemyAmount"], 250))
+            .ThenByDescending(RouteRewardDiversity)
             .ThenBy(node => node["readyIndex"]!.Value<int>())
-            .Select(node => (int?)node["readyIndex"]!.Value<int>())
             .FirstOrDefault();
+    }
+
+    private static string BuildRouteCandidateSummary(JArray nodes)
+    {
+        string[] candidates = nodes.OfType<JObject>()
+            .Where(node => node["canPlayerSelect"]?.Value<bool>() == true)
+            .Where(node => node["readyIndex"]?.Type == JTokenType.Integer && node["readyIndex"]!.Value<int>() >= 0)
+            .OrderBy(node => node["readyIndex"]!.Value<int>())
+            .Take(8)
+            .Select(node =>
+            {
+                int readyIndex = node["readyIndex"]!.Value<int>();
+                string reward = node["rewardEnum"]?.Value<string>() ?? "未知奖励";
+                string risk = node["needFight"]?.Value<bool>() == true
+                    ? $"{RouteCount(node["totalEnemyAmount"], 250)} 敌人"
+                    : "非战斗";
+                return $"{readyIndex}:{reward}/{risk}/{RouteScore(node)} 分";
+            })
+            .ToArray();
+        return candidates.Length == 0 ? "无" : string.Join("；", candidates);
+    }
+
+    private static int RouteScore(JObject node)
+    {
+        JObject? drops = node["dropCounts"] as JObject;
+        int vehicleCount = RouteCount(drops?["vehicle"]);
+        int catapultCount = RouteCount(drops?["catapult"]);
+        int superModuleCount = RouteCount(drops?["superModule"]);
+        int disposableCount = RouteCount(drops?["disposable"]);
+        int moneyCount = RouteCount(drops?["money"]);
+
+        int rewardScore = (vehicleCount * 700)
+                          + (catapultCount * 350)
+                          + (superModuleCount * 600)
+                          + (disposableCount * 250)
+                          + (moneyCount * 60);
+
+        string rewardEnum = node["rewardEnum"]?.Value<string>() ?? string.Empty;
+        int score = rewardScore + RouteRewardTypeScore(rewardEnum);
+
+        bool needFight = node["needFight"]?.Value<bool>() == true;
+        if (needFight)
+        {
+            int enemyCount = RouteCount(node["totalEnemyAmount"], 250);
+            score -= RouteCombatRiskPenalty(enemyCount);
+        }
+        else
+        {
+            score += 100;
+        }
+
+        if (node["isBoss"]?.Value<bool>() == true)
+        {
+            score -= 1200;
+        }
+
+        return score;
+    }
+
+    private static int RouteCombatRiskPenalty(int enemyCount)
+    {
+        int normalizedEnemyCount = Math.Min(Math.Max(enemyCount, 0), 250);
+        int crowdingCount = Math.Max(normalizedEnemyCount - 40, 0);
+        return 40 + (normalizedEnemyCount * 3) + (crowdingCount * 18);
+    }
+
+    private static int RouteRewardTypeScore(string rewardEnum)
+    {
+        switch (rewardEnum.ToLowerInvariant())
+        {
+            // Legacy protocol values are retained for compatibility with older game bridges.
+            case "vehicle": return 700;
+            case "supermodule": return 600;
+            case "potion":
+            case "disposable": return 250;
+            case "money": return 60;
+
+            // Current GuiGameMcpMapRuntime WaveRewardEnum values.
+            case "build": return 450;
+            case "elitecatapult": return 200;
+            case "ferocitycommoncatapult": return 180;
+            case "commoncatapult": return 160;
+            case "treasurechest": return 200;
+            case "elite":
+            case "elite1": return 120;
+            case "boss": return 80;
+            case "ferocitycommon":
+            case "ferocitycommon1": return 80;
+            case "randomevent": return 100;
+            // The current automation intentionally closes shops without buying. Avoid
+            // spending a route on one while any productive legal alternative exists.
+            case "shop": return -1000;
+            case "common":
+            case "common1": return 60;
+            default: return 0;
+        }
+    }
+
+    private static int RouteRewardDiversity(JObject node)
+    {
+        JObject? drops = node["dropCounts"] as JObject;
+        return new[] { "vehicle", "catapult", "superModule", "disposable", "money" }
+            .Count(name => RouteCount(drops?[name]) > 0);
+    }
+
+    private static int RouteCount(JToken? token, int maximum = 20)
+    {
+        int value = token?.Type == JTokenType.Integer ? token.Value<int>() : 0;
+        return Math.Min(Math.Max(value, 0), maximum);
     }
 }

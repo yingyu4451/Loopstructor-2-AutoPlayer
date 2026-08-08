@@ -135,7 +135,9 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 
 新局通过普通或随机模式提交后才进入默认防线准备。若 `NewGameScene` 仍处于路线图，路线和子关卡选择优先于防线宏。无回路、无车列或没有已放置玩家车辆等干净的暂态失败可以继续轮询，不计入连续命令失败；`continueGame` 会关闭本次默认防线准备，保留当前模式所用存档中的既有轨道、车列和站点布局。
 
-默认防线命令可能返回嵌套的子命令结果。结果检查器会递归查找任意深度的 `statePolluted = true` 或 `needsReset = true`，并识别“动力站点已经提交、后续步骤却失败”的错误包装；发现后立即升级为 Unsafe/Faulted，并要求新游戏进程，不能在同一进程重试宏来掩盖污染。
+默认防线命令可能返回嵌套的子命令结果。结果检查器会沿当前写命令的有效结果包查找 `statePolluted = true` 或 `needsReset = true`，但会跳过 `before`、`previous`、`old*`、`history` 等历史快照，避免把旧状态误判为当前污染。若动力站点步骤曾提交但后续失败，还会验证最终轨道、车列和已放置战车；能够证明现场已回到干净检查点时允许重试，只有当前结果明确要求 reset 或存在无法确认回滚的部分写入时才升级为 Unsafe/Faulted 并要求新游戏进程。只读查询失败不会触发污染判定。
+
+这里的“状态被污染”是写命令对游戏运行态一致性的报告，不是报告文件或存档损坏。普通战败、动画等待超时、只读失败或决策停滞只会停止本轮并保留同进程重试能力；它们不能自行设置进程重启门禁。
 
 路线阶段只从 `canPlayerSelect = true` 的节点中选择，空候选不能退化为 `readyIndex = 0`。`selectMapNode` 返回成功后还必须观察到已提交的 `chooseNode` 或 `pendingSubLevelNode`；没有状态变化的成功响应仍按失败处理，避免每个 Tick 重复选择同一节点。
 
@@ -180,7 +182,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.5.9-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.0-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

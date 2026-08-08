@@ -80,6 +80,43 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void AutoPlayerStatus_RoundTripsChapterAndRuntimeTimingTelemetry()
+    {
+        AutoPlayerStatus status = new()
+        {
+            CurrentMapStage = 2,
+            CurrentMapLayer = 41,
+            LastRuntimeCommand = "queryWave",
+            LastRuntimeCommandDurationMs = 4.25,
+            MaxRuntimeCommand = "queryDisposableGridOptions",
+            MaxRuntimeCommandDurationMs = 38.5,
+            SlowRuntimeCommandCount = 2,
+            CurrentFps = 58.75,
+            OnePercentLowFps = 31.5,
+            FrameTimeP99Ms = 31.75,
+            FrameSampleCount = 587,
+            FrameTelemetryWindowSeconds = 10.01
+        };
+
+        AutoPlayerStatus roundTrip = JsonConvert.DeserializeObject<AutoPlayerStatus>(
+            JsonConvert.SerializeObject(status))!;
+
+        Assert.Equal(3, roundTrip.CurrentChapter);
+        Assert.Equal(2, roundTrip.CurrentMapStage);
+        Assert.Equal(41, roundTrip.CurrentMapLayer);
+        Assert.Equal("queryWave", roundTrip.LastRuntimeCommand);
+        Assert.Equal(4.25, roundTrip.LastRuntimeCommandDurationMs);
+        Assert.Equal("queryDisposableGridOptions", roundTrip.MaxRuntimeCommand);
+        Assert.Equal(38.5, roundTrip.MaxRuntimeCommandDurationMs);
+        Assert.Equal(2, roundTrip.SlowRuntimeCommandCount);
+        Assert.Equal(58.75, roundTrip.CurrentFps);
+        Assert.Equal(31.5, roundTrip.OnePercentLowFps);
+        Assert.Equal(31.75, roundTrip.FrameTimeP99Ms);
+        Assert.Equal(587, roundTrip.FrameSampleCount);
+        Assert.Equal(10.01, roundTrip.FrameTelemetryWindowSeconds);
+    }
+
+    [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
         Assert.Equal(27, CheatCommands.All.Count);

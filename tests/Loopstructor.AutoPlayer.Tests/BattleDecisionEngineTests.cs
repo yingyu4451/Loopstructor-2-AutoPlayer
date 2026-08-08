@@ -284,6 +284,551 @@ public sealed class BattleDecisionEngineTests
     }
 
     [Fact]
+    public void DecideDefenseExpansion_CreatesShortestLegalLoopWhenExistingTrainIsFull()
+    {
+        BattleDecisionEngine engine = new();
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, "动力站 Z", true, 0, 0),
+                Catapult(101, "动力站 A", true, 10, 10),
+                Catapult(201, "近站 1", false, 11, 10),
+                Catapult(202, "近站 2", false, 10, 12),
+                Catapult(203, "远站", false, 0, 0)
+            }
+        });
+
+        AutomationAction? action = engine.DecideDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true)),
+            catapults);
+
+        Assert.NotNull(action);
+        Assert.Equal("drawRailPath", action.Command);
+        Assert.Equal(
+            new[] { 101, 201, 202 },
+            action.Arguments["linePointInstanceIds"]!.Values<int>().ToArray());
+        Assert.Equal(AutomationStage.PreparingDefense, action.Stage);
+        Assert.DoesNotContain("cheat", action.Command, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DecideDefenseExpansion_RejectsOccupiedOrIncompleteStationSets()
+    {
+        BattleDecisionEngine engine = new();
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, "动力站", true, 0, 0),
+                Catapult(201, "已占用站", false, 1, 0, railMembershipCount: 1),
+                Catapult(202, "可用站", false, 0, 1)
+            }
+        });
+
+        AutomationAction? action = engine.DecideDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true)),
+            catapults);
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public void DecideDefenseExpansion_DoesNotRepeatRejectedStationPath()
+    {
+        BattleDecisionEngine engine = new();
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, "动力站", true, 0, 0),
+                Catapult(201, "普通站 1", false, 1, 0),
+                Catapult(202, "普通站 2", false, 0, 1)
+            }
+        });
+
+        AutomationAction? action = engine.DecideDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true)),
+            catapults,
+            new HashSet<string>(StringComparer.Ordinal) { "100:201:202" });
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public void DecideDefenseExpansion_PrefersNonCollinearEqualDistancePathAfterRejection()
+    {
+        BattleDecisionEngine engine = new();
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, "动力站", true, 0, 0),
+                Catapult(201, "普通站 1", false, 1, 0),
+                Catapult(202, "普通站 2", false, 0, 1),
+                Catapult(203, "普通站 3", false, 3, 0)
+            }
+        });
+
+        AutomationAction? action = engine.DecideDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true)),
+            catapults,
+            new HashSet<string>(StringComparer.Ordinal) { "100:201:202" });
+
+        Assert.NotNull(action);
+        Assert.Equal(
+            new[] { 100, 202, 203 },
+            action.Arguments["linePointInstanceIds"]!.Values<int>().ToArray());
+    }
+
+    [Fact]
+    public void DecideExpansionVehiclePlacement_PlacesHighestLevelBagVehicleOnNewEmptyRail()
+    {
+        BattleDecisionEngine engine = new();
+        JObject drawResult = Result(new
+        {
+            rail = new
+            {
+                lines = new object[]
+                {
+                    new { lineInstanceId = 501, hasDriver = false, driverCount = 0 },
+                    new { lineInstanceId = 502, hasDriver = true, driverCount = 1 }
+                }
+            }
+        });
+
+        AutomationAction? action = engine.DecideExpansionVehiclePlacement(
+            VehicleResult(Vehicle(301, 2, true), Vehicle(302, 7, true)),
+            drawResult);
+
+        Assert.NotNull(action);
+        Assert.Equal("placeVehicleOnLine", action.Command);
+        Assert.Equal(302, action.Arguments["instanceId"]?.Value<int>());
+        Assert.Equal(501, action.Arguments["lineInstanceId"]?.Value<int>());
+        Assert.True(action.Arguments["forward"]?.Value<bool>());
+    }
+
+    [Fact]
+    public void NeedsDefenseExpansion_RequiresBagVehicleAndAllExistingTrainsFull()
+    {
+        BattleDecisionEngine engine = new();
+
+        Assert.True(engine.NeedsDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true))));
+        Assert.False(engine.NeedsDefenseExpansion(
+            TrainResult(3, 2, 111),
+            VehicleResult(Vehicle(2010, 8, true))));
+        Assert.False(engine.NeedsDefenseExpansion(
+            TrainResult(2, 2, 111),
+            VehicleResult(Vehicle(2010, 8, false))));
+        Assert.False(engine.NeedsDefenseExpansion(
+            Result(new { trains = Array.Empty<object>() }),
+            VehicleResult(Vehicle(2010, 8, true))));
+    }
+
+    [Fact]
+    public void IsLegalDefenseExpansionPreview_RequiresLegalSideEffectFreeUnchangedState()
+    {
+        BattleDecisionEngine engine = new();
+
+        Assert.True(engine.IsLegalDefenseExpansionPreview(Result(new
+        {
+            wouldBeLegal = true,
+            sideEffectCheckPassed = true,
+            statePolluted = false,
+            beforeRailCount = 2,
+            afterRailCount = 2
+        })));
+        Assert.False(engine.IsLegalDefenseExpansionPreview(Result(new
+        {
+            wouldBeLegal = true,
+            sideEffectCheckPassed = true,
+            statePolluted = false,
+            beforeRailCount = 2,
+            afterRailCount = 3
+        })));
+    }
+
+    [Fact]
+    public void VerifyDefenseExpansionRail_AcceptsExactlyOneMatchingLegalRail()
+    {
+        BattleDecisionEngine engine = new();
+        JObject baseline = RailSnapshot(ExpansionRail(100, 11, 12, 13));
+        JObject current = RailSnapshot(
+            ExpansionRail(100, 11, 12, 13),
+            ExpansionRail(200, 21, 22, 23));
+        JObject drawResult = Result(new { rail = ExpansionRail(200, 21, 22, 23) });
+        AutomationAction drawAction = DrawExpansionAction(21, 22, 23);
+
+        DefenseExpansionRailVerification verification = engine.VerifyDefenseExpansionRail(
+            baseline,
+            drawResult,
+            current,
+            drawAction,
+            expectedRailInstanceId: 200);
+
+        Assert.True(verification.Verified);
+        Assert.False(verification.Pending);
+        Assert.Equal(200, verification.RailInstanceId);
+        Assert.Equal(200, verification.Rail?["instanceId"]?.Value<int>());
+    }
+
+    [Fact]
+    public void VerifyDefenseExpansionRail_ReturnsPendingOnlyWhileSnapshotIsUnchanged()
+    {
+        BattleDecisionEngine engine = new();
+        JObject baseline = RailSnapshot(ExpansionRail(100, 11, 12, 13));
+
+        DefenseExpansionRailVerification verification = engine.VerifyDefenseExpansionRail(
+            baseline,
+            Result(new { rail = ExpansionRail(200, 21, 22, 23) }),
+            RailSnapshot(ExpansionRail(100, 11, 12, 13)),
+            DrawExpansionAction(21, 22, 23),
+            expectedRailInstanceId: 200);
+
+        Assert.False(verification.Verified);
+        Assert.True(verification.Pending);
+    }
+
+    [Fact]
+    public void VerifyDefenseExpansionRail_RejectsMultipleNewRailsWithoutPendingRetry()
+    {
+        BattleDecisionEngine engine = new();
+        JObject baseline = RailSnapshot(ExpansionRail(100, 11, 12, 13));
+        JObject current = RailSnapshot(
+            ExpansionRail(100, 11, 12, 13),
+            ExpansionRail(200, 21, 22, 23),
+            ExpansionRail(201, 31, 32, 33));
+
+        DefenseExpansionRailVerification verification = engine.VerifyDefenseExpansionRail(
+            baseline,
+            Result(new { rail = ExpansionRail(200, 21, 22, 23) }),
+            current,
+            DrawExpansionAction(21, 22, 23),
+            expectedRailInstanceId: 200);
+
+        Assert.False(verification.Verified);
+        Assert.False(verification.Pending);
+        Assert.Contains("新增身份数 2", verification.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VerifyDefenseExpansionRail_RejectsWrongDrawIdentityOrPointSet()
+    {
+        BattleDecisionEngine engine = new();
+        JObject baseline = RailSnapshot(ExpansionRail(100, 11, 12, 13));
+        JObject current = RailSnapshot(
+            ExpansionRail(100, 11, 12, 13),
+            ExpansionRail(200, 21, 22, 99));
+
+        DefenseExpansionRailVerification verification = engine.VerifyDefenseExpansionRail(
+            baseline,
+            Result(new { rail = ExpansionRail(201, 21, 22, 23) }),
+            current,
+            DrawExpansionAction(21, 22, 23),
+            expectedRailInstanceId: 201);
+
+        Assert.False(verification.Verified);
+        Assert.False(verification.Pending);
+        Assert.Contains("不一致", verification.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsUsableDefenseExpansionRailBaseline_RequiresCountAndUniqueInstanceIds()
+    {
+        BattleDecisionEngine engine = new();
+
+        Assert.True(engine.IsUsableDefenseExpansionRailBaseline(
+            RailSnapshot(ExpansionRail(100, 11, 12, 13))));
+        Assert.False(engine.IsUsableDefenseExpansionRailBaseline(Result(new
+        {
+            railCount = 2,
+            rails = new[] { ExpansionRail(100, 11, 12, 13) }
+        })));
+        Assert.False(engine.IsUsableDefenseExpansionRailBaseline(Result(new
+        {
+            railCount = 2,
+            rails = new[]
+            {
+                ExpansionRail(100, 11, 12, 13),
+                ExpansionRail(100, 21, 22, 23)
+            }
+        })));
+    }
+
+    [Fact]
+    public void NeedsExpansionAttributePlacement_RequiresTwoUnusedCommonStationsAndNoAttributeStation()
+    {
+        BattleDecisionEngine engine = new();
+
+        Assert.True(engine.NeedsExpansionAttributePlacement(Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(201, "普通站 1", false, 1, 0),
+                Catapult(202, "普通站 2", false, 0, 1)
+            }
+        })));
+        Assert.False(engine.NeedsExpansionAttributePlacement(Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, "动力站", true, 0, 0),
+                Catapult(201, "普通站 1", false, 1, 0),
+                Catapult(202, "普通站 2", false, 0, 1)
+            }
+        })));
+        Assert.False(engine.NeedsExpansionAttributePlacement(Result(new
+        {
+            catapults = new[] { Catapult(201, "普通站 1", false, 1, 0) }
+        })));
+    }
+
+    [Fact]
+    public void DecideExpansionAttributeDisposableUse_SelectsAvailableGridItemByStableIdentity()
+    {
+        BattleDecisionEngine engine = new();
+        JObject disposable = Result(new
+        {
+            isInPreview = false,
+            items = new object[]
+            {
+                new
+                {
+                    index = 0,
+                    itemInstanceId = 710,
+                    disposableEnum = "Other",
+                    count = 3,
+                    active = true,
+                    buttonActive = true,
+                    interactionType = "GridChooseInteraction"
+                },
+                new
+                {
+                    index = 1,
+                    itemInstanceId = 711,
+                    disposableEnum = "FreePoint_Attribute",
+                    count = 1,
+                    active = true,
+                    buttonActive = true,
+                    interactionType = "GridChooseInteraction"
+                }
+            }
+        });
+
+        AutomationAction? action = engine.DecideExpansionAttributeDisposableUse(disposable);
+
+        Assert.NotNull(action);
+        Assert.Equal("useDisposable", action.Command);
+        Assert.Equal(711, action.Arguments["itemInstanceId"]?.Value<int>());
+        Assert.Equal("FreePoint_Attribute", action.Arguments["disposableEnum"]?.Value<string>());
+        Assert.Equal(AutomationStage.PreparingDefense, action.Stage);
+    }
+
+    [Fact]
+    public void SelectExpansionAttributeGrid_PrefersGridNearestTwoUnusedCommonStationsDeterministically()
+    {
+        BattleDecisionEngine engine = new();
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(201, "普通站 1", false, 0, 0),
+                Catapult(202, "普通站 2", false, 10, 0),
+                Catapult(203, "已占用站", false, 5, 20, railMembershipCount: 1)
+            }
+        });
+        JObject options = Result(new
+        {
+            disposableEnum = "FreePoint_Attribute",
+            validGrids = new object[]
+            {
+                new { grid = new { x = 0, y = 10 } },
+                new { grid = new { x = 5, y = 0 } },
+                new { grid = new { x = 5, y = 1 } }
+            }
+        });
+
+        JObject? grid = engine.SelectExpansionAttributeGrid(options, catapults);
+
+        Assert.NotNull(grid);
+        Assert.Equal(5, grid["x"]?.Value<int>());
+        Assert.Equal(1, grid["y"]?.Value<int>());
+    }
+
+    [Fact]
+    public void DecideExpansionAttributeConfirmation_RequiresSameEnumAndInteractionIdentity()
+    {
+        BattleDecisionEngine engine = new();
+        AutomationAction use = new(
+            "useDisposable",
+            JObject.FromObject(new { itemInstanceId = 711, disposableEnum = "FreePoint_Attribute" }),
+            AutomationStage.PreparingDefense,
+            "test");
+        JObject preview = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "FreePoint_Attribute",
+            interactionType = "GridChooseInteraction",
+            interactionInstanceId = 901
+        });
+
+        AutomationAction? action = engine.DecideExpansionAttributeConfirmation(
+            use,
+            JObject.FromObject(new { x = 5, y = 0 }),
+            preview,
+            901);
+        AutomationAction? wrongIdentity = engine.DecideExpansionAttributeConfirmation(
+            use,
+            JObject.FromObject(new { x = 5, y = 0 }),
+            preview,
+            902);
+
+        Assert.NotNull(action);
+        Assert.Equal("confirmDisposableGrid", action.Command);
+        Assert.Equal(901, action.Arguments["interactionInstanceId"]?.Value<int>());
+        Assert.Equal(5, action.Arguments.SelectToken("grid.x")?.Value<int>());
+        Assert.Null(wrongIdentity);
+        Assert.True(engine.IsOwnedExpansionAttributePreview(preview, 901, requireGridInteraction: true));
+        Assert.False(engine.IsOwnedExpansionAttributePreview(preview, 902, requireGridInteraction: false));
+    }
+
+    [Fact]
+    public void DecideExpansionAttributeDirectConfirmation_PreservesStableItemIdentityWithoutTransientPreviewId()
+    {
+        BattleDecisionEngine engine = new();
+        AutomationAction itemIdentity = new(
+            "useDisposable",
+            JObject.FromObject(new
+            {
+                itemInstanceId = 711,
+                disposableEnum = "FreePoint_Attribute",
+                interactionInstanceId = 901
+            }),
+            AutomationStage.PreparingDefense,
+            "test");
+
+        AutomationAction? action = engine.DecideExpansionAttributeDirectConfirmation(
+            itemIdentity,
+            JObject.FromObject(new { x = 5, y = -2 }));
+
+        Assert.NotNull(action);
+        Assert.Equal("confirmDisposableGrid", action.Command);
+        Assert.Equal(711, action.Arguments["itemInstanceId"]?.Value<int>());
+        Assert.Equal("FreePoint_Attribute", action.Arguments["disposableEnum"]?.Value<string>());
+        Assert.Equal(5, action.Arguments.SelectToken("grid.x")?.Value<int>());
+        Assert.Equal(-2, action.Arguments.SelectToken("grid.y")?.Value<int>());
+        Assert.Null(action.Arguments["interactionInstanceId"]);
+    }
+
+    [Fact]
+    public void DecideExpansionAttributeDirectConfirmation_RejectsMissingItemIdentityOrInvalidGrid()
+    {
+        BattleDecisionEngine engine = new();
+        AutomationAction missingIdentity = new(
+            "useDisposable",
+            JObject.FromObject(new { disposableEnum = "FreePoint_Attribute" }),
+            AutomationStage.PreparingDefense,
+            "test");
+        AutomationAction wrongEnum = new(
+            "useDisposable",
+            JObject.FromObject(new { itemInstanceId = 711, disposableEnum = "Bomb" }),
+            AutomationStage.PreparingDefense,
+            "test");
+
+        Assert.Null(engine.DecideExpansionAttributeDirectConfirmation(
+            missingIdentity,
+            JObject.FromObject(new { x = 5, y = -2 })));
+        Assert.Null(engine.DecideExpansionAttributeDirectConfirmation(
+            wrongEnum,
+            JObject.FromObject(new { x = 5, y = -2 })));
+        Assert.Null(engine.DecideExpansionAttributeDirectConfirmation(
+            new AutomationAction(
+                "useDisposable",
+                JObject.FromObject(new { itemInstanceId = 711, disposableEnum = "FreePoint_Attribute" }),
+                AutomationStage.PreparingDefense,
+                "test"),
+            JObject.FromObject(new { x = 5.5, y = -2 })));
+    }
+
+    [Fact]
+    public void CleanDisposableInteractionIdle_RequiresCompleteFailClosedGuardProof()
+    {
+        BattleDecisionEngine engine = new();
+        JObject cleanIdle = Result(new
+        {
+            contractAvailable = true,
+            observationConsistent = true,
+            noActiveInteraction = true,
+            isInPreview = false,
+            hasLastInteraction = false,
+            interactionInstanceId = 0
+        });
+        JObject inconsistent = Result(new
+        {
+            contractAvailable = true,
+            observationConsistent = false,
+            noActiveInteraction = true,
+            isInPreview = false,
+            hasLastInteraction = false,
+            interactionInstanceId = 0
+        });
+        JObject foreignPreview = Result(new
+        {
+            contractAvailable = true,
+            observationConsistent = true,
+            noActiveInteraction = false,
+            isInPreview = true,
+            hasLastInteraction = true,
+            interactionInstanceId = 902
+        });
+
+        Assert.True(engine.IsCleanDisposableInteractionIdle(cleanIdle));
+        Assert.False(engine.IsCleanDisposableInteractionIdle(inconsistent));
+        Assert.False(engine.IsCleanDisposableInteractionIdle(foreignPreview));
+    }
+
+    [Fact]
+    public void DecideExpansionAttributeCancellation_RequiresExactEnumAndInteractionIdentity()
+    {
+        BattleDecisionEngine engine = new();
+        JObject ownedPreview = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "FreePoint_Attribute",
+            interactionType = "GridChooseInteraction",
+            interactionInstanceId = 901
+        });
+        JObject differentPreview = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "Bomb",
+            interactionType = "GridChooseInteraction",
+            interactionInstanceId = 901
+        });
+
+        AutomationAction? action = engine.DecideExpansionAttributeCancellation(ownedPreview, 901);
+
+        Assert.NotNull(action);
+        Assert.Equal("cancelDisposable", action.Command);
+        Assert.Equal("FreePoint_Attribute", action.Arguments["disposableEnum"]?.Value<string>());
+        Assert.Equal(901, action.Arguments["interactionInstanceId"]?.Value<int>());
+        Assert.Null(engine.DecideExpansionAttributeCancellation(ownedPreview, 902));
+        Assert.Null(engine.DecideExpansionAttributeCancellation(differentPreview, 901));
+        Assert.Null(engine.DecideExpansionAttributeCancellation(Result(new
+        {
+            isInPreview = false,
+            disposableEnum = "FreePoint_Attribute",
+            interactionInstanceId = 901
+        }), 901));
+    }
+
+    [Fact]
     public void Decide_ReinsertsVirtualizedVehicleThatIsBackInTheBag()
     {
         JObject vehicles = VehicleResult(Vehicle(205, 6, true, "Returned", isVirtual: true));
@@ -336,7 +881,7 @@ public sealed class BattleDecisionEngineTests
         Assert.Equal("moveTrainToLine", action.Command);
         Assert.Equal(4, action.Arguments["trainIndex"]?.Value<int>());
         Assert.Equal(702, action.Arguments["lineInstanceId"]?.Value<int>());
-        Assert.True(action.Arguments["forward"]?.Value<bool>());
+        Assert.False(action.Arguments["forward"]?.Value<bool>());
         Assert.DoesNotContain("cheat", action.Command, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -497,6 +1042,104 @@ public sealed class BattleDecisionEngineTests
         Assert.Contains("无需重复调度", action.Reason, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void DecideTrainMovement_MovesSecondTrainWhenStrongestTrainIsAlreadyBestPositioned()
+    {
+        JObject rails = Result(new
+        {
+            rails = new object[]
+            {
+                Rail(1, true, Line(950, 5, -1, 5, 1, hasDriver: true)),
+                Rail(2, true,
+                    Line(951, -5, -1, -5, 1, hasDriver: true),
+                    Line(952, 4, -1, 4, 1))
+            }
+        });
+        JObject trains = Result(new
+        {
+            trains = new object[]
+            {
+                new { index = 0, railId = 1, line = "Line-950", realVehicleCount = 4, forward = true },
+                new { index = 1, railId = 2, line = "Line-951", realVehicleCount = 2, forward = false }
+            }
+        });
+
+        AutomationAction action = new BattleDecisionEngine().DecideTrainMovement(ThreatResult(10, 0), rails, trains);
+
+        Assert.Equal("moveTrainToLine", action.Command);
+        Assert.Equal(1, action.Arguments["trainIndex"]?.Value<int>());
+        Assert.Equal(952, action.Arguments["lineInstanceId"]?.Value<int>());
+        Assert.True(action.Arguments["forward"]?.Value<bool>());
+    }
+
+    [Fact]
+    public void DecideTrainMovement_DoesNotUseFreeLineOnRailOccupiedByAnotherTrain()
+    {
+        JObject rails = Result(new
+        {
+            rails = new object[]
+            {
+                Rail(1, true,
+                    Line(960, -5, -1, -5, 1, hasDriver: true),
+                    Line(961, 2, -1, 2, 1)),
+                Rail(2, true,
+                    Line(962, 5, -1, 5, 1, hasDriver: true),
+                    Line(963, 4, -1, 4, 1))
+            }
+        });
+        JObject trains = Result(new
+        {
+            trains = new object[]
+            {
+                new { index = 0, railId = 1, line = "Line-960", realVehicleCount = 3, forward = true },
+                new { index = 1, railId = 2, line = "Line-962", realVehicleCount = 1, forward = true }
+            }
+        });
+
+        AutomationAction action = new BattleDecisionEngine().DecideTrainMovement(ThreatResult(10, 0), rails, trains);
+
+        Assert.Equal("moveTrainToLine", action.Command);
+        Assert.Equal(0, action.Arguments["trainIndex"]?.Value<int>());
+        Assert.Equal(961, action.Arguments["lineInstanceId"]?.Value<int>());
+        Assert.NotEqual(963, action.Arguments["lineInstanceId"]?.Value<int>());
+    }
+
+    [Fact]
+    public void DecideTrainMovement_BreaksEqualImprovementByVehicleCountTrainIndexAndLineId()
+    {
+        JObject rails = Result(new
+        {
+            rails = new object[]
+            {
+                Rail(1, true,
+                    Line(970, -5, -1, -5, 1, hasDriver: true),
+                    Line(971, 3, -1, 3, 1)),
+                Rail(2, true,
+                    Line(980, -5, -1, -5, 1, hasDriver: true),
+                    Line(982, 3, -1, 3, 1),
+                    Line(981, 3, -1, 3, 1)),
+                Rail(3, true,
+                    Line(990, -5, -1, -5, 1, hasDriver: true),
+                    Line(991, 3, -1, 3, 1))
+            }
+        });
+        JObject trains = Result(new
+        {
+            trains = new object[]
+            {
+                new { index = 0, railId = 1, line = "Line-970", realVehicleCount = 2, forward = true },
+                new { index = 2, railId = 2, line = "Line-980", realVehicleCount = 3, forward = true },
+                new { index = 4, railId = 3, line = "Line-990", realVehicleCount = 3, forward = true }
+            }
+        });
+
+        AutomationAction action = new BattleDecisionEngine().DecideTrainMovement(ThreatResult(10, 0), rails, trains);
+
+        Assert.Equal("moveTrainToLine", action.Command);
+        Assert.Equal(2, action.Arguments["trainIndex"]?.Value<int>());
+        Assert.Equal(981, action.Arguments["lineInstanceId"]?.Value<int>());
+    }
+
     private static AutomationAction? Decide(
         BattleDecisionContext context,
         JObject wave,
@@ -566,6 +1209,58 @@ public sealed class BattleDecisionEngineTests
             }
         }
     });
+
+    private static JObject RailSnapshot(params object[] rails) => Result(new
+    {
+        railCount = rails.Length,
+        rails
+    });
+
+    private static object ExpansionRail(int instanceId, params int[] pointInstanceIds) => new
+    {
+        instanceId,
+        id = instanceId + 1000,
+        railInternalId = instanceId + 1000,
+        isLegalPlayerLoop = true,
+        isLoop = true,
+        isOnField = true,
+        points = pointInstanceIds.Select((pointId, index) => new
+        {
+            index,
+            instanceId = pointId
+        }).ToArray(),
+        lines = new[]
+        {
+            new { lineInstanceId = instanceId + 5000, hasDriver = false, driverCount = 0 }
+        }
+    };
+
+    private static AutomationAction DrawExpansionAction(params int[] pointInstanceIds) => new(
+        "drawRailPath",
+        new JObject { ["linePointInstanceIds"] = new JArray(pointInstanceIds) },
+        AutomationStage.PreparingDefense,
+        "test");
+
+    private static object Catapult(
+        int linePointInstanceId,
+        string name,
+        bool isAttribute,
+        int x,
+        int y,
+        int railMembershipCount = 0) => new
+    {
+        instanceId = linePointInstanceId + 10000,
+        linePointInstanceId,
+        name,
+        isAttribute,
+        active = true,
+        canUseForNewRail = railMembershipCount == 0,
+        canPickLine = true,
+        frozen = false,
+        railReachMax = false,
+        railMembershipCount,
+        grid = new { x, y }
+    };
 
     private static JObject ThreatResult(double x, double y) => Result(new
     {

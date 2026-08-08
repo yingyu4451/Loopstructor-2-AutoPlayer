@@ -21,6 +21,15 @@ public sealed class BattleDecisionContext
     public JObject? DisposableGridOptionsResult { get; set; }
 }
 
+public sealed class DefenseExpansionRailVerification
+{
+    public bool Verified { get; set; }
+    public bool Pending { get; set; }
+    public string Detail { get; set; } = string.Empty;
+    public int RailInstanceId { get; set; }
+    public JObject? Rail { get; set; }
+}
+
 /// <summary>
 /// Chooses one ordinary player action from already queried runtime state.
 /// This policy is deliberately stateless; the caller owns polling and the disposable phase transition.
@@ -29,6 +38,13 @@ public sealed class BattleDecisionEngine
 {
     // The supported game build uses two world units per logical rail grid cell.
     private const double WorldToGridScale = 0.5d;
+    private const double MinimumTrainMovementImprovement = 0.01d;
+    private const double MinimumTrainMovementRelativeImprovement = 0.01d;
+    private const double LiveThreatUrgencyReserve = 0.6d;
+    private const double LiveThreatUrgencyDistanceOffset = 0.5d;
+    private const double LiveThreatUrgencyExponent = 4d;
+    private const double LiveThreatUrgencyActivationRadius = 3d;
+    private const string ExpansionAttributeDisposableEnum = "FreePoint_Attribute";
 
     public AutomationAction? Decide(
         BattleDecisionContext context,
@@ -92,37 +108,37 @@ public sealed class BattleDecisionEngine
     public AutomationAction DecideTrainMovement(
         JObject? waveThreatsResult,
         JObject? railResult,
-        JObject? trainResult)
+        JObject? trainResult,
+        ISet<int>? excludedTrainIndexes = null)
     {
         JObject threats = State(waveThreatsResult);
         JObject rails = State(railResult);
         JObject trains = State(trainResult);
 
-        JObject? nest = (threats["nests"] as JArray)?
-            .OfType<JObject>()
-            .Where(item => item["active"]?.Value<bool>() != false && TryReadThreatVector(threats, item, out _, out _))
-            .OrderByDescending(ThreatScore)
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        if (nest == null)
+        List<ThreatCandidate> activeThreats = BuildThreatCandidates(threats);
+        if (activeThreats.Count == 0)
         {
-            return AutomationAction.Wait(AutomationStage.Battle, "当前没有可用于列车机动的活动巢穴。");
+            return AutomationAction.Wait(AutomationStage.Battle, "当前没有可用于列车机动的活动威胁。");
         }
 
-        if (!TryReadThreatVector(threats, nest, out double threatX, out double threatY))
-        {
-            return AutomationAction.Wait(AutomationStage.Battle, "巢穴缺少相对主基地的有效方向，暂不移动列车。");
-        }
-
-        JObject? train = (trains["trains"] as JArray)?
-            .OfType<JObject>()
+        List<JObject> allMovableTrains = ((trains["trains"] as JArray)?.OfType<JObject>()
+                ?? Enumerable.Empty<JObject>())
             .Where(IsMovableTrain)
-            .OrderByDescending(TrainVehicleCount)
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        if (train == null)
+            .GroupBy(item => ReadInt(item["index"], -1))
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .ToList();
+        if (allMovableTrains.Count == 0)
         {
             return AutomationAction.Wait(AutomationStage.Battle, "当前没有可移动的既有车列。");
+        }
+
+        List<JObject> candidateTrains = allMovableTrains
+            .Where(train => excludedTrainIndexes?.Contains(TrainStableIdentity(train)) != true)
+            .ToList();
+        if (candidateTrains.Count == 0)
+        {
+            return AutomationAction.Wait(AutomationStage.Battle, "本波所有可移动车列都已经完成一次调度，不再重复移动。");
         }
 
         JArray? railItems = rails["rails"] as JArray;
@@ -131,46 +147,669 @@ public sealed class BattleDecisionEngine
             return AutomationAction.Wait(AutomationStage.Battle, "当前没有可用于列车机动的轨道。");
         }
 
-        if (threatX * threatX + threatY * threatY <= 0.000001d)
+        HashSet<int> uniqueLineInstanceIds = new HashSet<int>(railItems
+            .OfType<JObject>()
+            .SelectMany(rail => (rail["lines"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            .Select(line => ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0)))
+            .Where(instanceId => instanceId != 0)
+            .GroupBy(instanceId => instanceId)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Key));
+
+        List<TrainCoveragePosition> currentPositions = new();
+        Dictionary<int, List<LineCandidate>> candidatesByTrain = new();
+        foreach (JObject train in allMovableTrains)
         {
-            return AutomationAction.Wait(AutomationStage.Battle, "主威胁巢穴与基地位置重合，无法判断防守方向。");
+            int trainIndex = ReadInt(train["index"], -1);
+            int? sourceRailId = ReadNullableInt(train["railId"]);
+            string currentLineName = train["line"]?.Value<string>() ?? string.Empty;
+            List<LineCandidate> lineCandidates = EnumerateLineCandidates(
+                    railItems,
+                    sourceRailId,
+                    currentLineName)
+                .Where(candidate => uniqueLineInstanceIds.Contains(candidate.LineInstanceId))
+                .ToList();
+            candidatesByTrain[trainIndex] = lineCandidates;
+            LineCandidate? currentLine = lineCandidates.Count(candidate => candidate.IsCurrentLine) == 1
+                ? lineCandidates.Single(candidate => candidate.IsCurrentLine)
+                : null;
+            currentPositions.Add(new TrainCoveragePosition(
+                trainIndex,
+                TrainPowerScore(train),
+                currentLine));
         }
 
-        double targetGridX = threatX * WorldToGridScale;
-        double targetGridY = threatY * WorldToGridScale;
-        int? sourceRailId = ReadNullableInt(train["railId"]);
-        string currentLineName = train["line"]?.Value<string>() ?? string.Empty;
-        LineCandidate? target = EnumerateLineCandidates(
-                railItems,
-                sourceRailId,
-                currentLineName,
-                targetGridX,
-                targetGridY)
-            .OrderBy(candidate => candidate.DistanceToThreatSquared)
-            .ThenByDescending(candidate => candidate.IsCurrentLine)
-            .ThenBy(candidate => candidate.LineInstanceId)
+        double baselineUtility = CoverageUtility(activeThreats, currentPositions, null);
+        List<TrainMovementCandidate> improvements = new();
+        List<TrainMovementCandidate> recoveryCandidates = new();
+
+        foreach (JObject train in candidateTrains)
+        {
+            int trainIndex = ReadInt(train["index"], -1);
+            int trainIdentity = TrainStableIdentity(train);
+            int vehicleCount = TrainVehicleCount(train);
+            double trainPower = TrainPowerScore(train);
+            List<LineCandidate> lineCandidates = candidatesByTrain.TryGetValue(trainIndex, out List<LineCandidate>? value)
+                ? value
+                : new List<LineCandidate>();
+            List<LineCandidate> currentLines = lineCandidates
+                .Where(candidate => candidate.IsCurrentLine)
+                .ToList();
+            LineCandidate? currentLine = currentLines.Count == 1 ? currentLines[0] : null;
+
+            foreach (LineCandidate target in lineCandidates.Where(candidate => !candidate.IsCurrentLine))
+            {
+                TrainCoveragePosition replacement = new(trainIndex, trainPower, target);
+                double afterUtility = CoverageUtility(activeThreats, currentPositions, replacement);
+                ThreatCandidate servedThreat = SelectServedThreat(
+                    activeThreats,
+                    currentPositions,
+                    replacement);
+                if (currentLine == null)
+                {
+                    recoveryCandidates.Add(new TrainMovementCandidate(
+                        trainIndex,
+                        trainIdentity,
+                        vehicleCount,
+                        trainPower,
+                        target,
+                        afterUtility,
+                        servedThreat));
+                    continue;
+                }
+
+                double improvement = afterUtility - baselineUtility;
+                double relativeImprovement = improvement / Math.Max(Math.Abs(baselineUtility), 1d);
+                if (improvement > MinimumTrainMovementImprovement &&
+                    relativeImprovement >= MinimumTrainMovementRelativeImprovement)
+                {
+                    improvements.Add(new TrainMovementCandidate(
+                        trainIndex,
+                        trainIdentity,
+                        vehicleCount,
+                        trainPower,
+                        target,
+                        improvement,
+                        servedThreat));
+                }
+            }
+        }
+
+        TrainMovementCandidate? selected = improvements
+            .OrderByDescending(candidate => candidate.Improvement)
+            .ThenByDescending(candidate => candidate.TrainPower)
+            .ThenByDescending(candidate => candidate.VehicleCount)
+            .ThenBy(candidate => candidate.TrainIndex)
+            .ThenBy(candidate => candidate.Target.LineInstanceId)
             .FirstOrDefault();
-        if (target == null)
+        bool recoveringMissingPosition = false;
+        if (selected == null)
         {
-            return AutomationAction.Wait(AutomationStage.Battle, "主威胁方向上没有空闲且合法的轨道线段。");
+            selected = recoveryCandidates
+                .OrderByDescending(candidate => candidate.Improvement)
+                .ThenByDescending(candidate => candidate.TrainPower)
+                .ThenByDescending(candidate => candidate.VehicleCount)
+                .ThenBy(candidate => candidate.TrainIndex)
+                .ThenBy(candidate => candidate.Target.LineInstanceId)
+                .FirstOrDefault();
+            recoveringMissingPosition = selected != null;
         }
 
-        if (target.IsCurrentLine)
+        if (selected == null)
         {
-            return AutomationAction.Wait(AutomationStage.Battle, "当前车列已经位于最接近主威胁的合法线段，无需重复调度。");
+            return AutomationAction.Wait(
+                AutomationStage.Battle,
+                "所有可定位车列都没有距离上的正改善，或主威胁方向上没有空闲合法目标，无需重复调度。");
         }
 
-        int trainIndex = ReadInt(train["index"], -1);
         return new AutomationAction(
-            "moveTrainToLine",
+                "moveTrainToLine",
             JObject.FromObject(new
             {
-                trainIndex,
-                lineInstanceId = target.LineInstanceId,
-                forward = target.ForwardTowardThreat
+                trainIndex = selected.TrainIndex,
+                trainIdentity = selected.TrainIdentity,
+                lineInstanceId = selected.Target.LineInstanceId,
+                forward = selected.Target.ForwardToward(selected.ServedThreat.X, selected.ServedThreat.Y)
             }),
             AutomationStage.Battle,
-            $"把车列 {trainIndex} 调往最接近主威胁巢穴的合法线段，并朝巢穴方向行驶。");
+            recoveringMissingPosition
+                ? $"车列 {selected.TrainIndex} 缺少可验证的当前线段；将其调往覆盖当前威胁收益最高的空闲合法线段（{BuildThreatSourceDetail(threats)}）。"
+                : $"把车列 {selected.TrainIndex} 调往对当前威胁边际覆盖收益最高的空闲合法线段（{BuildThreatSourceDetail(threats)}）。"
+        );
+    }
+
+    public bool NeedsDefenseExpansion(JObject? trainResult, JObject? vehicleResult)
+    {
+        JObject trainsState = State(trainResult);
+        JObject vehiclesState = State(vehicleResult);
+        JArray? trains = trainsState["trains"] as JArray;
+        bool hasExistingTrain = trains?.OfType<JObject>().Any() == true;
+        bool hasFreeCapacity = trains?.OfType<JObject>().Any(HasTrainCapacity) == true;
+        bool hasBagVehicle = (vehiclesState["vehicles"] as JArray)?
+            .OfType<JObject>()
+            .Any(IsBagVehicle) == true;
+        return hasExistingTrain && hasBagVehicle && !hasFreeCapacity;
+    }
+
+    public AutomationAction? DecideDefenseExpansion(
+        JObject? trainResult,
+        JObject? vehicleResult,
+        JObject? catapultResult,
+        ISet<string>? rejectedPathKeys = null)
+    {
+        if (!NeedsDefenseExpansion(trainResult, vehicleResult))
+        {
+            return null;
+        }
+
+        JObject catapultsState = State(catapultResult);
+        List<JObject> allPoints = (catapultsState["catapults"] as JArray)?
+            .OfType<JObject>()
+            .ToList() ?? new List<JObject>();
+        List<JObject> candidates = allPoints
+            .Where(IsAvailableExpansionPoint)
+            .ToList();
+        List<JObject> occupiedPoints = allPoints
+            .Where(item => ReadInt(item["railMembershipCount"], 0) > 0)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToList();
+        List<JObject> attributes = candidates
+            .Where(item => item["isAttribute"]?.Value<bool>() == true)
+            .OrderBy(item => item["name"]?.Value<string>() ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(item => ReadInt(item["linePointInstanceId"], int.MaxValue))
+            .ToList();
+        List<JObject> commonPoints = candidates
+            .Where(item => item["isAttribute"]?.Value<bool>() != true)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .OrderBy(item => item["name"]?.Value<string>() ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(item => ReadInt(item["linePointInstanceId"], int.MaxValue))
+            .ToList();
+        if (attributes.Count == 0 || commonPoints.Count < 2)
+        {
+            return null;
+        }
+
+        List<ExpansionPathCandidate> paths = new();
+        foreach (JObject attribute in attributes)
+        {
+            if (!TryReadPoint(attribute["grid"], out double attributeX, out double attributeY))
+            {
+                continue;
+            }
+
+            int attributeId = ReadInt(attribute["linePointInstanceId"], 0);
+            if (attributeId == 0)
+            {
+                continue;
+            }
+
+            for (int first = 0; first < commonPoints.Count - 1; first++)
+            {
+                int firstId = ReadInt(commonPoints[first]["linePointInstanceId"], 0);
+                if (firstId == 0) continue;
+
+                for (int second = first + 1; second < commonPoints.Count; second++)
+                {
+                    int secondId = ReadInt(commonPoints[second]["linePointInstanceId"], 0);
+                    if (secondId == 0) continue;
+
+                    JArray ids = new(attributeId, firstId, secondId);
+                    string key = BuildDefenseExpansionPathKey(ids);
+                    if (rejectedPathKeys?.Contains(key) == true) continue;
+
+                    ExpansionLayoutScore score = ScoreExpansionLayout(
+                        attributeX,
+                        attributeY,
+                        commonPoints[first],
+                        commonPoints[second],
+                        occupiedPoints);
+                    if (score.Area <= 0.000001d)
+                    {
+                        continue;
+                    }
+                    paths.Add(new ExpansionPathCandidate(score, key, ids));
+                }
+            }
+        }
+
+        JArray? linePointInstanceIds = paths
+            .OrderBy(path => path.Score.Distance)
+            .ThenBy(path => path.Score.HasCoverageContext ? path.Score.SideRank : 0)
+            .ThenBy(path => path.Score.HasCoverageContext ? path.Score.DirectionCosine : 0d)
+            .ThenByDescending(path => path.Score.Area)
+            .ThenBy(path => path.Key, StringComparer.Ordinal)
+            .Select(path => path.Ids)
+            .FirstOrDefault();
+        if (linePointInstanceIds == null)
+        {
+            return null;
+        }
+
+        return new AutomationAction(
+            "drawRailPath",
+            new JObject { ["linePointInstanceIds"] = linePointInstanceIds },
+            AutomationStage.PreparingDefense,
+            occupiedPoints.Count > 0
+                ? "现有车列已满且背包仍有战车；按玩家拖线规则创建一条优先补足现有防线相反方向的额外合法闭环。"
+                : "现有车列已满且背包仍有战车；按玩家拖线规则创建一条最短的额外合法闭环。");
+    }
+
+    public static string BuildDefenseExpansionPathKey(JToken? linePointInstanceIds) =>
+        linePointInstanceIds is JArray ids
+            ? string.Join(":", ids.Values<int>())
+            : string.Empty;
+
+    public AutomationAction? DecideExpansionVehiclePlacement(JObject? vehicleResult, JObject? drawResult)
+    {
+        JObject vehiclesState = State(vehicleResult);
+        JObject drawState = State(drawResult);
+        JObject? vehicle = (vehiclesState["vehicles"] as JArray)?
+            .OfType<JObject>()
+            .Where(IsBagVehicle)
+            .OrderByDescending(item => ReadInt(item["level"], 0))
+            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
+            .FirstOrDefault();
+        JObject? line = (drawState.SelectToken("rail.lines") as JArray)?
+            .OfType<JObject>()
+            .FirstOrDefault(item =>
+                item["hasDriver"]?.Value<bool>() != true
+                && ReadInt(item["driverCount"], 0) == 0
+                && ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], 0)) != 0);
+        if (vehicle == null || line == null)
+        {
+            return null;
+        }
+
+        JObject vehicleIdentity = BuildIdentity(vehicle, preferItemInstanceId: false);
+        if (!vehicleIdentity.HasValues)
+        {
+            return null;
+        }
+
+        vehicleIdentity["lineInstanceId"] = ReadInt(
+            line["lineInstanceId"],
+            ReadInt(line["instanceId"], 0));
+        vehicleIdentity["forward"] = true;
+        string name = vehicle["name"]?.Value<string>()
+                      ?? vehicle["vehicleType"]?.Value<string>()
+                      ?? "未知战车";
+        return new AutomationAction(
+            "placeVehicleOnLine",
+            vehicleIdentity,
+            AutomationStage.PreparingDefense,
+            $"新闭环尚无车列；按玩家放车流程把背包战车 {name} 放到新轨道并创建车列。");
+    }
+
+    public bool IsLegalDefenseExpansionPreview(JObject? previewResult)
+    {
+        JObject state = State(previewResult);
+        return state["wouldBeLegal"]?.Value<bool>() == true
+               && state["sideEffectCheckPassed"]?.Value<bool>() == true
+               && state["statePolluted"]?.Value<bool>() != true
+               && ReadInt(state["beforeRailCount"], -1) == ReadInt(state["afterRailCount"], -2);
+    }
+
+    public bool IsUsableDefenseExpansionRailBaseline(JObject? railResult) =>
+        TryReadRailSnapshot(railResult, out _, out _, out _);
+
+    public int ReadDrawnRailInstanceId(JObject? drawResult) =>
+        ReadInt(State(drawResult).SelectToken("rail.instanceId"), 0);
+
+    public DefenseExpansionRailVerification VerifyDefenseExpansionRail(
+        JObject? baselineResult,
+        JObject? drawResult,
+        JObject? currentRailResult,
+        AutomationAction? drawAction,
+        int expectedRailInstanceId)
+    {
+        if (!TryReadRailSnapshot(
+                baselineResult,
+                out int baselineCount,
+                out Dictionary<int, JObject> baselineRails,
+                out string baselineFailure))
+        {
+            return RailVerificationFailure("轨道基线无效：" + baselineFailure);
+        }
+
+        if (!TryReadRailSnapshot(
+                currentRailResult,
+                out int currentCount,
+                out Dictionary<int, JObject> currentRails,
+                out string currentFailure))
+        {
+            return RailVerificationFailure("扩建后轨道状态无效：" + currentFailure);
+        }
+
+        if (baselineRails.Keys.Any(id => !currentRails.ContainsKey(id)))
+        {
+            return RailVerificationFailure("扩建后既有轨道身份发生变化，无法证明本次只新增一条轨道。");
+        }
+
+        int[] addedRailIds = currentRails.Keys
+            .Where(id => !baselineRails.ContainsKey(id))
+            .OrderBy(id => id)
+            .ToArray();
+        if (addedRailIds.Length == 0 && currentCount == baselineCount)
+        {
+            return new DefenseExpansionRailVerification
+            {
+                Pending = true,
+                Detail = "尚未观察到新增轨道。"
+            };
+        }
+
+        if (currentCount != baselineCount + 1 || addedRailIds.Length != 1)
+        {
+            return RailVerificationFailure(
+                $"预期轨道数增加 1 且仅有一个新增身份，实际数量 {baselineCount}->{currentCount}，新增身份数 {addedRailIds.Length}。");
+        }
+
+        int addedRailId = addedRailIds[0];
+        if (expectedRailInstanceId != 0 && addedRailId != expectedRailInstanceId)
+        {
+            return RailVerificationFailure(
+                $"新增轨道身份 {addedRailId} 与 drawResult 身份 {expectedRailInstanceId} 不一致。");
+        }
+
+        int[] selectedPointIds = (drawAction?.Arguments["linePointInstanceIds"] as JArray)?
+            .Values<int>()
+            .ToArray() ?? Array.Empty<int>();
+        if (selectedPointIds.Length < 3 ||
+            selectedPointIds.Any(id => id == 0) ||
+            selectedPointIds.Distinct().Count() != selectedPointIds.Length)
+        {
+            return RailVerificationFailure("本次扩建缺少有效且互不重复的选定轨道点身份。");
+        }
+
+        JObject addedRail = currentRails[addedRailId];
+        if (!RailMatchesSelectedPoints(addedRail, selectedPointIds))
+        {
+            return RailVerificationFailure("唯一新增轨道的站点身份与本次选定三点不一致。");
+        }
+
+        if (addedRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            addedRail["isLoop"]?.Value<bool>() != true ||
+            addedRail["isOnField"]?.Value<bool>() == false)
+        {
+            return RailVerificationFailure("唯一新增轨道不是场上的合法玩家闭环。");
+        }
+
+        JObject? drawRail = State(drawResult)["rail"] as JObject;
+        if (drawRail != null)
+        {
+            int drawRailId = ReadInt(drawRail["instanceId"], 0);
+            if (drawRailId != 0 && drawRailId != addedRailId)
+            {
+                return RailVerificationFailure("queryRail 的新增轨道身份与 drawResult.rail 不一致。");
+            }
+
+            if (!RailMatchesSelectedPoints(drawRail, selectedPointIds))
+            {
+                return RailVerificationFailure("drawResult.rail 的站点身份与本次选定三点不一致。");
+            }
+
+            int drawInternalId = ReadInt(drawRail["railInternalId"], ReadInt(drawRail["id"], 0));
+            int queriedInternalId = ReadInt(addedRail["railInternalId"], ReadInt(addedRail["id"], 0));
+            if (drawInternalId != 0 && queriedInternalId != 0 && drawInternalId != queriedInternalId)
+            {
+                return RailVerificationFailure("queryRail 的新增轨道内部 ID 与 drawResult.rail 不一致。");
+            }
+        }
+
+        return new DefenseExpansionRailVerification
+        {
+            Verified = true,
+            Detail = "已验证唯一新增轨道的数量、身份、合法性和站点集合。",
+            RailInstanceId = addedRailId,
+            Rail = (JObject)addedRail.DeepClone()
+        };
+    }
+
+    public int CountAvailableExpansionAttributes(JObject? catapultResult) =>
+        AvailableExpansionPoints(catapultResult)
+            .Count(item => item["isAttribute"]?.Value<bool>() == true);
+
+    public bool NeedsExpansionAttributePlacement(JObject? catapultResult)
+    {
+        List<JObject> points = AvailableExpansionPoints(catapultResult);
+        return points.All(item => item["isAttribute"]?.Value<bool>() != true)
+               && points.Count(item => item["isAttribute"]?.Value<bool>() != true) >= 2;
+    }
+
+    public AutomationAction? DecideExpansionAttributeDisposableUse(JObject? disposableResult)
+    {
+        JObject state = State(disposableResult);
+        if (state["isInPreview"]?.Value<bool>() == true)
+        {
+            return null;
+        }
+
+        JObject? item = (state["items"] as JArray)?
+            .OfType<JObject>()
+            .Where(candidate =>
+                string.Equals(
+                    candidate["disposableEnum"]?.Value<string>(),
+                    ExpansionAttributeDisposableEnum,
+                    StringComparison.Ordinal))
+            .Where(candidate =>
+                candidate["active"]?.Value<bool>() != false
+                && candidate["buttonActive"]?.Value<bool>() != false
+                && ReadInt(candidate["count"], 0) > 0
+                && string.Equals(
+                    candidate["interactionType"]?.Value<string>(),
+                    "GridChooseInteraction",
+                    StringComparison.Ordinal))
+            .OrderBy(candidate => ReadInt(candidate["index"], int.MaxValue))
+            .FirstOrDefault();
+        if (item == null)
+        {
+            return null;
+        }
+
+        JObject identity = BuildIdentity(item, preferItemInstanceId: true);
+        if (!identity.HasValues)
+        {
+            return null;
+        }
+
+        identity["disposableEnum"] = ExpansionAttributeDisposableEnum;
+        return new AutomationAction(
+            "useDisposable",
+            identity,
+            AutomationStage.PreparingDefense,
+            "使用背包中的动力弹射点道具，进入玩家格子预览流程。");
+    }
+
+    public JObject? SelectExpansionAttributeGrid(JObject? gridOptionsResult, JObject? catapultResult)
+    {
+        JObject options = State(gridOptionsResult);
+        if (!string.Equals(
+                options["disposableEnum"]?.Value<string>(),
+                ExpansionAttributeDisposableEnum,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        List<JObject> allPoints = ((State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+                ?? Enumerable.Empty<JObject>())
+            .ToList();
+        List<JObject> commonPoints = allPoints
+            .Where(IsAvailableExpansionPoint)
+            .Where(item => item["isAttribute"]?.Value<bool>() != true)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToList();
+        List<JObject> occupiedPoints = allPoints
+            .Where(item => ReadInt(item["railMembershipCount"], 0) > 0)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToList();
+        if (commonPoints.Count < 2)
+        {
+            return null;
+        }
+
+        List<ExpansionGridCandidate> candidates = new();
+        foreach (JObject option in (options["validGrids"] as JArray)?.OfType<JObject>()
+                 ?? Enumerable.Empty<JObject>())
+        {
+            if (option["grid"] is not JObject grid ||
+                !TryReadPoint(grid, out double x, out double y))
+            {
+                continue;
+            }
+
+            for (int first = 0; first < commonPoints.Count - 1; first++)
+            {
+                for (int second = first + 1; second < commonPoints.Count; second++)
+                {
+                    ExpansionLayoutScore score = ScoreExpansionLayout(
+                        x,
+                        y,
+                        commonPoints[first],
+                        commonPoints[second],
+                        occupiedPoints);
+                    if (score.Area <= 0.000001d)
+                    {
+                        continue;
+                    }
+                    candidates.Add(new ExpansionGridCandidate(score, (int)x, (int)y, grid));
+                }
+            }
+        }
+
+        JObject? selected = candidates
+            .OrderBy(candidate => candidate.Score.Distance)
+            .ThenBy(candidate => candidate.Score.HasCoverageContext ? candidate.Score.SideRank : 0)
+            .ThenBy(candidate => candidate.Score.HasCoverageContext ? candidate.Score.DirectionCosine : 0d)
+            .ThenByDescending(candidate => candidate.Score.Area)
+            .ThenBy(candidate => candidate.X)
+            .ThenBy(candidate => candidate.Y)
+            .Select(candidate => candidate.Grid)
+            .FirstOrDefault();
+        return selected == null ? null : (JObject)selected.DeepClone();
+    }
+
+    public int ReadExpansionAttributeInteractionId(JObject? disposableResult)
+    {
+        JObject state = State(disposableResult);
+        return state["isInPreview"]?.Value<bool>() == true
+               && string.Equals(
+                   state["disposableEnum"]?.Value<string>(),
+                   ExpansionAttributeDisposableEnum,
+                   StringComparison.Ordinal)
+            ? ReadInt(state["interactionInstanceId"], 0)
+            : 0;
+    }
+
+    public bool IsOwnedExpansionAttributePreview(
+        JObject? disposableResult,
+        int interactionInstanceId,
+        bool requireGridInteraction)
+    {
+        JObject state = State(disposableResult);
+        if (interactionInstanceId == 0 ||
+            state["isInPreview"]?.Value<bool>() != true ||
+            ReadInt(state["interactionInstanceId"], 0) != interactionInstanceId ||
+            !string.Equals(
+                state["disposableEnum"]?.Value<string>(),
+                ExpansionAttributeDisposableEnum,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !requireGridInteraction || string.Equals(
+            state["interactionType"]?.Value<string>(),
+            "GridChooseInteraction",
+            StringComparison.Ordinal);
+    }
+
+    public bool IsCleanDisposableInteractionIdle(JObject? interactionGuardResult)
+    {
+        JObject state = State(interactionGuardResult);
+        return state["contractAvailable"]?.Value<bool>() == true &&
+               state["observationConsistent"]?.Value<bool>() == true &&
+               state["noActiveInteraction"]?.Value<bool>() == true &&
+               state["isInPreview"]?.Value<bool>() != true &&
+               state["hasLastInteraction"]?.Value<bool>() != true &&
+               ReadInt(state["interactionInstanceId"], 0) == 0;
+    }
+
+    public AutomationAction? DecideExpansionAttributeCancellation(
+        JObject? disposableResult,
+        int interactionInstanceId)
+    {
+        if (!IsOwnedExpansionAttributePreview(
+                disposableResult,
+                interactionInstanceId,
+                requireGridInteraction: false))
+        {
+            return null;
+        }
+
+        return new AutomationAction(
+            "cancelDisposable",
+            JObject.FromObject(new
+            {
+                disposableEnum = ExpansionAttributeDisposableEnum,
+                interactionInstanceId
+            }),
+            AutomationStage.PreparingDefense,
+            "取消由自动游玩创建的动力弹射点预览，恢复玩家输入。");
+    }
+
+    public AutomationAction? DecideExpansionAttributeConfirmation(
+        AutomationAction? useAction,
+        JObject? selectedGrid,
+        JObject? disposableResult,
+        int interactionInstanceId)
+    {
+        if (useAction == null ||
+            selectedGrid == null ||
+            !IsOwnedExpansionAttributePreview(disposableResult, interactionInstanceId, requireGridInteraction: true))
+        {
+            return null;
+        }
+
+        JObject arguments = (JObject)useAction.Arguments.DeepClone();
+        arguments["disposableEnum"] = ExpansionAttributeDisposableEnum;
+        arguments["interactionInstanceId"] = interactionInstanceId;
+        arguments["grid"] = selectedGrid.DeepClone();
+        return new AutomationAction(
+            "confirmDisposableGrid",
+            arguments,
+            AutomationStage.PreparingDefense,
+            "在已验证的格子确认动力弹射点道具。");
+    }
+
+    public AutomationAction? DecideExpansionAttributeDirectConfirmation(
+        AutomationAction? itemIdentityAction,
+        JObject? selectedGrid)
+    {
+        if (itemIdentityAction == null ||
+            selectedGrid == null ||
+            !string.Equals(itemIdentityAction.Command, "useDisposable", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                itemIdentityAction.Arguments["disposableEnum"]?.Value<string>(),
+                ExpansionAttributeDisposableEnum,
+                StringComparison.Ordinal) ||
+            !HasIdentity(itemIdentityAction.Arguments) ||
+            !TryReadPoint(selectedGrid, out double gridX, out double gridY) ||
+            gridX != Math.Truncate(gridX) ||
+            gridY != Math.Truncate(gridY))
+        {
+            return null;
+        }
+
+        JObject arguments = (JObject)itemIdentityAction.Arguments.DeepClone();
+        arguments.Remove("interactionInstanceId");
+        arguments["disposableEnum"] = ExpansionAttributeDisposableEnum;
+        arguments["grid"] = selectedGrid.DeepClone();
+        return new AutomationAction(
+            "confirmDisposableGrid",
+            arguments,
+            AutomationStage.PreparingDefense,
+            "按背包道具的稳定身份在单次玩家等价命令中打开并确认动力弹射点。");
     }
 
     private static AutomationAction? DecideDisposableUse(JObject disposable)
@@ -346,6 +985,138 @@ public sealed class BattleDecisionEngine
         && vehicle["isFixedHead"]?.Value<bool>() != true
         && HasIdentity(vehicle);
 
+    private static List<JObject> AvailableExpansionPoints(JObject? catapultResult) =>
+        ((State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            ?? Enumerable.Empty<JObject>())
+        .Where(IsAvailableExpansionPoint)
+        .ToList();
+
+    private static bool TryReadRailSnapshot(
+        JObject? railResult,
+        out int railCount,
+        out Dictionary<int, JObject> rails,
+        out string failure)
+    {
+        JObject state = State(railResult);
+        railCount = ReadInt(state["railCount"], -1);
+        rails = new Dictionary<int, JObject>();
+        failure = string.Empty;
+        if (railCount < 0 || state["rails"] is not JArray railItems)
+        {
+            failure = "缺少 railCount 或 rails。";
+            return false;
+        }
+
+        foreach (JObject rail in railItems.OfType<JObject>())
+        {
+            int instanceId = ReadInt(rail["instanceId"], 0);
+            if (instanceId == 0)
+            {
+                failure = "轨道缺少 instanceId。";
+                return false;
+            }
+
+            if (rails.ContainsKey(instanceId))
+            {
+                failure = "轨道 instanceId 重复。";
+                return false;
+            }
+
+            rails[instanceId] = rail;
+        }
+
+        if (railItems.Count != rails.Count || railCount != rails.Count)
+        {
+            failure = $"railCount={railCount} 与唯一轨道状态数量 {rails.Count} 不一致。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool RailMatchesSelectedPoints(JObject rail, IReadOnlyCollection<int> selectedPointIds)
+    {
+        int[] railPointIds = (rail["points"] as JArray)?
+            .OfType<JObject>()
+            .Select(point => ReadInt(point["instanceId"], 0))
+            .ToArray() ?? Array.Empty<int>();
+        return railPointIds.Length == selectedPointIds.Count
+               && railPointIds.All(id => id != 0)
+               && new HashSet<int>(railPointIds).SetEquals(selectedPointIds);
+    }
+
+    private static DefenseExpansionRailVerification RailVerificationFailure(string detail) => new()
+    {
+        Detail = detail
+    };
+
+    private static bool IsAvailableExpansionPoint(JObject point) =>
+        point["active"]?.Value<bool>() != false
+        && point["canUseForNewRail"]?.Value<bool>() == true
+        && point["canPickLine"]?.Value<bool>() != false
+        && point["frozen"]?.Value<bool>() != true
+        && point["railReachMax"]?.Value<bool>() != true
+        && ReadInt(point["railMembershipCount"], 0) == 0
+        && ReadInt(point["linePointInstanceId"], 0) != 0;
+
+    private static double ExpansionPointDistanceSquared(JObject point, double attributeX, double attributeY)
+    {
+        return TryReadPoint(point["grid"], out double x, out double y)
+            ? DistanceSquared(x, y, attributeX, attributeY)
+            : double.MaxValue;
+    }
+
+    private static ExpansionLayoutScore ScoreExpansionLayout(
+        double attributeX,
+        double attributeY,
+        JObject first,
+        JObject second,
+        IReadOnlyCollection<JObject> occupiedPoints)
+    {
+        if (!TryReadPoint(first["grid"], out double firstX, out double firstY) ||
+            !TryReadPoint(second["grid"], out double secondX, out double secondY))
+        {
+            return new ExpansionLayoutScore(false, 1, 1d, double.MaxValue, 0d);
+        }
+
+        double distance = DistanceSquared(firstX, firstY, attributeX, attributeY)
+                          + DistanceSquared(secondX, secondY, attributeX, attributeY)
+                          + DistanceSquared(firstX, firstY, secondX, secondY);
+        double area = Math.Abs(
+            (firstX - attributeX) * (secondY - attributeY)
+            - (firstY - attributeY) * (secondX - attributeX));
+        JObject[] locatedOccupied = occupiedPoints
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToArray();
+        if (locatedOccupied.Length == 0)
+        {
+            return new ExpansionLayoutScore(false, 0, 0d, distance, area);
+        }
+
+        double existingX = locatedOccupied.Average(item =>
+        {
+            TryReadPoint(item["grid"], out double x, out _);
+            return x;
+        });
+        double existingY = locatedOccupied.Average(item =>
+        {
+            TryReadPoint(item["grid"], out _, out double y);
+            return y;
+        });
+        double candidateX = (attributeX + firstX + secondX) / 3d;
+        double candidateY = (attributeY + firstY + secondY) / 3d;
+        double existingMagnitude = Math.Sqrt(existingX * existingX + existingY * existingY);
+        double candidateMagnitude = Math.Sqrt(candidateX * candidateX + candidateY * candidateY);
+        if (existingMagnitude <= 0.000001d || candidateMagnitude <= 0.000001d)
+        {
+            return new ExpansionLayoutScore(false, 0, 0d, distance, area);
+        }
+
+        double cosine = (existingX * candidateX + existingY * candidateY)
+                        / (existingMagnitude * candidateMagnitude);
+        return new ExpansionLayoutScore(true, cosine <= 0d ? 0 : 1, cosine, distance, area);
+    }
+
     private static bool HasTrainCapacity(JObject train)
     {
         int capacity = ReadInt(train["capacity"], -1);
@@ -362,9 +1133,7 @@ public sealed class BattleDecisionEngine
     private static IEnumerable<LineCandidate> EnumerateLineCandidates(
         JArray rails,
         int? sourceRailId,
-        string currentLineName,
-        double targetX,
-        double targetY)
+        string currentLineName)
     {
         foreach (JObject rail in rails.OfType<JObject>())
         {
@@ -408,22 +1177,124 @@ public sealed class BattleDecisionEngine
                     continue;
                 }
 
-                double midpointX = (fromX + toX) / 2d;
-                double midpointY = (fromY + toY) / 2d;
-                double directionProjection = midpointX * targetX + midpointY * targetY;
-                if (directionProjection <= 0d)
-                {
-                    continue;
-                }
-
                 yield return new LineCandidate(
                     lineInstanceId,
-                    DistancePointToSegmentSquared(targetX, targetY, fromX, fromY, toX, toY),
                     isCurrentLine,
-                    DistanceSquared(toX, toY, targetX, targetY) <=
-                    DistanceSquared(fromX, fromY, targetX, targetY));
+                    fromX,
+                    fromY,
+                    toX,
+                    toY);
             }
         }
+    }
+
+    private static double CoverageUtility(
+        IReadOnlyCollection<ThreatCandidate> threats,
+        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
+        TrainCoveragePosition? replacement)
+    {
+        double utility = 0d;
+        foreach (ThreatCandidate threat in threats)
+        {
+            utility += ThreatCoverageUtility(threat, currentPositions, replacement);
+        }
+
+        return utility;
+    }
+
+    private static double ThreatCoverageUtility(
+        ThreatCandidate threat,
+        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
+        TrainCoveragePosition? replacement)
+    {
+        List<double> contributions = new();
+        foreach (TrainCoveragePosition position in currentPositions)
+        {
+            TrainCoveragePosition effective = replacement != null && replacement.TrainIndex == position.TrainIndex
+                ? replacement
+                : position;
+            if (effective.Line == null)
+            {
+                continue;
+            }
+
+            double distance = Math.Sqrt(effective.Line.DistanceTo(threat.X, threat.Y));
+            contributions.Add(effective.Power / (1d + distance));
+        }
+
+        if (replacement != null && currentPositions.All(position => position.TrainIndex != replacement.TrainIndex) && replacement.Line != null)
+        {
+            double distance = Math.Sqrt(replacement.Line.DistanceTo(threat.X, threat.Y));
+            contributions.Add(replacement.Power / (1d + distance));
+        }
+
+        if (contributions.Count == 0)
+        {
+            return 0d;
+        }
+
+        double strongest = contributions.Max();
+        double supporting = contributions.Sum() - strongest;
+        return threat.Weight * (strongest + supporting * 0.25d);
+    }
+
+    private static ThreatCandidate SelectServedThreat(
+        IReadOnlyCollection<ThreatCandidate> threats,
+        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
+        TrainCoveragePosition replacement)
+    {
+        return threats
+            .Select(threat => new
+            {
+                Threat = threat,
+                Improvement = ThreatCoverageUtility(threat, currentPositions, replacement)
+                              - ThreatCoverageUtility(threat, currentPositions, null),
+                TargetCoverage = replacement.Line == null
+                    ? 0d
+                    : threat.Weight * replacement.Power /
+                      (1d + Math.Sqrt(replacement.Line.DistanceTo(threat.X, threat.Y)))
+            })
+            .OrderByDescending(item => item.Improvement)
+            .ThenByDescending(item => item.TargetCoverage)
+            .ThenBy(item => item.Threat.Index)
+            .Select(item => item.Threat)
+            .First();
+    }
+
+    private static double TrainPowerScore(JObject train)
+    {
+        JObject[] combatVehicles = ((train["vehicles"] as JArray)?.OfType<JObject>()
+                ?? Enumerable.Empty<JObject>())
+            .Where(vehicle => vehicle["isFixedHead"]?.Value<bool>() != true
+                              && vehicle["isTrainHead"]?.Value<bool>() != true)
+            .ToArray();
+        if (combatVehicles.Length > 0)
+        {
+            return combatVehicles.Sum(vehicle =>
+            {
+                int level = Math.Max(ReadInt(vehicle["level"], 1), 1);
+                return (double)(level * level);
+            });
+        }
+
+        return Math.Max(TrainVehicleCount(train) - 1, 1);
+    }
+
+    private static int TrainStableIdentity(JObject train)
+    {
+        int driverInstanceId = ReadInt(train["driverInstanceId"], 0);
+        if (driverInstanceId != 0)
+        {
+            return driverInstanceId;
+        }
+
+        JObject? fixedHead = (train["vehicles"] as JArray)?.OfType<JObject>()
+            .FirstOrDefault(vehicle => vehicle["isFixedHead"]?.Value<bool>() == true
+                                       || vehicle["isTrainHead"]?.Value<bool>() == true);
+        int headInstanceId = ReadInt(fixedHead?["instanceId"], 0);
+        return headInstanceId != 0
+            ? headInstanceId
+            : ReadInt(train["index"], -1);
     }
 
     private static double DistancePointToSegmentSquared(
@@ -473,6 +1344,232 @@ public sealed class BattleDecisionEngine
         int level = Math.Max(ReadInt(nest.SelectToken("spawn.level"), 1), 1);
         int amount = Math.Max(ReadInt(nest.SelectToken("spawn.amount"), 1), 1);
         return (long)level * amount;
+    }
+
+    private static string BuildThreatSourceDetail(JObject threats)
+    {
+        if (threats["liveThreatsAvailable"]?.Value<bool>() != true)
+        {
+            return "使用巢穴生成先验";
+        }
+
+        int liveCount = ReadInt(threats["liveThreatCount"], 0);
+        JObject? accounting = threats["enemyAccounting"] as JObject;
+        if (accounting?["remainingReliable"]?.Value<bool>() == true)
+        {
+            int futureCount = Math.Max(ReadInt(accounting["estimatedFutureCount"], 0), 0);
+            return $"实时活怪 {liveCount}，尚未生成约 {futureCount}";
+        }
+
+        return $"实时活怪 {liveCount}，剩余数暂不可可靠读取";
+    }
+
+    private static List<ThreatCandidate> BuildThreatCandidates(JObject threats)
+    {
+        if (threats["liveThreatsAvailable"]?.Value<bool>() != true ||
+            threats["liveThreats"] is not JArray liveItems)
+        {
+            return BuildNestThreatCandidates(threats, null);
+        }
+
+        List<ThreatCandidate> liveThreats = BuildLiveThreatCandidates(threats, liveItems);
+        double? futureMass = ReliableFutureThreatMass(threats);
+        List<ThreatCandidate> nestThreats = BuildNestThreatCandidates(threats, futureMass);
+        return ApplyLiveThreatUrgencyReserve(liveThreats, nestThreats);
+    }
+
+    private static List<ThreatCandidate> BuildLiveThreatCandidates(JObject threats, JArray liveItems)
+    {
+        List<ThreatCandidate> candidates = new();
+        HashSet<ulong> runtimeIdentities = new();
+        HashSet<int> instanceIdentities = new();
+        foreach (JObject item in liveItems.OfType<JObject>())
+        {
+            int handleId = ReadInt(item["runtimeHandleId"], 0);
+            int lifetimeVersion = ReadInt(item["lifetimeVersion"], 0);
+            if (handleId > 0 && lifetimeVersion > 0)
+            {
+                ulong identity = ((ulong)(uint)handleId << 32) | (uint)lifetimeVersion;
+                if (!runtimeIdentities.Add(identity)) continue;
+            }
+            else
+            {
+                int instanceId = ReadInt(item["instanceId"], 0);
+                if (instanceId == 0 || !instanceIdentities.Add(instanceId)) continue;
+            }
+
+            if (!TryReadThreatVector(threats, item, out double x, out double y) ||
+                !IsFinite(x) ||
+                !IsFinite(y))
+            {
+                continue;
+            }
+
+            double factor = item["aiRunning"]?.Value<bool>() == false ? 0.5d : 1d;
+            if (item["isBoss"]?.Value<bool>() == true) factor *= 4d;
+            if (TryReadDouble(item["health"], out double health) &&
+                TryReadDouble(item["healthMax"], out double healthMax) &&
+                !double.IsNaN(health) &&
+                !double.IsInfinity(health) &&
+                !double.IsNaN(healthMax) &&
+                !double.IsInfinity(healthMax) &&
+                healthMax > 0d)
+            {
+                factor *= Math.Max(0.25d, Math.Min(1d, health / healthMax));
+            }
+
+            candidates.Add(new ThreatCandidate(
+                handleId > 0 ? handleId : ReadInt(item["instanceId"], int.MaxValue),
+                x * WorldToGridScale,
+                y * WorldToGridScale,
+                Math.Max(factor, 0.01d)));
+        }
+
+        return ScaleThreatCandidates(candidates, candidates.Count);
+    }
+
+    private static List<ThreatCandidate> ApplyLiveThreatUrgencyReserve(
+        IReadOnlyCollection<ThreatCandidate> liveThreats,
+        IReadOnlyCollection<ThreatCandidate> nestThreats)
+    {
+        List<ThreatCandidate> baseline = liveThreats
+            .Concat(nestThreats)
+            .ToList();
+        if (liveThreats.Count == 0 || baseline.Count == 0)
+        {
+            return baseline
+                .OrderByDescending(item => item.Weight)
+                .ThenBy(item => item.Index)
+                .ToList();
+        }
+
+        double totalMass = baseline.Sum(item => item.Weight);
+        double urgencyMass = liveThreats.Sum(item => item.Weight * LiveThreatUrgencyScore(item));
+        if (!IsFinite(totalMass) ||
+            totalMass <= 0d ||
+            !IsFinite(urgencyMass) ||
+            urgencyMass <= 0d)
+        {
+            return baseline
+                .OrderByDescending(item => item.Weight)
+                .ThenBy(item => item.Index)
+                .ToList();
+        }
+
+        double nearestLiveDistance = liveThreats.Min(item =>
+            Math.Sqrt(item.X * item.X + item.Y * item.Y));
+        double activation = 1d / (1d + Math.Pow(
+            nearestLiveDistance / LiveThreatUrgencyActivationRadius,
+            LiveThreatUrgencyExponent));
+        double effectiveReserve = LiveThreatUrgencyReserve * activation;
+
+        // This convex split preserves total threat mass. Every baseline threat keeps at least 40%
+        // of its original weight. The urgency reserve rises continuously only as a live enemy enters
+        // the base's three-grid danger radius, so distant live scouts do not erase a large future wave.
+        double baselineShare = 1d - effectiveReserve;
+        HashSet<ThreatCandidate> liveSet = new(liveThreats);
+        return baseline
+            .Select(item => new ThreatCandidate(
+                item.Index,
+                item.X,
+                item.Y,
+                item.Weight * baselineShare +
+                (liveSet.Contains(item)
+                    ? totalMass * effectiveReserve *
+                      item.Weight * LiveThreatUrgencyScore(item) / urgencyMass
+                    : 0d)))
+            .OrderByDescending(item => item.Weight)
+            .ThenBy(item => item.Index)
+            .ToList();
+    }
+
+    private static double LiveThreatUrgencyScore(ThreatCandidate threat)
+    {
+        double distance = Math.Sqrt(threat.X * threat.X + threat.Y * threat.Y);
+        return 1d / Math.Pow(
+            LiveThreatUrgencyDistanceOffset + distance,
+            LiveThreatUrgencyExponent);
+    }
+
+    private static List<ThreatCandidate> BuildNestThreatCandidates(JObject threats, double? totalMass)
+    {
+        if (totalMass.HasValue && totalMass.Value <= 0d)
+        {
+            return new List<ThreatCandidate>();
+        }
+
+        List<ThreatCandidate> candidates = ((threats["nests"] as JArray)?.OfType<JObject>()
+                ?? Enumerable.Empty<JObject>())
+            .Where(item => item["active"]?.Value<bool>() != false &&
+                           TryReadThreatVector(threats, item, out _, out _))
+            .Select(item =>
+            {
+                TryReadThreatVector(threats, item, out double x, out double y);
+                return new ThreatCandidate(
+                    ReadInt(item["index"], int.MaxValue),
+                    x * WorldToGridScale,
+                    y * WorldToGridScale,
+                    Math.Max(ThreatScore(item), 1L));
+            })
+            .Where(item => item.X * item.X + item.Y * item.Y > 0.000001d)
+            .ToList();
+        return totalMass.HasValue
+            ? ScaleThreatCandidates(candidates, totalMass.Value)
+            : candidates
+                .OrderByDescending(item => item.Weight)
+                .ThenBy(item => item.Index)
+                .ToList();
+    }
+
+    private static double? ReliableFutureThreatMass(JObject threats)
+    {
+        JObject? accounting = threats["enemyAccounting"] as JObject;
+        if (accounting?["remainingReliable"]?.Value<bool>() != true)
+        {
+            return null;
+        }
+
+        int estimated = ReadInt(accounting["estimatedFutureCount"], -1);
+        if (estimated >= 0 && estimated != int.MaxValue)
+        {
+            return estimated;
+        }
+
+        int remaining = ReadInt(accounting["globalRemaining"], -1);
+        int accounted = ReadInt(threats["accountedLiveCount"], -1);
+        if (remaining < 0 || remaining == int.MaxValue || accounted < 0)
+        {
+            return null;
+        }
+
+        return Math.Max(remaining - accounted, 0);
+    }
+
+    private static List<ThreatCandidate> ScaleThreatCandidates(
+        IReadOnlyCollection<ThreatCandidate> candidates,
+        double totalMass)
+    {
+        if (candidates.Count == 0 || totalMass <= 0d)
+        {
+            return new List<ThreatCandidate>();
+        }
+
+        double currentMass = candidates.Sum(item => item.Weight);
+        if (currentMass <= 0d || double.IsNaN(currentMass) || double.IsInfinity(currentMass))
+        {
+            return new List<ThreatCandidate>();
+        }
+
+        double scale = totalMass / currentMass;
+        return candidates
+            .Select(item => new ThreatCandidate(
+                item.Index,
+                item.X,
+                item.Y,
+                item.Weight * scale))
+            .OrderByDescending(item => item.Weight)
+            .ThenBy(item => item.Index)
+            .ToList();
     }
 
     private static bool BuildGridConfirmation(JObject arguments, JObject? optionsResult)
@@ -670,23 +1767,155 @@ public sealed class BattleDecisionEngine
             out value);
     }
 
+    private static bool IsFinite(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value);
+
+    private sealed class ExpansionLayoutScore
+    {
+        public ExpansionLayoutScore(
+            bool hasCoverageContext,
+            int sideRank,
+            double directionCosine,
+            double distance,
+            double area)
+        {
+            HasCoverageContext = hasCoverageContext;
+            SideRank = sideRank;
+            DirectionCosine = directionCosine;
+            Distance = distance;
+            Area = area;
+        }
+
+        public bool HasCoverageContext { get; }
+        public int SideRank { get; }
+        public double DirectionCosine { get; }
+        public double Distance { get; }
+        public double Area { get; }
+    }
+
+    private sealed class ExpansionPathCandidate
+    {
+        public ExpansionPathCandidate(ExpansionLayoutScore score, string key, JArray ids)
+        {
+            Score = score;
+            Key = key;
+            Ids = ids;
+        }
+
+        public ExpansionLayoutScore Score { get; }
+        public string Key { get; }
+        public JArray Ids { get; }
+    }
+
+    private sealed class ExpansionGridCandidate
+    {
+        public ExpansionGridCandidate(ExpansionLayoutScore score, int x, int y, JObject grid)
+        {
+            Score = score;
+            X = x;
+            Y = y;
+            Grid = grid;
+        }
+
+        public ExpansionLayoutScore Score { get; }
+        public int X { get; }
+        public int Y { get; }
+        public JObject Grid { get; }
+    }
+
     private sealed class LineCandidate
     {
         public LineCandidate(
             int lineInstanceId,
-            double distanceToThreatSquared,
             bool isCurrentLine,
-            bool forwardTowardThreat)
+            double fromX,
+            double fromY,
+            double toX,
+            double toY)
         {
             LineInstanceId = lineInstanceId;
-            DistanceToThreatSquared = distanceToThreatSquared;
             IsCurrentLine = isCurrentLine;
-            ForwardTowardThreat = forwardTowardThreat;
+            FromX = fromX;
+            FromY = fromY;
+            ToX = toX;
+            ToY = toY;
         }
 
         public int LineInstanceId { get; }
-        public double DistanceToThreatSquared { get; }
         public bool IsCurrentLine { get; }
-        public bool ForwardTowardThreat { get; }
+        public double FromX { get; }
+        public double FromY { get; }
+        public double ToX { get; }
+        public double ToY { get; }
+
+        public double DistanceTo(double x, double y)
+        {
+            double midpointX = (FromX + ToX) / 2d;
+            double midpointY = (FromY + ToY) / 2d;
+            double lineLengthSquared = DistanceSquared(FromX, FromY, ToX, ToY);
+            return DistanceSquared(x, y, midpointX, midpointY) + lineLengthSquared * 0.25d;
+        }
+
+        public bool ForwardToward(double x, double y) =>
+            DistanceSquared(FromX, FromY, x, y) <= DistanceSquared(ToX, ToY, x, y);
+    }
+
+    private sealed class ThreatCandidate
+    {
+        public ThreatCandidate(int index, double x, double y, double weight)
+        {
+            Index = index;
+            X = x;
+            Y = y;
+            Weight = weight;
+        }
+
+        public int Index { get; }
+        public double X { get; }
+        public double Y { get; }
+        public double Weight { get; }
+    }
+
+    private sealed class TrainCoveragePosition
+    {
+        public TrainCoveragePosition(int trainIndex, double power, LineCandidate? line)
+        {
+            TrainIndex = trainIndex;
+            Power = power;
+            Line = line;
+        }
+
+        public int TrainIndex { get; }
+        public double Power { get; }
+        public LineCandidate? Line { get; }
+    }
+
+    private sealed class TrainMovementCandidate
+    {
+        public TrainMovementCandidate(
+            int trainIndex,
+            int trainIdentity,
+            int vehicleCount,
+            double trainPower,
+            LineCandidate target,
+            double improvement,
+            ThreatCandidate servedThreat)
+        {
+            TrainIndex = trainIndex;
+            TrainIdentity = trainIdentity;
+            VehicleCount = vehicleCount;
+            TrainPower = trainPower;
+            Target = target;
+            Improvement = improvement;
+            ServedThreat = servedThreat;
+        }
+
+        public int TrainIndex { get; }
+        public int TrainIdentity { get; }
+        public int VehicleCount { get; }
+        public double TrainPower { get; }
+        public LineCandidate Target { get; }
+        public double Improvement { get; }
+        public ThreatCandidate ServedThreat { get; }
     }
 }

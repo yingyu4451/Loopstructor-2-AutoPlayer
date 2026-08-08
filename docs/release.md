@@ -51,9 +51,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 隔离 QA 启动子进程时使用生产 AppID `3841840`。本机缺少该 AppID 许可，Player.log 记录 `[Steamworks.NET] SteamAPI_Init() failed`；这没有阻止上述隔离玩法测试，但也不能作为 Steam 已完全离线或账号不会留痕的证据。玩家模式不注入 AppID，也不阻断平台行为。已知 QA 补丁只覆盖 Steam 成就、IGP 成就、结算飞书自动上传及 `RestartAppIfNecessary` 四个入口；正式验收应使用专用 QA 账号、离线环境或无平台测试包。
 
-运行时恢复语义也属于发布兼容性：玩家模式必须能连接手动启动的受信游戏，且待命时不重定向玩家存档或平台行为；隔离 QA 仍保持跨场景激活保护。真正的自动化故障会设置 `NeedsProcessRestart=true`，Manager 必须显示“必须彻底重启”、禁用 Start 并拒绝向旧进程发送新的 `start`。作弊写尝试只设置 `CheatUsed` 和 `cheat-modified`，关闭作弊模式后仍可开始自动游玩。
+运行时恢复语义也属于发布兼容性：玩家模式必须能连接手动启动的受信游戏，且待命时不重定向玩家存档或平台行为；隔离 QA 仍保持跨场景激活保护。普通战败、超时、只读失败和有界重试耗尽可以 Faulted，但不得设置 `NeedsProcessRestart`；只有不确定部分写入、明确污染标志或隔离门禁失效才要求彻底重启。此时 Manager 必须禁用 Start 并拒绝向旧进程发送新的 `start`。作弊写尝试只设置 `CheatUsed` 和 `cheat-modified`，关闭作弊模式后仍可开始自动游玩。
 
-默认防线的干净初始化暂态会重试且不累计连续失败；任何深层包装中的 `statePolluted=true`、`needsReset=true`，以及已提交动力站点后发生的后续失败，都必须被识别为不安全并要求新进程。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
+默认防线的干净初始化暂态会重试且不累计连续失败；当前写命令有效结果中的 `statePolluted=true`、`needsReset=true`，以及无法确认回滚的部分写入，必须被识别为不安全并要求新进程。历史快照中的旧标志不得触发污染判定；动力站点步骤曾提交但最终状态已验证为无轨道、无车列、无已放置战车时，应作为干净检查点重试。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
 
 ## 0.5.2 独立运行时宿主验收
 
@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.9
+.\scripts\package.ps1 -Version 0.6.0
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.5.9 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.0 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.5.9-win-x64.zip
-  Loopstructor.AutoPlayer-0.5.9-win-x64.zip.sha256
-  Loopstructor.AutoPlayer-0.5.8-to-0.5.9-win-x64.delta.zip        可选
-  Loopstructor.AutoPlayer-0.5.8-to-0.5.9-win-x64.delta.zip.sha256 可选
+  Loopstructor.AutoPlayer-0.6.0-win-x64.zip
+  Loopstructor.AutoPlayer-0.6.0-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.5.9-to-0.6.0-win-x64.delta.zip        可选
+  Loopstructor.AutoPlayer-0.5.9-to-0.6.0-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.5.9-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.0-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.5.9",
+  "version": "0.6.0",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.5.9-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.0-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 64631369,
   "deltaAssets": [
     {
-      "fromVersion": "0.5.8",
-      "assetName": "Loopstructor.AutoPlayer-0.5.8-to-0.5.9-win-x64.delta.zip",
+      "fromVersion": "0.5.9",
+      "assetName": "Loopstructor.AutoPlayer-0.5.9-to-0.6.0-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2054728
     }
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.5.9
-git push origin v0.5.9
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

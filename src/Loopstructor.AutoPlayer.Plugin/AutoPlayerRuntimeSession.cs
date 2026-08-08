@@ -260,6 +260,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
     internal void PumpFrame()
     {
         if (_disposed) return;
+        _controller?.RecordFrame(Time.unscaledDeltaTime);
         _controlServer?.Pump();
         _cheatController?.Tick();
         _controller?.Tick();

@@ -65,6 +65,178 @@ public sealed class RuntimeResultInspectorTests
         Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
     }
 
+    [Theory]
+    [InlineData("statePolluted")]
+    [InlineData("needsReset")]
+    [InlineData("outcomeUnknown")]
+    public void Classify_DataRootMutationFlagAsUnsafe(string flag)
+    {
+        JObject result = new()
+        {
+            ["success"] = false,
+            ["data"] = new JObject
+            {
+                [flag] = true,
+                ["state"] = new JObject()
+            }
+        };
+
+        Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
+        Assert.Equal(flag + "=true", RuntimeResultInspector.UnsafeMutationReason(result));
+    }
+
+    [Fact]
+    public void Classify_DataRootMutationFlagWinsOverPending()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                pending = true,
+                statePolluted = true,
+                state = new { }
+            }
+        });
+
+        Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
+        Assert.Equal(RuntimeResultDisposition.Pending, RuntimeResultInspector.ClassifyReadOnly(result));
+    }
+
+    [Fact]
+    public void Classify_IgnoresDataRootHistoryMutationFlag()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                statePolluted = false,
+                diff = new
+                {
+                    before = new { statePolluted = true, needsReset = true }
+                },
+                state = new { }
+            }
+        });
+
+        Assert.Equal(RuntimeResultDisposition.Failure, RuntimeResultInspector.Classify(result));
+    }
+
+    [Fact]
+    public void Classification_DoesNotTreatObjectMetadataAsMutationStatus()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                state = new
+                {
+                    vehicles = new[]
+                    {
+                        new { metadata = new { statePolluted = true, needsReset = true } }
+                    }
+                }
+            }
+        });
+
+        Assert.Equal(RuntimeResultDisposition.Success, RuntimeResultInspector.Classify(result));
+        Assert.Equal(RuntimeResultDisposition.Success, RuntimeResultInspector.ClassifyReadOnly(result));
+    }
+
+    [Fact]
+    public void ClassifyReadOnly_PendingWinsWhenSnapshotContainsMutationFlags()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                pending = true,
+                state = new
+                {
+                    diagnostics = new { statePolluted = true, needsReset = true }
+                }
+            }
+        });
+
+        Assert.Equal(RuntimeResultDisposition.Pending, RuntimeResultInspector.ClassifyReadOnly(result));
+    }
+
+    [Fact]
+    public void Classify_WritePendingWithNestedCurrentPollutionAsUnsafe()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                pending = true,
+                state = new
+                {
+                    drawResult = new
+                    {
+                        success = false,
+                        data = new { state = new { statePolluted = true } }
+                    }
+                }
+            }
+        });
+
+        Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
+    }
+
+    [Fact]
+    public void Classify_WriteIgnoresPollutionAndCommittedPlacementInsideBeforeSnapshot()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                state = new
+                {
+                    statePolluted = false,
+                    before = new
+                    {
+                        statePolluted = true,
+                        previousResult = new
+                        {
+                            success = false,
+                            data = new { state = new { needsReset = true } }
+                        },
+                        attributePlacement = new
+                        {
+                            beforeAttributeCount = 0,
+                            afterAttributeCount = 1,
+                            confirmResult = new { success = true }
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.False(RuntimeResultInspector.IsUnsafe(result));
+        Assert.Equal(RuntimeResultDisposition.Failure, RuntimeResultInspector.Classify(result));
+    }
+
+    [Theory]
+    [InlineData("statePolluted", "statePolluted=true")]
+    [InlineData("needsReset", "needsReset=true")]
+    [InlineData("outcomeUnknown", "outcomeUnknown=true")]
+    public void UnsafeMutationReason_NamesTheRuntimeFlag(string flag, string expected)
+    {
+        JObject state = new() { [flag] = true };
+        JObject result = new()
+        {
+            ["success"] = false,
+            ["data"] = new JObject { ["state"] = state }
+        };
+
+        Assert.Equal(expected, RuntimeResultInspector.UnsafeMutationReason(result));
+    }
+
     [Fact]
     public void Classify_NestedCommandPollutionAsUnsafeEvenWhenWrapperClaimsClean()
     {
@@ -117,6 +289,128 @@ public sealed class RuntimeResultInspectorTests
 
         Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
         Assert.False(RuntimeResultInspector.IsRetryableDefaultDefenseFailure(result));
+    }
+
+    [Fact]
+    public void Classify_CommittedAttributePlacementAsRecoverableWhenRailLayerRolledBackCleanly()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                state = new
+                {
+                    prepared = false,
+                    statePolluted = false,
+                    after = new
+                    {
+                        railCount = 0,
+                        illegalRailCount = 0,
+                        trainCount = 0,
+                        placedPlayerVehicleCount = 0
+                    },
+                    attributePlacement = new
+                    {
+                        beforeAttributeCount = 0,
+                        afterAttributeCount = 1,
+                        confirmResult = new { success = true }
+                    },
+                    drawResult = new
+                    {
+                        success = false,
+                        data = new { state = new { statePolluted = false, needsReset = false } }
+                    }
+                }
+            }
+        });
+
+        Assert.True(RuntimeResultInspector.IsRecoverableDefaultDefenseCheckpoint(result));
+        Assert.False(RuntimeResultInspector.IsUnsafe(result));
+        Assert.True(RuntimeResultInspector.IsRetryableDefaultDefenseFailure(result));
+        Assert.Equal(RuntimeResultDisposition.Failure, RuntimeResultInspector.Classify(result));
+    }
+
+    [Fact]
+    public void Classify_CommittedAttributePlacementAsRecoverableBeforeRailPlanning()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                state = new
+                {
+                    prepared = false,
+                    statePolluted = false,
+                    rollbackApplied = false,
+                    defense = new
+                    {
+                        railCount = 0,
+                        illegalRailCount = 0,
+                        trainCount = 0,
+                        placedPlayerVehicleCount = 0
+                    },
+                    extra = new
+                    {
+                        policy = "minimalLegalLoop",
+                        attributePlacement = new
+                        {
+                            beforeAttributeCount = 0,
+                            afterAttributeCount = 1,
+                            confirmResult = new
+                            {
+                                success = true,
+                                data = new { state = new { statePolluted = false } }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.True(RuntimeResultInspector.IsRecoverableDefaultDefenseCheckpoint(result));
+        Assert.False(RuntimeResultInspector.IsUnsafe(result));
+        Assert.True(RuntimeResultInspector.IsRetryableDefaultDefenseFailure(result));
+        Assert.Equal(RuntimeResultDisposition.Failure, RuntimeResultInspector.Classify(result));
+    }
+
+    [Fact]
+    public void Classify_CommittedAttributePlacementRemainsUnsafeWhenIllegalRailRemains()
+    {
+        JObject result = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                state = new
+                {
+                    prepared = false,
+                    statePolluted = false,
+                    after = new
+                    {
+                        railCount = 1,
+                        illegalRailCount = 1,
+                        trainCount = 0,
+                        placedPlayerVehicleCount = 0
+                    },
+                    attributePlacement = new
+                    {
+                        beforeAttributeCount = 0,
+                        afterAttributeCount = 1,
+                        confirmResult = new { success = true }
+                    },
+                    drawResult = new
+                    {
+                        success = false,
+                        data = new { state = new { statePolluted = false, needsReset = false } }
+                    }
+                }
+            }
+        });
+
+        Assert.False(RuntimeResultInspector.IsRecoverableDefaultDefenseCheckpoint(result));
+        Assert.True(RuntimeResultInspector.IsUnsafe(result));
     }
 
     [Fact]
