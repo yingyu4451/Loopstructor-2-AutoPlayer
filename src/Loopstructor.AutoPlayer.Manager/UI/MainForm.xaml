@@ -377,6 +377,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="72" />
                         </Grid.RowDefinitions>
 
@@ -444,9 +445,34 @@
                             </StackPanel>
                         </Grid>
 
+                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,8,0" VerticalAlignment="Bottom">
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="剧情" />
+                                <CheckBox
+                                    x:Name="_skipStory"
+                                    MinHeight="32"
+                                    VerticalContentAlignment="Center"
+                                    AutomationProperties.Name="跳过普通事件剧情"
+                                    Content="跳过普通事件剧情"
+                                    ToolTip="仅跳过带剧情的普通事件；每章首个轨神事件仍直接选择。" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="决策优先" />
+                                <ComboBox
+                                    x:Name="_decisionPriority"
+                                    AutomationProperties.Name="自动游玩决策优先级"
+                                    IsTextSearchEnabled="True"
+                                    ToolTip="选择优先合成三星战车，或优先获取扩轨所需的弹射点。" />
+                            </StackPanel>
+                        </Grid>
+
                         <Border
                             x:Name="_stageBanner"
-                            Grid.Row="3"
+                            Grid.Row="4"
                             Margin="0,0,0,8"
                             Padding="10,6"
                             Background="#243A2618"
@@ -490,7 +516,7 @@
                             </Grid>
                         </Border>
 
-                        <Border Grid.Row="4" Style="{StaticResource InsetPanelStyle}" Padding="10,8">
+                        <Border Grid.Row="5" Style="{StaticResource InsetPanelStyle}" Padding="10,8">
                             <Grid>
                                 <TextBlock
                                     x:Name="_timelineEmpty"

@@ -1,3 +1,4 @@
+using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
 using Loopstructor.AutoPlayer.Manager.UI;
@@ -135,6 +136,33 @@ public sealed class ManagerSettingsStoreTests
             string savedJson = File.ReadAllText(settingsPath);
             Assert.Contains("\"GitHubOwner\": \"yingyu4451\"", savedJson);
             Assert.Contains("\"GitHubRepository\": \"gui2\"", savedJson);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Save_PreservesStoryAndDecisionSettings()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            ManagerSettingsStore store = new(settingsPath);
+            ManagerSettings settings = new()
+            {
+                SkipStory = true,
+                DecisionPriority = AutomationDecisionPriority.ThreeStarVehicles
+            };
+
+            store.Save(settings);
+            ManagerSettings reloaded = store.Load(out string warning);
+
+            Assert.Empty(warning);
+            Assert.True(reloaded.SkipStory);
+            Assert.Equal(AutomationDecisionPriority.ThreeStarVehicles, reloaded.DecisionPriority);
         }
         finally
         {

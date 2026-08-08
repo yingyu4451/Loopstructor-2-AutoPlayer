@@ -157,7 +157,7 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(handler), value => value == "queryUiInteractables");
         Assert.Contains(
             LoadedStrings(handler),
-            value => value.Contains("1.5 秒录像观察时间", StringComparison.Ordinal));
+            value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public sealed class PluginRuntimeHostContractTests
     }
 
     [Fact]
-    public void NormalEvent_TypingFastPathReturnsBeforeScanningUiInteractables()
+    public void NormalEvent_TypingScansButtonsOnlyWhenStorySkippingIsEnabled()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
@@ -197,13 +197,24 @@ public sealed class PluginRuntimeHostContractTests
             "Loopstructor.AutoPlayer.Plugin.NormalEventUiRuntimeState",
             "get_IsTypingStory");
         int uiScan = FindLoadedString(instructions, "queryUiInteractables");
+        int skipStory = Array.FindIndex(
+            instructions,
+            typingState + 1,
+            instruction => instruction.Operand is MethodReference call &&
+                           IsCall("Loopstructor.AutoPlayer.Core.AutomationRunOptions", "get_SkipStory")(call));
 
         Assert.True(
             typingState >= 0 && typingState < uiScan,
             "The read-only typewriter state must be checked before the full UIButton scan.");
+        Assert.True(
+            skipStory > typingState && skipStory < uiScan,
+            "Typing may reach the UIButton scan only when the run explicitly enables story skipping.");
         Assert.Contains(
             instructions.Skip(typingState + 1).Take(uiScan - typingState - 1),
-            instruction => instruction.OpCode.Code == Code.Ret);
+            instruction => instruction.OpCode.Code == Code.Ret ||
+                           (instruction.OpCode.FlowControl == FlowControl.Branch &&
+                            instruction.Operand is Instruction target &&
+                            Array.IndexOf(instructions, target) > uiScan));
     }
 
     [Fact]
@@ -275,7 +286,7 @@ public sealed class PluginRuntimeHostContractTests
             bridge,
             "InvokeLightweightWaveFunctionSelection");
 
-        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("1.5 秒录像观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
         Assert.Contains(
             LoadedStrings(rewardWait),
             value => value.Contains("出现动画仍在播放", StringComparison.Ordinal));
@@ -294,13 +305,13 @@ public sealed class PluginRuntimeHostContractTests
             LoadedStrings(rewardWait),
             value => value.Contains("奖励物品已完整出现", StringComparison.Ordinal));
         Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "BuildRewardObjectsFingerprint"));
-        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("1.5 秒录像观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
-            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.5f) < 0.001f);
+            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
         Assert.Contains(eventWait.Body.Instructions, instruction =>
-            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.5f) < 0.001f);
+            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
         Instruction[] tickInstructions = RequireMethod(controller, "TickInGame").Body.Instructions.ToArray();
         int rewardObservation = FindCall(tickInstructions, ControllerType, "TryWaitForRewardOptions");
         int contextualDecision = FindCall(tickInstructions, ControllerType, "DecideObservedReward");
@@ -484,7 +495,12 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(maintenance), value => value == "previewRailPath");
         Assert.Contains(LoadedStrings(maintenance), value => value == "drawRailPath");
         Assert.Contains(LoadedStrings(maintenance), value => value == "placeVehicleOnLine");
-        Assert.DoesNotContain(LoadedStrings(maintenance), value => value == "queryDisposableGridOptions");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "queryDisposableGridOptions");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "queryMovableStationState");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "startStationMove");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "confirmStationMoveGrid");
+        Assert.DoesNotContain(LoadedStrings(maintenance), value => value == "startRightDragStationToGrid");
+        Assert.DoesNotContain(LoadedStrings(maintenance), value => value == "serviceFallback");
         Assert.DoesNotContain(LoadedStrings(maintenance), value => value == "useDisposable");
         Assert.Contains(LoadedStrings(maintenance), value => value == "confirmDisposableGrid");
         Assert.Contains(LoadedStrings(maintenance), value => value == "cancelDisposable");
@@ -492,12 +508,12 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(
             Calls(maintenance),
             IsCall(
-                "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseExpansionAttributeGridProbe",
-                "TryInitialize"));
+                "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseStationGridProbe",
+                "TryInitializePlacement"));
         Assert.Contains(
             Calls(maintenance),
             IsCall(
-                "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseExpansionAttributeGridProbe",
+                "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseStationGridProbe",
                 "ProbeNext"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "NeedsDefenseExpansion"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideDefenseExpansion"));
@@ -506,9 +522,9 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadDrawnRailInstanceId"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "VerifyDefenseExpansionRail"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionVehiclePlacement"));
-        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "NeedsExpansionAttributePlacement"));
-        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadExpansionAttributeInteractionId"));
-        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionAttributeDirectConfirmation"));
+        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "RequiredExpansionDisposable"));
+        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadExpansionInteractionId"));
+        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionDirectConfirmation"));
         Assert.Contains(
             LoadedStrings(maintenance),
             value => value.Contains("单次命令中打开并确认", StringComparison.Ordinal));

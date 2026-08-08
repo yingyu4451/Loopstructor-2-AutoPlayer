@@ -309,7 +309,7 @@ public sealed class ManagerDemoTests
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void RunControls_OnlyCurrentlyEnabledCheatModeBlocksStart(
+    public void RunControls_CheatObservationModeDoesNotBlockStart(
         bool enabled,
         bool used)
     {
@@ -323,7 +323,7 @@ public sealed class ManagerDemoTests
 
         RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
 
-        Assert.Equal(!enabled, availability.CanStart);
+        Assert.True(availability.CanStart);
         Assert.False(availability.CanPause);
         Assert.False(availability.CanResume);
         Assert.False(availability.CanStop);
@@ -343,6 +343,25 @@ public sealed class ManagerDemoTests
         RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
 
         Assert.True(availability.CanStart);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void RunControls_PersistentCheatEffectsBlockStart(bool baseGodMode, bool mapSkip)
+    {
+        AutoPlayerStatus status = new()
+        {
+            RunState = AutoPlayerRunState.Standby,
+            CheatModeEnabled = true,
+            BaseGodModeEnabled = baseGodMode,
+            MapSkipEnabled = mapSkip
+        };
+
+        RunControlAvailability availability = RunControlAvailability.From(sessionTrusted: true, status);
+
+        Assert.False(availability.CanStart);
     }
 
     [Theory]

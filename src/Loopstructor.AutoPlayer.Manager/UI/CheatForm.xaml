@@ -163,7 +163,7 @@
                               FontSize="15"
                               FontWeight="Bold"
                               Content="开启作弊模式"
-                              ToolTip="通过安全握手且自动游玩未运行或暂停时可以启用作弊模式。" />
+                              ToolTip="通过安全握手后可随时启用；自动游玩期间仅开放查询、怪物 ID 和 Buff 监视。" />
                 </Grid>
             </Border>
 

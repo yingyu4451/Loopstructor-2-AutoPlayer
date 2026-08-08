@@ -175,7 +175,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int directConfirmationBuilder = FindCall(
             use,
             BattleDecisionEngineType,
-            "DecideExpansionAttributeDirectConfirmation");
+            "DecideExpansionDirectConfirmation");
         int deferredConfirmation = FindFieldStore(
             use,
             "_defenseAttributeConfirmAction",
@@ -211,7 +211,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int refreshedIdentityRead = FindCall(
             confirm,
             BattleDecisionEngineType,
-            "ReadExpansionAttributeInteractionId",
+            "ReadExpansionInteractionId",
             confirmWrite + 1);
         int refreshedIdentityStore = FindFieldStore(
             confirm,
@@ -235,7 +235,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int settlementOwnershipCheck = FindCall(
             settlement,
             BattleDecisionEngineType,
-            "IsOwnedExpansionAttributePreview");
+            "IsOwnedExpansionPreview");
         int identityRelease = FindFieldStore(
             settlement,
             "_defenseAttributeInteractionInstanceId");
@@ -253,7 +253,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int cleanupDecision = FindCall(
             cleanup,
             BattleDecisionEngineType,
-            "DecideExpansionAttributeCancellation");
+            "DecideExpansionCancellation");
         int cleanupWrite = FindCall(cleanup, ControllerType, "ExecuteWithResult");
         int enterCleanupVerification = FindEnumFieldStore(
             cleanup,
@@ -271,7 +271,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int cleanupOwnershipCheck = FindCall(
             verifyCleanup,
             BattleDecisionEngineType,
-            "IsOwnedExpansionAttributePreview");
+            "IsOwnedExpansionPreview");
         int finishCleanup = FindCall(
             verifyCleanup,
             ControllerType,
@@ -381,11 +381,11 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int confirmationBuilder = FindCall(
             use,
             BattleDecisionEngineType,
-            "DecideExpansionAttributeDirectConfirmation");
+            "DecideExpansionDirectConfirmation");
 
         Assert.True(confirmationBuilder >= 0);
         Assert.Equal(-1, FindCall(use, ControllerType, "ExecuteWithResult"));
-        Assert.Equal(-1, FindCall(use, BattleDecisionEngineType, "ReadExpansionAttributeInteractionId"));
+        Assert.Equal(-1, FindCall(use, BattleDecisionEngineType, "ReadExpansionInteractionId"));
         Assert.DoesNotContain(LoadedStrings(use), value => value == "useDisposable");
     }
 
@@ -409,21 +409,26 @@ public sealed class PreviewOwnershipRuntimeContractTests
             "_battleTacticStep",
             EnumValue(steps, "CancelDisposable"),
             enterSettlement + 1);
-        int pendingComparison = FindInt32NotEqualBranchSkipping(
+        int uncertaintyStore = FindFieldStore(
             confirm,
-            expectedValue: 1,
-            startIndex: classify + 1,
-            protectedIndex: enterSettlement);
+            "_ownedPreviewConfirmationOutcomeUncertain",
+            classify + 1);
+        int settlementDecision = FindPendingDispositionDecision(
+            confirm,
+            uncertaintyStore + 1,
+            enterSettlement,
+            enterCancellation);
 
         Assert.True(classify >= 0 && enterSettlement > classify);
         Assert.True(
-            pendingComparison > classify && pendingComparison < enterSettlement,
-            "RuntimeResultDisposition.Pending must fall through into settlement observation.");
+            uncertaintyStore > classify &&
+            settlementDecision > uncertaintyStore,
+            "RuntimeResultDisposition.Pending must feed the accepted-or-pending decision that enters settlement observation.");
         Assert.True(
             enterCancellation > enterSettlement,
             "Only a disposition other than accepted or Pending may enter cancellation.");
         Assert.DoesNotContain(
-            CallsBetween(confirm, pendingComparison, enterSettlement),
+            CallsBetween(confirm, settlementDecision, enterSettlement),
             IsCall(ControllerType, "ClearOwnedDisposable"));
     }
 
@@ -484,15 +489,15 @@ public sealed class PreviewOwnershipRuntimeContractTests
         int deferredRelease = FindFieldStore(
             instructions,
             "_battleWaveEndPendingPreviewRelease");
-        int earlyReturn = FindInstruction(
-            instructions,
-            instruction => instruction.OpCode.Code == Code.Ret,
-            deferredRelease + 1);
         int resetAfterDeferral = FindCall(
             instructions,
             ControllerType,
             "ResetBattleTactics",
             deferredRelease + 1);
+        int earlyReturn = FindReturnExit(
+            instructions,
+            deferredRelease + 1,
+            resetAfterDeferral);
         int markWaveComplete = FindFieldStore(instructions, "_wasInWave", deferredRelease + 1);
 
         Assert.True(
@@ -705,15 +710,15 @@ public sealed class PreviewOwnershipRuntimeContractTests
             instructions,
             ControllerType,
             "TrySetCheatMode");
-        int rejectionReturn = FindInstruction(
-            instructions,
-            instruction => instruction.OpCode.Code == Code.Ret,
-            previewSafetyGate + 1);
         int enabledMutation = FindCall(
             instructions,
             CheatControllerType,
             "set_Enabled",
             previewSafetyGate + 1);
+        int rejectionReturn = FindReturnExit(
+            instructions,
+            previewSafetyGate + 1,
+            enabledMutation);
 
         Assert.True(
             processSafetyGate >= 0 && previewSafetyGate > processSafetyGate,
@@ -758,7 +763,7 @@ public sealed class PreviewOwnershipRuntimeContractTests
         AssertReadOnlyProofClearsUncertainty(
             defenseSettlement,
             BattleDecisionEngineType,
-            "IsOwnedExpansionAttributePreview");
+            "IsOwnedExpansionPreview");
 
         MethodDefinition fail = RequireMethod(controller, "FailOwnedPreviewRelease");
         int failUncertaintyRead = FindFieldLoad(
@@ -1014,15 +1019,28 @@ public sealed class PreviewOwnershipRuntimeContractTests
             stateMachineCase,
             queryType,
             queryMethod);
-        int failureReturn = FindInstruction(
+        int successBranch = FindInstruction(
             stateMachineCase,
-            instruction => instruction.OpCode.Code == Code.Ret,
+            instruction =>
+                instruction.OpCode.FlowControl == FlowControl.Cond_Branch &&
+                instruction.Operand is Instruction target &&
+                IndexOf(stateMachineCase, target) > query,
             query + 1);
+        int successStart = successBranch < 0 ||
+                           stateMachineCase[successBranch].Operand is not Instruction successTarget
+            ? -1
+            : IndexOf(stateMachineCase, successTarget);
+        Instruction? failureExit = successStart < 0
+            ? null
+            : PreviousMeaningfulInstruction(stateMachineCase, successStart);
 
         Assert.True(
-            query >= 0 && failureReturn > query,
-            "Expected the state-machine case to return immediately after its read-only failure handling.");
-        return stateMachineCase.Skip(query).Take(failureReturn - query + 1).ToArray();
+            query >= 0 && successBranch > query && successStart > successBranch,
+            "Expected a forward control-flow guard around the read-only failure handling.");
+        Assert.True(
+            failureExit != null && IsReturnExit(failureExit),
+            "The read-only failure path must leave the state-machine case without falling through to a write.");
+        return stateMachineCase.Skip(query).Take(successStart - query).ToArray();
     }
 
     private static void AssertBattleReadOnlyFailurePreservesOwnedPreview(
@@ -1120,31 +1138,155 @@ public sealed class PreviewOwnershipRuntimeContractTests
         return -1;
     }
 
-    private static int FindInt32NotEqualBranchSkipping(
+    private static int FindPendingDispositionDecision(
         IReadOnlyList<Instruction> instructions,
-        int expectedValue,
         int startIndex,
-        int protectedIndex)
+        int settlementIndex,
+        int cancellationIndex)
     {
-        for (int index = Math.Max(0, startIndex); index + 1 < protectedIndex; index++)
+        const int pendingDispositionValue = 1;
+        int pendingEquality = -1;
+        for (int index = Math.Max(0, startIndex);
+             index < Math.Min(settlementIndex, instructions.Count);
+             index++)
         {
-            if (!TryReadInt32(instructions[index], out int value) || value != expectedValue)
+            Instruction instruction = instructions[index];
+            if (instruction.OpCode.Code == Code.Ceq)
+            {
+                Instruction? equalityValue = PreviousMeaningfulInstruction(instructions, index);
+                if (equalityValue != null &&
+                    TryReadInt32(equalityValue, out int equalityExpected) &&
+                    equalityExpected == pendingDispositionValue)
+                {
+                    pendingEquality = index;
+                }
+            }
+
+            if (instruction.OpCode.FlowControl != FlowControl.Cond_Branch ||
+                instruction.Operand is not Instruction target)
             {
                 continue;
             }
 
-            Instruction branch = instructions[index + 1];
-            if (branch.OpCode.Code is not (Code.Bne_Un or Code.Bne_Un_S) ||
-                branch.Operand is not Instruction target ||
-                IndexOf(instructions, target) <= protectedIndex)
+            int targetIndex = IndexOf(instructions, target);
+            Instruction? comparison = PreviousMeaningfulInstruction(instructions, index);
+            Instruction? pendingValue = comparison;
+            if (comparison?.OpCode.Code == Code.Ceq)
+            {
+                int comparisonIndex = IndexOf(instructions, comparison);
+                pendingValue = comparisonIndex < 0
+                    ? null
+                    : PreviousMeaningfulInstruction(instructions, comparisonIndex);
+            }
+
+            if (pendingValue == null ||
+                !TryReadInt32(pendingValue, out int value) ||
+                value != pendingDispositionValue)
             {
                 continue;
             }
 
-            return index;
+            bool pendingFallsThroughToSettlement =
+                instruction.OpCode.Code is Code.Bne_Un or Code.Bne_Un_S or Code.Brfalse or Code.Brfalse_S &&
+                targetIndex > settlementIndex &&
+                targetIndex <= cancellationIndex;
+            bool pendingBranchesToSettlement =
+                instruction.OpCode.Code is Code.Beq or Code.Beq_S or Code.Brtrue or Code.Brtrue_S &&
+                targetIndex <= settlementIndex;
+            if (pendingFallsThroughToSettlement || pendingBranchesToSettlement)
+            {
+                return index;
+            }
+        }
+
+        if (pendingEquality >= 0)
+        {
+            for (int index = pendingEquality + 1;
+                 index < Math.Min(settlementIndex, instructions.Count);
+                 index++)
+            {
+                Instruction branch = instructions[index];
+                if (branch.OpCode.FlowControl == FlowControl.Cond_Branch &&
+                    branch.Operand is Instruction target)
+                {
+                    int targetIndex = IndexOf(instructions, target);
+                    if (targetIndex > settlementIndex && targetIndex <= cancellationIndex)
+                    {
+                        return index;
+                    }
+                }
+            }
         }
 
         return -1;
+    }
+
+    private static int FindReturnExit(
+        IReadOnlyList<Instruction> instructions,
+        int startIndex,
+        int endIndex)
+    {
+        for (int index = Math.Max(0, startIndex);
+             index < Math.Min(endIndex, instructions.Count);
+             index++)
+        {
+            if (IsReturnExit(instructions[index])) return index;
+        }
+
+        return -1;
+    }
+
+    private static bool IsReturnExit(Instruction instruction)
+    {
+        if (instruction.OpCode.Code == Code.Ret) return true;
+        if (instruction.OpCode.Code is not (Code.Br or Code.Br_S or Code.Leave or Code.Leave_S) ||
+            instruction.Operand is not Instruction target)
+        {
+            return false;
+        }
+
+        var visited = new HashSet<Instruction>();
+        Instruction? current = target;
+        while (current != null && visited.Add(current))
+        {
+            switch (current.OpCode.Code)
+            {
+                case Code.Ret:
+                    return true;
+                case Code.Br:
+                case Code.Br_S:
+                case Code.Leave:
+                case Code.Leave_S:
+                    current = current.Operand as Instruction;
+                    continue;
+                case Code.Nop:
+                case Code.Ldloc:
+                case Code.Ldloc_S:
+                case Code.Ldloc_0:
+                case Code.Ldloc_1:
+                case Code.Ldloc_2:
+                case Code.Ldloc_3:
+                case Code.Ldc_I4_M1:
+                case Code.Ldc_I4_0:
+                case Code.Ldc_I4_1:
+                case Code.Ldc_I4_2:
+                case Code.Ldc_I4_3:
+                case Code.Ldc_I4_4:
+                case Code.Ldc_I4_5:
+                case Code.Ldc_I4_6:
+                case Code.Ldc_I4_7:
+                case Code.Ldc_I4_8:
+                case Code.Ldc_I4_S:
+                case Code.Ldc_I4:
+                case Code.Ldnull:
+                    current = current.Next;
+                    continue;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
     }
 
     private static int IndexOf(IReadOnlyList<Instruction> instructions, Instruction target)

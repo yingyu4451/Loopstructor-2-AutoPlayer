@@ -45,6 +45,16 @@ public sealed class BattleDecisionEngine
     private const double LiveThreatUrgencyExponent = 4d;
     private const double LiveThreatUrgencyActivationRadius = 3d;
     private const string ExpansionAttributeDisposableEnum = "FreePoint_Attribute";
+    private const string ExpansionCommonDisposableEnum = "FreePoint";
+    private static readonly HashSet<string> ReservedRailExpansionDisposableEnums = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "EnergyPoint",
+        "FreePoint",
+        "FreePoint_Attribute",
+        "AddNewPoint",
+        "AddNewPoint_Attribute",
+        "CreateFreeEnergyExpansion"
+    };
 
     public AutomationAction? Decide(
         BattleDecisionContext context,
@@ -385,9 +395,33 @@ public sealed class BattleDecisionEngine
             return null;
         }
 
+        JObject? previewVehicle = (State(vehicleResult)["vehicles"] as JArray)?
+            .OfType<JObject>()
+            .Where(IsBagVehicle)
+            .OrderByDescending(item => ReadInt(item["level"], 0))
+            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
+            .FirstOrDefault();
+        JObject vehicleIdentity = previewVehicle == null
+            ? new JObject()
+            : BuildIdentity(previewVehicle, preferItemInstanceId: false);
+        if (!vehicleIdentity.HasValues)
+        {
+            return null;
+        }
+
+        JObject expansionArguments = new()
+        {
+            ["linePointInstanceIds"] = linePointInstanceIds,
+            ["vehicle"] = vehicleIdentity.DeepClone()
+        };
+        if (vehicleIdentity["instanceId"]?.Type == JTokenType.Integer)
+        {
+            expansionArguments["vehicleInstanceId"] = vehicleIdentity["instanceId"]!.DeepClone();
+        }
+
         return new AutomationAction(
             "drawRailPath",
-            new JObject { ["linePointInstanceIds"] = linePointInstanceIds },
+            expansionArguments,
             AutomationStage.PreparingDefense,
             occupiedPoints.Count > 0
                 ? "现有车列已满且背包仍有战车；按玩家拖线规则创建一条优先补足现有防线相反方向的额外合法闭环。"
@@ -446,6 +480,9 @@ public sealed class BattleDecisionEngine
         return state["wouldBeLegal"]?.Value<bool>() == true
                && state["sideEffectCheckPassed"]?.Value<bool>() == true
                && state["statePolluted"]?.Value<bool>() != true
+               && state["requiresSpeedSource"]?.Value<bool>() == false
+               && TryReadDouble(state["predictedLoopCycleSeconds"], out double predictedCycle)
+               && predictedCycle > 0d
                && ReadInt(state["beforeRailCount"], -1) == ReadInt(state["afterRailCount"], -2);
     }
 
@@ -569,6 +606,63 @@ public sealed class BattleDecisionEngine
         AvailableExpansionPoints(catapultResult)
             .Count(item => item["isAttribute"]?.Value<bool>() == true);
 
+    public int CountAvailableExpansionStations(JObject? catapultResult, string disposableEnum)
+    {
+        bool attribute = string.Equals(
+            disposableEnum,
+            ExpansionAttributeDisposableEnum,
+            StringComparison.Ordinal);
+        return AvailableExpansionPoints(catapultResult).Count(item =>
+            attribute
+                ? item["isAttribute"]?.Value<bool>() == true
+                : item["isAttribute"]?.Value<bool>() != true &&
+                  string.Equals(
+                      item["recycleDisposableEnum"]?.Value<string>(),
+                      disposableEnum,
+                      StringComparison.Ordinal));
+    }
+
+    public string RequiredExpansionDisposable(JObject? catapultResult)
+    {
+        List<JObject> points = AvailableExpansionPoints(catapultResult);
+        if (points.All(item => item["isAttribute"]?.Value<bool>() != true))
+        {
+            return ExpansionAttributeDisposableEnum;
+        }
+
+        List<JObject> attributes = points
+            .Where(item => item["isAttribute"]?.Value<bool>() == true)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToList();
+        List<JObject> commons = points
+            .Where(item => item["isAttribute"]?.Value<bool>() != true)
+            .Where(item => TryReadPoint(item["grid"], out _, out _))
+            .ToList();
+        if (commons.Count < 2)
+        {
+            return ExpansionCommonDisposableEnum;
+        }
+
+        foreach (JObject attribute in attributes)
+        {
+            TryReadPoint(attribute["grid"], out double ax, out double ay);
+            for (int first = 0; first < commons.Count - 1; first++)
+            {
+                TryReadPoint(commons[first]["grid"], out double bx, out double by);
+                for (int second = first + 1; second < commons.Count; second++)
+                {
+                    TryReadPoint(commons[second]["grid"], out double cx, out double cy);
+                    if (Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) > 0.000001d)
+                    {
+                        return string.Empty;
+                    }
+                }
+            }
+        }
+
+        return ExpansionCommonDisposableEnum;
+    }
+
     public bool NeedsExpansionAttributePlacement(JObject? catapultResult)
     {
         List<JObject> points = AvailableExpansionPoints(catapultResult);
@@ -576,8 +670,14 @@ public sealed class BattleDecisionEngine
                && points.Count(item => item["isAttribute"]?.Value<bool>() != true) >= 2;
     }
 
-    public AutomationAction? DecideExpansionAttributeDisposableUse(JObject? disposableResult)
+    public AutomationAction? DecideExpansionAttributeDisposableUse(JObject? disposableResult) =>
+        DecideExpansionDisposableUse(disposableResult, ExpansionAttributeDisposableEnum);
+
+    public AutomationAction? DecideExpansionDisposableUse(
+        JObject? disposableResult,
+        string disposableEnum)
     {
+        if (!IsExpansionStationDisposable(disposableEnum)) return null;
         JObject state = State(disposableResult);
         if (state["isInPreview"]?.Value<bool>() == true)
         {
@@ -589,7 +689,7 @@ public sealed class BattleDecisionEngine
             .Where(candidate =>
                 string.Equals(
                     candidate["disposableEnum"]?.Value<string>(),
-                    ExpansionAttributeDisposableEnum,
+                    disposableEnum,
                     StringComparison.Ordinal))
             .Where(candidate =>
                 candidate["active"]?.Value<bool>() != false
@@ -612,12 +712,14 @@ public sealed class BattleDecisionEngine
             return null;
         }
 
-        identity["disposableEnum"] = ExpansionAttributeDisposableEnum;
+        identity["disposableEnum"] = disposableEnum;
         return new AutomationAction(
             "useDisposable",
             identity,
             AutomationStage.PreparingDefense,
-            "使用背包中的动力弹射点道具，进入玩家格子预览流程。");
+            disposableEnum == ExpansionAttributeDisposableEnum
+                ? "使用背包中的动力弹射点道具，进入玩家格子预览流程。"
+                : "使用左下角背包中的普通弹射点道具，进入玩家格子预览流程。");
     }
 
     public JObject? SelectExpansionAttributeGrid(JObject? gridOptionsResult, JObject? catapultResult)
@@ -690,12 +792,16 @@ public sealed class BattleDecisionEngine
     }
 
     public int ReadExpansionAttributeInteractionId(JObject? disposableResult)
+        => ReadExpansionInteractionId(disposableResult, ExpansionAttributeDisposableEnum);
+
+    public int ReadExpansionInteractionId(JObject? disposableResult, string disposableEnum)
     {
+        if (!IsExpansionStationDisposable(disposableEnum)) return 0;
         JObject state = State(disposableResult);
         return state["isInPreview"]?.Value<bool>() == true
                && string.Equals(
                    state["disposableEnum"]?.Value<string>(),
-                   ExpansionAttributeDisposableEnum,
+                   disposableEnum,
                    StringComparison.Ordinal)
             ? ReadInt(state["interactionInstanceId"], 0)
             : 0;
@@ -705,14 +811,26 @@ public sealed class BattleDecisionEngine
         JObject? disposableResult,
         int interactionInstanceId,
         bool requireGridInteraction)
+        => IsOwnedExpansionPreview(
+            disposableResult,
+            interactionInstanceId,
+            ExpansionAttributeDisposableEnum,
+            requireGridInteraction);
+
+    public bool IsOwnedExpansionPreview(
+        JObject? disposableResult,
+        int interactionInstanceId,
+        string disposableEnum,
+        bool requireGridInteraction)
     {
+        if (!IsExpansionStationDisposable(disposableEnum)) return false;
         JObject state = State(disposableResult);
         if (interactionInstanceId == 0 ||
             state["isInPreview"]?.Value<bool>() != true ||
             ReadInt(state["interactionInstanceId"], 0) != interactionInstanceId ||
             !string.Equals(
                 state["disposableEnum"]?.Value<string>(),
-                ExpansionAttributeDisposableEnum,
+                disposableEnum,
                 StringComparison.Ordinal))
         {
             return false;
@@ -738,10 +856,20 @@ public sealed class BattleDecisionEngine
     public AutomationAction? DecideExpansionAttributeCancellation(
         JObject? disposableResult,
         int interactionInstanceId)
+        => DecideExpansionCancellation(
+            disposableResult,
+            interactionInstanceId,
+            ExpansionAttributeDisposableEnum);
+
+    public AutomationAction? DecideExpansionCancellation(
+        JObject? disposableResult,
+        int interactionInstanceId,
+        string disposableEnum)
     {
-        if (!IsOwnedExpansionAttributePreview(
+        if (!IsOwnedExpansionPreview(
                 disposableResult,
                 interactionInstanceId,
+                disposableEnum,
                 requireGridInteraction: false))
         {
             return null;
@@ -751,11 +879,11 @@ public sealed class BattleDecisionEngine
             "cancelDisposable",
             JObject.FromObject(new
             {
-                disposableEnum = ExpansionAttributeDisposableEnum,
+                disposableEnum,
                 interactionInstanceId
             }),
             AutomationStage.PreparingDefense,
-            "取消由自动游玩创建的动力弹射点预览，恢复玩家输入。");
+            "取消由自动游玩创建的弹射点预览，恢复玩家输入。");
     }
 
     public AutomationAction? DecideExpansionAttributeConfirmation(
@@ -785,13 +913,23 @@ public sealed class BattleDecisionEngine
     public AutomationAction? DecideExpansionAttributeDirectConfirmation(
         AutomationAction? itemIdentityAction,
         JObject? selectedGrid)
+        => DecideExpansionDirectConfirmation(
+            itemIdentityAction,
+            selectedGrid,
+            ExpansionAttributeDisposableEnum);
+
+    public AutomationAction? DecideExpansionDirectConfirmation(
+        AutomationAction? itemIdentityAction,
+        JObject? selectedGrid,
+        string disposableEnum)
     {
+        if (!IsExpansionStationDisposable(disposableEnum)) return null;
         if (itemIdentityAction == null ||
             selectedGrid == null ||
             !string.Equals(itemIdentityAction.Command, "useDisposable", StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(
                 itemIdentityAction.Arguments["disposableEnum"]?.Value<string>(),
-                ExpansionAttributeDisposableEnum,
+                disposableEnum,
                 StringComparison.Ordinal) ||
             !HasIdentity(itemIdentityAction.Arguments) ||
             !TryReadPoint(selectedGrid, out double gridX, out double gridY) ||
@@ -803,14 +941,20 @@ public sealed class BattleDecisionEngine
 
         JObject arguments = (JObject)itemIdentityAction.Arguments.DeepClone();
         arguments.Remove("interactionInstanceId");
-        arguments["disposableEnum"] = ExpansionAttributeDisposableEnum;
+        arguments["disposableEnum"] = disposableEnum;
         arguments["grid"] = selectedGrid.DeepClone();
         return new AutomationAction(
             "confirmDisposableGrid",
             arguments,
             AutomationStage.PreparingDefense,
-            "按背包道具的稳定身份在单次玩家等价命令中打开并确认动力弹射点。");
+            disposableEnum == ExpansionAttributeDisposableEnum
+                ? "按背包道具的稳定身份在单次玩家等价命令中打开并确认动力弹射点。"
+                : "按背包道具的稳定身份在单次玩家等价命令中打开并确认普通弹射点。");
     }
+
+    private static bool IsExpansionStationDisposable(string disposableEnum) =>
+        string.Equals(disposableEnum, ExpansionAttributeDisposableEnum, StringComparison.Ordinal) ||
+        string.Equals(disposableEnum, ExpansionCommonDisposableEnum, StringComparison.Ordinal);
 
     private static AutomationAction? DecideDisposableUse(JObject disposable)
     {
@@ -949,6 +1093,12 @@ public sealed class BattleDecisionEngine
 
     private static bool IsSupportedDisposable(JObject item)
     {
+        string disposableEnum = item["disposableEnum"]?.Value<string>() ?? string.Empty;
+        if (ReservedRailExpansionDisposableEnums.Contains(disposableEnum))
+        {
+            return false;
+        }
+
         string confirmKind = ResolveConfirmKind(item);
         string effectKind = item.SelectToken("effectFacts.effectKind")?.Value<string>() ?? string.Empty;
         bool safeEffect = effectKind is
@@ -956,8 +1106,33 @@ public sealed class BattleDecisionEngine
             "targetBuff" or
             "createStationWithBuiltInBuff" or
             "createStationWithLegacyBuff";
-        return safeEffect &&
-               (confirmKind is "none" or "grid" or "world" or "positionRaycast");
+        bool supportedConfirmation = confirmKind is "none" or "grid" or "world" or "positionRaycast"
+                                     || confirmKind == "targetRaycast" && HasCompleteTargetRaycastContract(item);
+        return safeEffect && supportedConfirmation;
+    }
+
+    private static bool HasCompleteTargetRaycastContract(JObject item)
+    {
+        if (item["confirmContract"] is not JObject contract ||
+            contract["needsTarget"]?.Value<bool>() != true ||
+            contract["needsWorldPosition"]?.Value<bool>() != true ||
+            contract["targetCandidatesRequired"]?.Value<bool>() != true ||
+            item["sameItemIdentityRequiredForConfirm"]?.Value<bool>() != true ||
+            ReadInt(item["itemInstanceId"], ReadInt(item["instanceId"], 0)) == 0)
+        {
+            return false;
+        }
+
+        string confirmCommand = item["confirmCommand"]?.Value<string>() ?? string.Empty;
+        bool hasTargetIdentityArgument = ContainsString(contract["allowedArgs"] as JArray, "targetInstanceId")
+                                         || ContainsString(contract["allowedArgs"] as JArray, "instanceId")
+                                         || ContainsString(contract["allowedArgs"] as JArray, "path");
+        bool hasItemRestoreIdentity = ContainsString(item["restoreIdentityArgs"] as JArray, "itemInstanceId")
+                                      || ContainsString(item["restoreIdentityArgs"] as JArray, "instanceId")
+                                      || ContainsString(item["restoreIdentityArgs"] as JArray, "path");
+        return confirmCommand.EndsWith("confirm_disposable_target", StringComparison.OrdinalIgnoreCase)
+               && hasTargetIdentityArgument
+               && hasItemRestoreIdentity;
     }
 
     private static bool IsSupportedPreview(JObject disposable)
@@ -1592,18 +1767,21 @@ public sealed class BattleDecisionEngine
 
     private static bool BuildTargetConfirmation(JObject arguments, JObject disposable)
     {
-        if (HasTarget(arguments))
-        {
-            return true;
-        }
-
         JObject? candidate = (disposable["targetCandidates"] as JArray)?
             .OfType<JObject>()
-            .FirstOrDefault(item => item["conditionPass"]?.Value<bool>() == true && HasIdentity(item));
+            .FirstOrDefault(item =>
+                item["conditionPass"]?.Value<bool>() == true && HasStableTargetIdentity(item));
         if (candidate == null)
         {
             return false;
         }
+
+        arguments.Remove("target");
+        arguments.Remove("targetInstanceId");
+        arguments.Remove("instanceId");
+        arguments.Remove("path");
+        arguments.Remove("world");
+        arguments.Remove("grid");
 
         int instanceId = ReadInt(candidate["instanceId"], 0);
         if (instanceId != 0)
@@ -1684,11 +1862,12 @@ public sealed class BattleDecisionEngine
         || !string.IsNullOrWhiteSpace(item["path"]?.Value<string>())
         || ReadInt(item["index"], -1) >= 0;
 
-    private static bool HasTarget(JObject arguments) =>
+    private static bool HasStableTargetIdentity(JObject arguments) =>
         ReadInt(arguments["targetInstanceId"], ReadInt(arguments["instanceId"], 0)) != 0
-        || !string.IsNullOrWhiteSpace(arguments["path"]?.Value<string>())
-        || HasObject(arguments, "world")
-        || HasObject(arguments, "grid");
+        || !string.IsNullOrWhiteSpace(arguments["path"]?.Value<string>());
+
+    private static bool ContainsString(JArray? values, string expected) =>
+        values?.Values<string>().Any(value => string.Equals(value, expected, StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool HasObject(JObject value, string property) =>
         value[property] is JObject;

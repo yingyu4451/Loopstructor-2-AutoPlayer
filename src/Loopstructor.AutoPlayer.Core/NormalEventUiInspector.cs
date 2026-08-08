@@ -209,3 +209,23 @@ public static class NormalEventUiInspector
         return Math.Max(0, oneBased - 1);
     }
 }
+
+public static class NormalEventUiDecision
+{
+    public static NormalEventUiButton? SelectTarget(NormalEventUiSnapshot snapshot, bool skipStory)
+    {
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+
+        if (snapshot.SelectableOptions.Count > 0)
+        {
+            return snapshot.SelectableOptions[0];
+        }
+
+        if (skipStory && snapshot.SkipButton != null)
+        {
+            return snapshot.SkipButton;
+        }
+
+        return snapshot.ContinueButton ?? snapshot.EnterChoicesButton;
+    }
+}

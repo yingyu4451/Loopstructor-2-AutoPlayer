@@ -53,6 +53,12 @@ public enum AutomationGameMode
     Random
 }
 
+public enum AutomationDecisionPriority
+{
+    ThreeStarVehicles,
+    CatapultPoints
+}
+
 public enum AutoPlayerActivationMode
 {
     IsolatedQa,
@@ -96,6 +102,8 @@ public sealed class AutomationRunOptions
     public int MaxRunMinutes { get; set; } = 120;
     public int MaxWaves { get; set; }
     public bool ContinueExistingProfile { get; set; }
+    public bool SkipStory { get; set; }
+    public AutomationDecisionPriority DecisionPriority { get; set; } = AutomationDecisionPriority.CatapultPoints;
 }
 
 public sealed class AutomationAction
@@ -428,12 +436,21 @@ public static class CheatCommands
         ModifyVehicle,
         SetVehicleEnchantment,
         ModifyEnemy,
-        SetEnemyIdOverlay,
-        SetEnemyBuffOverlay,
         GrantRelic,
         RemoveRelic,
         SpawnEnemy,
         SetMapSkipEnabled
+    };
+
+    public static IReadOnlyList<string> AutoPlayObservationCommands { get; } = new[]
+    {
+        SetEnabled,
+        QueryCatalog,
+        QueryState,
+        QueryVehicles,
+        QueryEnemies,
+        SetEnemyIdOverlay,
+        SetEnemyBuffOverlay
     };
 
     public static bool IsCheatCommand(string? command) =>
@@ -443,4 +460,8 @@ public static class CheatCommands
     public static bool IsMutationCommand(string? command) =>
         !string.IsNullOrWhiteSpace(command) &&
         Mutations.Contains(command ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsAutoPlayObservationCommand(string? command) =>
+        !string.IsNullOrWhiteSpace(command) &&
+        AutoPlayObservationCommands.Contains(command ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 }

@@ -177,13 +177,13 @@ public sealed class RewardUiAutomationContractTests
         Assert.Contains("busy", strings);
         Assert.Contains("refresh", strings);
         Assert.Contains("finished", strings);
-        Assert.Contains(strings, value => value.Contains("1.5", StringComparison.Ordinal));
+        Assert.Contains(strings, value => value.Contains("1.25", StringComparison.Ordinal));
         Assert.Contains(wait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 &&
             Math.Abs((float)instruction.Operand - 0.5f) < 0.001f);
         Assert.Contains(wait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 &&
-            Math.Abs((float)instruction.Operand - 1.5f) < 0.001f);
+            Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
     }
 
     private static AssemblyDefinition ReadPlugin() => AssemblyDefinition.ReadAssembly(PluginPath());

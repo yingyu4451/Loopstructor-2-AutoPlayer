@@ -46,6 +46,8 @@ public sealed class OpeningDefensePreparationPlannerTests
         OpeningDefensePreparationDecision preview = planner.Decide();
         AssertAction(preview, "previewRailPath");
         Assert.Equal(new[] { 100, 101, 102 }, preview.Action!.Arguments["linePointInstanceIds"]!.Values<int>());
+        Assert.Equal(500, preview.Action.Arguments.SelectToken("vehicle.instanceId")?.Value<int>());
+        Assert.Equal(500, preview.Action.Arguments["vehicleInstanceId"]?.Value<int>());
         planner.Observe(preview.Action, PreviewSuccess(), accepted: true);
 
         ObserveNext(planner, "queryRail", RailResult());
@@ -666,6 +668,8 @@ public sealed class OpeningDefensePreparationPlannerTests
             ["wouldBeLegal"] = true,
             ["sideEffectCheckPassed"] = true,
             ["statePolluted"] = false,
+            ["requiresSpeedSource"] = false,
+            ["predictedLoopCycleSeconds"] = 8.5d,
             ["beforeRailCount"] = 0,
             ["afterRailCount"] = 0
         });

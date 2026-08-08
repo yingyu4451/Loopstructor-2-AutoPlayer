@@ -1092,6 +1092,12 @@ public sealed class OpeningDefensePreparationPlanner
             return false;
         }
 
+        if (_selectedVehicleInstanceId == 0)
+        {
+            error = "缺少已锁定的背包战车实例，无法预测新闭环回转周期。";
+            return false;
+        }
+
         action = new AutomationAction(
             "drawRailPath",
             new JObject
@@ -1099,7 +1105,9 @@ public sealed class OpeningDefensePreparationPlanner
                 ["linePointInstanceIds"] = new JArray(
                     best.AttributeInstanceId,
                     best.FirstInstanceId,
-                    best.SecondInstanceId)
+                    best.SecondInstanceId),
+                ["vehicle"] = new JObject { ["instanceId"] = _selectedVehicleInstanceId },
+                ["vehicleInstanceId"] = _selectedVehicleInstanceId
             },
             AutomationStage.PreparingDefense,
             "使用已持久化的三个站点实例身份创建最短合法开局闭环。");
@@ -1201,6 +1209,8 @@ public sealed class OpeningDefensePreparationPlanner
         return state["wouldBeLegal"]?.Type == JTokenType.Boolean &&
                state["sideEffectCheckPassed"]?.Type == JTokenType.Boolean &&
                state["statePolluted"]?.Type == JTokenType.Boolean &&
+               state["requiresSpeedSource"]?.Type == JTokenType.Boolean &&
+               state["predictedLoopCycleSeconds"]?.Type is JTokenType.Integer or JTokenType.Float &&
                state["beforeRailCount"]?.Type == JTokenType.Integer &&
                state["afterRailCount"]?.Type == JTokenType.Integer;
     }

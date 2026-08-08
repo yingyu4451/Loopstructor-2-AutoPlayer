@@ -117,17 +117,38 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void AutomationRunOptions_RoundTripStoryAndDecisionPriority()
+    {
+        AutomationRunOptions legacy = JsonConvert.DeserializeObject<AutomationRunOptions>("{}")!;
+        AutomationRunOptions current = new()
+        {
+            SkipStory = true,
+            DecisionPriority = AutomationDecisionPriority.ThreeStarVehicles
+        };
+
+        AutomationRunOptions roundTrip = JsonConvert.DeserializeObject<AutomationRunOptions>(
+            JsonConvert.SerializeObject(current))!;
+
+        Assert.False(legacy.SkipStory);
+        Assert.Equal(AutomationDecisionPriority.CatapultPoints, legacy.DecisionPriority);
+        Assert.True(roundTrip.SkipStory);
+        Assert.Equal(AutomationDecisionPriority.ThreeStarVehicles, roundTrip.DecisionPriority);
+    }
+
+    [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
         Assert.Equal(27, CheatCommands.All.Count);
-        Assert.Equal(19, CheatCommands.Mutations.Count);
+        Assert.Equal(17, CheatCommands.Mutations.Count);
+        Assert.Equal(7, CheatCommands.AutoPlayObservationCommands.Count);
         Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
         Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SpawnEnemy));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetVehicleEnchantment));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetMapSkipEnabled));
-        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetEnemyBuffOverlay));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnemyIdOverlay));
+        Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnemyBuffOverlay));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveVehicle));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveRelic));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveCatapultPoint));
@@ -139,6 +160,14 @@ public sealed class ProtocolTests
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetSpawnPointCapture));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.RemoveSpawnPoint));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.ClearSpawnPoints));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetEnabled));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.QueryCatalog));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.QueryVehicles));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.QueryEnemies));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetEnemyIdOverlay));
+        Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetEnemyBuffOverlay.ToUpperInvariant()));
+        Assert.False(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.ClearEnemies));
+        Assert.False(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetBaseGodMode));
     }
 
     [Fact]

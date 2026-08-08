@@ -91,6 +91,15 @@ internal sealed class CheatController : IDisposable
     public CheatExecutionResult Execute(string requestId, string command, JObject? arguments)
     {
         JObject args = arguments ?? new JObject();
+        if (_autoPlay.IsAutoPlayActive && !CheatCommands.IsAutoPlayObservationCommand(command))
+        {
+            CheatExecutionResult blocked = CheatExecutionResult.Fail(
+                "自动游玩运行或暂停期间只允许作弊监视：可启用或关闭作弊模式、查询目录/战车/敌人，以及切换敌人 ID 和 Buff 显示。其他作弊写命令已拒绝。",
+                "AUTO_PLAY_WRITE_CONFLICT");
+            _log.LogWarning(blocked.Message);
+            return blocked;
+        }
+
         bool mutationAttempt = Enabled && CheatCommands.IsMutationCommand(command);
         if (mutationAttempt && !_activation.TryMarkCheatProfileTainted(requestId, command, out string markerError))
         {

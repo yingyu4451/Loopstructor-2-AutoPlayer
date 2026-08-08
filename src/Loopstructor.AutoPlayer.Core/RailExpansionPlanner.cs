@@ -1,0 +1,1173 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using Newtonsoft.Json.Linq;
+
+namespace Loopstructor.AutoPlayer.Core;
+
+public sealed class RailInsertionCandidate
+{
+    public int RailInstanceId { get; set; }
+    public int RailInternalId { get; set; }
+    public int LineInstanceId { get; set; }
+    public int StationLinePointInstanceId { get; set; }
+    public int StationCatapultInstanceId { get; set; }
+    public int StationGameObjectInstanceId { get; set; }
+    public string StationPath { get; set; } = string.Empty;
+    public string StationName { get; set; } = string.Empty;
+    public string StationDisposableEnum { get; set; } = string.Empty;
+    public int OriginalGridX { get; set; }
+    public int OriginalGridY { get; set; }
+    public bool StationIsSpecial { get; set; }
+    public bool StationCanMove { get; set; }
+    public int StationCount { get; set; }
+    public double CurrentLoopCycleSeconds { get; set; }
+    public int VehicleInstanceId { get; set; }
+    public JObject PreviewArguments { get; set; } = new();
+
+    public string Identity => string.Join(
+        ":",
+        RailInstanceId.ToString(CultureInfo.InvariantCulture),
+        LineInstanceId.ToString(CultureInfo.InvariantCulture),
+        StationLinePointInstanceId.ToString(CultureInfo.InvariantCulture));
+}
+
+public sealed class RailInsertionPreviewScore
+{
+    public RailInsertionCandidate Candidate { get; set; } = new();
+    public double PredictedLoopCycleSeconds { get; set; }
+    public double BaselineTriggerRate { get; set; }
+    public double PredictedTriggerRate { get; set; }
+    public double TriggerRateGain { get; set; }
+    public double RelativeGain { get; set; }
+    public bool IsBeneficial => TriggerRateGain > 0.000001d;
+}
+
+public sealed class RailInsertionVerification
+{
+    public bool Verified { get; set; }
+    public bool Pending { get; set; }
+    public string Detail { get; set; } = string.Empty;
+    public double ObservedLoopCycleSeconds { get; set; }
+}
+
+public sealed class RailStationMoveCandidate
+{
+    public int RailInstanceId { get; set; }
+    public int RailInternalId { get; set; }
+    public int StationCount { get; set; }
+    public double CurrentLoopCycleSeconds { get; set; }
+    public double RailLength { get; set; }
+    public int StationCatapultInstanceId { get; set; }
+    public int StationGameObjectInstanceId { get; set; }
+    public int StationLinePointInstanceId { get; set; }
+    public string StationPath { get; set; } = string.Empty;
+    public string StationName { get; set; } = string.Empty;
+    public string StationDisposableEnum { get; set; } = string.Empty;
+    public string StationFingerprint { get; set; } = string.Empty;
+    public AutoPlayerGrid CurrentGrid { get; set; }
+    public IReadOnlyList<AutoPlayerGrid> NeighborGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
+}
+
+/// <summary>
+/// Plans existing-loop expansion from runtime snapshots. Throughput is the number of station
+/// triggers per real vehicle per loop, N/T; an insertion is useful only when (N+1)/T' exceeds N/T.
+/// </summary>
+public sealed class RailExpansionPlanner
+{
+    public IReadOnlyList<RailInsertionCandidate> BuildCandidates(
+        JObject? railResult,
+        JObject? catapultResult,
+        JObject? trainResult)
+    {
+        JObject railState = State(railResult);
+        JObject catapultState = State(catapultResult);
+        JObject trainState = State(trainResult);
+        List<JObject> stations = (catapultState["catapults"] as JArray)?
+            .OfType<JObject>()
+            .Where(IsAvailableCommonStation)
+            .ToList() ?? new List<JObject>();
+        if (stations.Count == 0)
+        {
+            return Array.Empty<RailInsertionCandidate>();
+        }
+
+        List<JObject> trains = (trainState["trains"] as JArray)?
+            .OfType<JObject>()
+            .ToList() ?? new List<JObject>();
+        List<RailInsertionCandidate> candidates = new();
+        foreach (JObject rail in (railState["rails"] as JArray)?.OfType<JObject>()
+                 ?? Enumerable.Empty<JObject>())
+        {
+            if (rail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+                rail["isLoop"]?.Value<bool>() != true ||
+                rail["isOnField"]?.Value<bool>() == false ||
+                rail["loopCycleSecondsKnown"]?.Value<bool>() == false ||
+                !TryReadPositiveDouble(rail["loopCycleSeconds"], out double cycleSeconds))
+            {
+                continue;
+            }
+
+            int railInstanceId = ReadInt(rail["instanceId"], 0);
+            int railInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"], 0));
+            int stationCount = ReadInt(rail["stationCount"], ReadInt(rail["pointCount"], 0));
+            if (railInstanceId == 0 || railInternalId == 0 || stationCount < 3)
+            {
+                continue;
+            }
+
+            int vehicleInstanceId = ReadPreviewVehicleInstanceId(trains, railInternalId);
+            if (vehicleInstanceId == 0)
+            {
+                continue;
+            }
+
+            foreach (JObject line in (rail["lines"] as JArray)?.OfType<JObject>()
+                     ?? Enumerable.Empty<JObject>())
+            {
+                int lineInstanceId = ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0));
+                if (lineInstanceId == 0)
+                {
+                    continue;
+                }
+
+                foreach (JObject station in stations)
+                {
+                    int pointInstanceId = ReadInt(station["linePointInstanceId"], 0);
+                    int catapultInstanceId = ReadInt(
+                        station["catapultInstanceId"],
+                        ReadInt(station["instanceId"], 0));
+                    if (pointInstanceId == 0 || catapultInstanceId == 0)
+                    {
+                        continue;
+                    }
+
+                    JObject arguments = new()
+                    {
+                        ["lineInstanceId"] = lineInstanceId,
+                        ["station"] = new JObject { ["instanceId"] = pointInstanceId },
+                        ["vehicle"] = new JObject { ["instanceId"] = vehicleInstanceId },
+                        ["vehicleInstanceId"] = vehicleInstanceId
+                    };
+                    candidates.Add(new RailInsertionCandidate
+                    {
+                        RailInstanceId = railInstanceId,
+                        RailInternalId = railInternalId,
+                        LineInstanceId = lineInstanceId,
+                        StationLinePointInstanceId = pointInstanceId,
+                        StationCatapultInstanceId = catapultInstanceId,
+                        StationGameObjectInstanceId = ReadInt(station["gameObjectInstanceId"], 0),
+                        StationPath = station["path"]?.Value<string>() ?? string.Empty,
+                        StationName = station["name"]?.Value<string>() ?? string.Empty,
+                        StationDisposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
+                        OriginalGridX = ReadInt(station.SelectToken("grid.x"), 0),
+                        OriginalGridY = ReadInt(station.SelectToken("grid.y"), 0),
+                        StationIsSpecial = station["isSpecial"]?.Value<bool>() == true,
+                        StationCanMove = station["canMove"]?.Value<bool>() == true,
+                        StationCount = stationCount,
+                        CurrentLoopCycleSeconds = cycleSeconds,
+                        VehicleInstanceId = vehicleInstanceId,
+                        PreviewArguments = arguments
+                    });
+                }
+            }
+        }
+
+        return candidates
+            .GroupBy(candidate => candidate.Identity, StringComparer.Ordinal)
+            .Select(group => group.Single())
+            .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
+            .ThenBy(candidate => candidate.RailInstanceId)
+            .ThenBy(candidate => candidate.LineInstanceId)
+            .ThenBy(candidate => candidate.StationLinePointInstanceId)
+            .ToArray();
+    }
+
+    public IReadOnlyList<RailStationMoveCandidate> BuildExistingSpecialMoveCandidates(
+        JObject? railResult,
+        JObject? catapultResult)
+    {
+        JObject railState = State(railResult);
+        List<JObject> rails = (railState["rails"] as JArray)?.OfType<JObject>().ToList()
+                              ?? new List<JObject>();
+        List<RailStationMoveCandidate> result = new();
+        foreach (JObject station in (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+                 ?? Enumerable.Empty<JObject>())
+        {
+            if (station["isSpecial"]?.Value<bool>() != true ||
+                station["isAttribute"]?.Value<bool>() == true ||
+                station["canMove"]?.Value<bool>() != true ||
+                ReadInt(station["railMembershipCount"], 0) != 1 ||
+                string.Equals(
+                    station["recycleDisposableEnum"]?.Value<string>(),
+                    "FreePoint",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !TryReadGrid(station["grid"], out AutoPlayerGrid currentGrid))
+            {
+                continue;
+            }
+
+            int pointId = ReadInt(station["linePointInstanceId"], 0);
+            List<JObject> matchingRails = rails.Where(item => RailContainsPoint(item, pointId)).ToList();
+            if (matchingRails.Count != 1)
+            {
+                continue;
+            }
+
+            JObject rail = matchingRails[0];
+            if (
+                rail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+                !TryReadPositiveDouble(rail["loopCycleSeconds"], out double cycle) ||
+                !TryReadPositiveDouble(rail["railLength"], out double railLength))
+            {
+                continue;
+            }
+
+            List<AutoPlayerGrid> neighbors = new();
+            foreach (JObject line in (rail["lines"] as JArray)?.OfType<JObject>()
+                     ?? Enumerable.Empty<JObject>())
+            {
+                if (!TryReadGrid(line["from"], out AutoPlayerGrid from) ||
+                    !TryReadGrid(line["to"], out AutoPlayerGrid to))
+                {
+                    continue;
+                }
+
+                if (from.Equals(currentGrid)) neighbors.Add(to);
+                else if (to.Equals(currentGrid)) neighbors.Add(from);
+            }
+
+            neighbors = neighbors.Distinct().ToList();
+            if (neighbors.Count < 2)
+            {
+                continue;
+            }
+
+            result.Add(new RailStationMoveCandidate
+            {
+                RailInstanceId = ReadInt(rail["instanceId"], 0),
+                RailInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"], 0)),
+                StationCount = ReadInt(rail["stationCount"], ReadInt(rail["pointCount"], 0)),
+                CurrentLoopCycleSeconds = cycle,
+                RailLength = railLength,
+                StationCatapultInstanceId = ReadInt(
+                    station["catapultInstanceId"],
+                    ReadInt(station["instanceId"], 0)),
+                StationGameObjectInstanceId = ReadInt(station["gameObjectInstanceId"], 0),
+                StationLinePointInstanceId = pointId,
+                StationPath = station["path"]?.Value<string>() ?? string.Empty,
+                StationName = station["name"]?.Value<string>() ?? string.Empty,
+                StationDisposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
+                StationFingerprint = BuildStationFingerprint(station),
+                CurrentGrid = currentGrid,
+                NeighborGrids = neighbors
+            });
+        }
+
+        return result
+            .Where(candidate => candidate.RailInstanceId != 0 &&
+                                candidate.RailInternalId != 0 &&
+                                candidate.StationCatapultInstanceId != 0 &&
+                                candidate.StationGameObjectInstanceId != 0 &&
+                                candidate.StationLinePointInstanceId != 0 &&
+                                !string.IsNullOrWhiteSpace(candidate.StationPath) &&
+                                !string.IsNullOrWhiteSpace(candidate.StationFingerprint))
+            .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
+            .ThenBy(candidate => candidate.RailInstanceId)
+            .ThenBy(candidate => candidate.StationLinePointInstanceId)
+            .ToArray();
+    }
+
+    public double PredictCycleAfterMove(RailStationMoveCandidate candidate, AutoPlayerGrid targetGrid)
+    {
+        double oldAdjacentLength = candidate.NeighborGrids.Sum(neighbor => Distance(candidate.CurrentGrid, neighbor));
+        double newAdjacentLength = candidate.NeighborGrids.Sum(neighbor => Distance(targetGrid, neighbor));
+        double predictedLength = candidate.RailLength - oldAdjacentLength + newAdjacentLength;
+        return predictedLength > 0d && candidate.RailLength > 0d
+            ? candidate.CurrentLoopCycleSeconds * predictedLength / candidate.RailLength
+            : double.PositiveInfinity;
+    }
+
+    public bool IsFreshMovableSpecial(
+        JObject? catapultResult,
+        JObject? movableStateResult,
+        RailStationMoveCandidate? candidate)
+    {
+        if (candidate == null) return false;
+        List<JObject> catapults = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item =>
+                ReadInt(item["catapultInstanceId"], ReadInt(item["instanceId"], 0)) ==
+                candidate.StationCatapultInstanceId)
+            .ToList() ?? new List<JObject>();
+        List<JObject> stations = (State(movableStateResult)["stations"] as JArray)?.OfType<JObject>()
+            .Where(item => ReadInt(item["instanceId"], 0) == candidate.StationCatapultInstanceId)
+            .ToList() ?? new List<JObject>();
+        if (catapults.Count != 1 || stations.Count != 1)
+        {
+            return false;
+        }
+
+        JObject catapult = catapults[0];
+        JObject station = stations[0];
+        return
+               catapult["isSpecial"]?.Value<bool>() == true &&
+               catapult["isAttribute"]?.Value<bool>() != true &&
+               catapult["canMove"]?.Value<bool>() == true &&
+               station["canMove"]?.Value<bool>() == true &&
+               ReadInt(catapult["gameObjectInstanceId"], 0) == candidate.StationGameObjectInstanceId &&
+               ReadInt(station["gameObjectInstanceId"], 0) == candidate.StationGameObjectInstanceId &&
+               ReadInt(catapult["linePointInstanceId"], 0) == candidate.StationLinePointInstanceId &&
+               string.Equals(catapult["path"]?.Value<string>(), candidate.StationPath, StringComparison.Ordinal) &&
+               string.Equals(station["path"]?.Value<string>(), candidate.StationPath, StringComparison.Ordinal) &&
+               ReadInt(catapult["railMembershipCount"], 0) == 1 &&
+               ReadStationRailId(catapult) == candidate.RailInternalId &&
+               string.Equals(BuildStationFingerprint(catapult), candidate.StationFingerprint, StringComparison.Ordinal) &&
+               string.Equals(
+                   catapult["recycleDisposableEnum"]?.Value<string>(),
+                   candidate.StationDisposableEnum,
+                   StringComparison.Ordinal);
+    }
+
+    public bool IsOwnedMoveInteraction(
+        JObject? movableStateResult,
+        RailStationMoveCandidate? candidate,
+        int expectedInteractionInstanceId = 0)
+    {
+        if (candidate == null) return false;
+        JObject? interaction = State(movableStateResult)["currentMoveInteraction"] as JObject;
+        int interactionId = ReadInt(interaction?["interactionInstanceId"], 0);
+        int targetId = ReadInt(interaction?.SelectToken("target.instanceId"), 0);
+        return interaction?["active"]?.Value<bool>() == true &&
+               interactionId != 0 &&
+               (expectedInteractionInstanceId == 0 || expectedInteractionInstanceId == interactionId) &&
+               (candidate.StationGameObjectInstanceId == 0 || targetId == candidate.StationGameObjectInstanceId) &&
+               string.Equals(
+                   interaction?.SelectToken("target.path")?.Value<string>(),
+                   candidate.StationPath,
+               StringComparison.Ordinal);
+    }
+
+    public int ReadMoveInteractionInstanceId(JObject? movableStateResult) =>
+        ReadInt(State(movableStateResult).SelectToken("currentMoveInteraction.interactionInstanceId"), 0);
+
+    public RailInsertionVerification VerifyMove(
+        JObject? baselineResult,
+        JObject? currentResult,
+        JObject? catapultResult,
+        RailStationMoveCandidate? candidate,
+        JObject? expectedGrid)
+    {
+        if (candidate == null ||
+            !TryReadRailMap(baselineResult, out Dictionary<int, JObject> baselineRails) ||
+            !TryReadRailMap(currentResult, out Dictionary<int, JObject> currentRails) ||
+            !baselineRails.Keys.OrderBy(id => id).SequenceEqual(currentRails.Keys.OrderBy(id => id)))
+        {
+            return Failure("移动特殊弹射点前后轨道集合无法安全对账。");
+        }
+
+        int? x = expectedGrid?["x"]?.Value<int?>();
+        int? y = expectedGrid?["y"]?.Value<int?>();
+        if (!x.HasValue || !y.HasValue)
+        {
+            return Failure("缺少特殊弹射点目标格身份。");
+        }
+
+        List<JObject> targetStations = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item => item["isSpecial"]?.Value<bool>() == true &&
+                           item["isAttribute"]?.Value<bool>() != true &&
+                           string.Equals(item["name"]?.Value<string>(), candidate.StationName, StringComparison.Ordinal) &&
+                           string.Equals(
+                               item["recycleDisposableEnum"]?.Value<string>(),
+                               candidate.StationDisposableEnum,
+                               StringComparison.Ordinal) &&
+                           string.Equals(
+                               BuildStationFingerprint(item),
+                               candidate.StationFingerprint,
+                               StringComparison.Ordinal) &&
+                           ReadInt(item["railMembershipCount"], 0) == 1 &&
+                           ReadStationRailId(item) == candidate.RailInternalId &&
+                           item.SelectToken("grid.x")?.Value<int?>() == x.Value &&
+                           item.SelectToken("grid.y")?.Value<int?>() == y.Value)
+            .ToList() ?? new List<JObject>();
+        JObject currentRail = currentRails[candidate.RailInstanceId];
+        int currentCount = ReadInt(currentRail["stationCount"], ReadInt(currentRail["pointCount"], -1));
+        if (targetStations.Count == 0 && currentCount == candidate.StationCount)
+        {
+            return new RailInsertionVerification { Pending = true, Detail = "尚未观察到特殊弹射点移动到目标格。" };
+        }
+
+        bool sourceGridStillOccupied = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Any(item =>
+                item.SelectToken("grid.x")?.Value<int?>() == candidate.CurrentGrid.X &&
+                item.SelectToken("grid.y")?.Value<int?>() == candidate.CurrentGrid.Y &&
+                string.Equals(BuildStationFingerprint(item), candidate.StationFingerprint, StringComparison.Ordinal)) == true;
+        JObject? targetStation = targetStations.Count == 1 ? targetStations[0] : null;
+        if (targetStation == null ||
+            sourceGridStillOccupied ||
+            ReadInt(targetStation["catapultInstanceId"], ReadInt(targetStation["instanceId"], 0)) ==
+            candidate.StationCatapultInstanceId ||
+            ReadInt(targetStation["gameObjectInstanceId"], 0) == candidate.StationGameObjectInstanceId ||
+            ReadInt(targetStation["linePointInstanceId"], 0) == candidate.StationLinePointInstanceId ||
+            currentCount != candidate.StationCount ||
+            currentRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            !TryReadPositiveDouble(currentRail["loopCycleSeconds"], out double observedCycle) ||
+            observedCycle >= candidate.CurrentLoopCycleSeconds - 0.0001d)
+        {
+            return Failure("特殊弹射点移动后未保持同一合法闭环，或回转周期没有改善。");
+        }
+
+        return new RailInsertionVerification
+        {
+            Verified = true,
+            Detail = "已验证特殊弹射点仍属于同一合法闭环，且回转周期缩短。",
+            ObservedLoopCycleSeconds = observedCycle
+        };
+    }
+
+    public RailInsertionVerification VerifyMoveCancellationRollback(
+        JObject? baselineResult,
+        JObject? currentResult,
+        JObject? catapultResult,
+        RailStationMoveCandidate? candidate)
+    {
+        if (candidate == null ||
+            !TryReadRailMap(baselineResult, out Dictionary<int, JObject> baselineRails) ||
+            !baselineRails.TryGetValue(candidate.RailInstanceId, out JObject? baselineRail))
+        {
+            return Failure("取消特殊弹射点移动时缺少可信的轨道基线。");
+        }
+
+        if (!TryReadRailMap(currentResult, out Dictionary<int, JObject> currentRails) ||
+            !baselineRails.Keys.OrderBy(id => id).SequenceEqual(currentRails.Keys.OrderBy(id => id)) ||
+            !currentRails.TryGetValue(candidate.RailInstanceId, out JObject? currentRail))
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "取消移动后的轨道集合尚未恢复到启动前基线。"
+            };
+        }
+
+        int baselineCount = ReadInt(
+            baselineRail["stationCount"],
+            ReadInt(baselineRail["pointCount"], -1));
+        int currentCount = ReadInt(
+            currentRail["stationCount"],
+            ReadInt(currentRail["pointCount"], -1));
+        if (baselineCount != candidate.StationCount ||
+            currentCount != baselineCount ||
+            ReadInt(baselineRail["railInternalId"], ReadInt(baselineRail["id"], 0)) !=
+            candidate.RailInternalId ||
+            ReadInt(currentRail["railInternalId"], ReadInt(currentRail["id"], 0)) !=
+            candidate.RailInternalId ||
+            baselineRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            currentRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            baselineRail["isLoop"]?.Value<bool>() != true ||
+            currentRail["isLoop"]?.Value<bool>() != true ||
+            baselineRail["isOnField"]?.Value<bool>() == false ||
+            currentRail["isOnField"]?.Value<bool>() == false ||
+            !TryReadPointIdentitySequence(baselineRail, out int[] baselinePointIds) ||
+            !TryReadPointIdentitySequence(currentRail, out int[] currentPointIds) ||
+            !baselinePointIds.SequenceEqual(currentPointIds) ||
+            baselinePointIds.Count(id => id == candidate.StationLinePointInstanceId) != 1 ||
+            !TryReadPositiveDouble(baselineRail["railLength"], out double baselineLength) ||
+            !TryReadPositiveDouble(currentRail["railLength"], out double currentLength) ||
+            !ApproximatelyEqual(baselineLength, currentLength, 0.001d))
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "取消移动后的目标轨道站点顺序或长度尚未恢复到启动前基线。"
+            };
+        }
+
+        List<JObject> sourceStations = (State(catapultResult)["catapults"] as JArray)?
+            .OfType<JObject>()
+            .Where(item =>
+                ReadInt(item["catapultInstanceId"], ReadInt(item["instanceId"], 0)) ==
+                candidate.StationCatapultInstanceId)
+            .ToList() ?? new List<JObject>();
+        if (sourceStations.Count != 1)
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "取消移动后尚未重新观察到原特殊弹射点实例。"
+            };
+        }
+
+        JObject sourceStation = sourceStations[0];
+        if (sourceStation["active"]?.Value<bool>() == false ||
+            sourceStation["isSpecial"]?.Value<bool>() != true ||
+            sourceStation["isAttribute"]?.Value<bool>() == true ||
+            ReadInt(sourceStation["gameObjectInstanceId"], 0) != candidate.StationGameObjectInstanceId ||
+            ReadInt(sourceStation["linePointInstanceId"], 0) != candidate.StationLinePointInstanceId ||
+            !string.Equals(sourceStation["path"]?.Value<string>(), candidate.StationPath, StringComparison.Ordinal) ||
+            !string.Equals(sourceStation["name"]?.Value<string>(), candidate.StationName, StringComparison.Ordinal) ||
+            !string.Equals(
+                sourceStation["recycleDisposableEnum"]?.Value<string>(),
+                candidate.StationDisposableEnum,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                BuildStationFingerprint(sourceStation),
+                candidate.StationFingerprint,
+                StringComparison.Ordinal) ||
+            ReadInt(sourceStation["railMembershipCount"], 0) != 1 ||
+            ReadStationRailId(sourceStation) != candidate.RailInternalId ||
+            !TryReadGrid(sourceStation["grid"], out AutoPlayerGrid sourceGrid) ||
+            !sourceGrid.Equals(candidate.CurrentGrid))
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "取消移动后的特殊弹射点身份、原格或轨道归属尚未恢复到启动前基线。"
+            };
+        }
+
+        return new RailInsertionVerification
+        {
+            Verified = true,
+            Detail = "已验证移动预览退出，原特殊弹射点与轨道结构均恢复到启动前基线。",
+            ObservedLoopCycleSeconds = TryReadPositiveDouble(
+                currentRail["loopCycleSeconds"],
+                out double observedCycle)
+                ? observedCycle
+                : 0d
+        };
+    }
+
+    public bool TryScorePreview(
+        RailInsertionCandidate? candidate,
+        JObject? previewResult,
+        out RailInsertionPreviewScore score)
+    {
+        score = new RailInsertionPreviewScore();
+        if (candidate == null || candidate.StationCount < 1 || candidate.CurrentLoopCycleSeconds <= 0d)
+        {
+            return false;
+        }
+
+        JObject state = State(previewResult);
+        if (state["wouldBeLegal"]?.Value<bool>() != true ||
+            state["sideEffectCheckPassed"]?.Value<bool>() != true ||
+            state["statePolluted"]?.Value<bool>() == true ||
+            state["requiresSpeedSource"]?.Value<bool>() != false ||
+            ReadInt(state["beforeRailCount"], -1) != ReadInt(state["afterRailCount"], -2) ||
+            ReadInt(state["affectedRailId"], 0) != candidate.RailInternalId ||
+            !TryReadPositiveDouble(state["currentLoopCycleSeconds"], out double observedCurrent) ||
+            !TryReadPositiveDouble(state["predictedLoopCycleSeconds"], out double predicted))
+        {
+            return false;
+        }
+
+        double baselineRate = candidate.StationCount / observedCurrent;
+        double predictedRate = (candidate.StationCount + 1d) / predicted;
+        score = new RailInsertionPreviewScore
+        {
+            Candidate = candidate,
+            PredictedLoopCycleSeconds = predicted,
+            BaselineTriggerRate = baselineRate,
+            PredictedTriggerRate = predictedRate,
+            TriggerRateGain = predictedRate - baselineRate,
+            RelativeGain = predictedRate / baselineRate - 1d
+        };
+        return IsFinite(score.TriggerRateGain) && IsFinite(score.RelativeGain);
+    }
+
+    public RailInsertionPreviewScore? SelectBest(IEnumerable<RailInsertionPreviewScore>? scores) =>
+        scores?
+            .Where(score => score != null && score.IsBeneficial)
+            .OrderByDescending(score => score.TriggerRateGain)
+            .ThenByDescending(score => score.RelativeGain)
+            .ThenBy(score => score.PredictedLoopCycleSeconds)
+            .ThenBy(score => score.Candidate.RailInstanceId)
+            .ThenBy(score => score.Candidate.LineInstanceId)
+            .ThenBy(score => score.Candidate.StationLinePointInstanceId)
+            .FirstOrDefault();
+
+    public RailInsertionPreviewScore? SelectMovableSpecialForReposition(
+        IEnumerable<RailInsertionPreviewScore>? scores) =>
+        scores?
+            .Where(score => score != null &&
+                            !score.IsBeneficial &&
+                            score.Candidate.StationIsSpecial &&
+                            score.Candidate.StationCanMove &&
+                            !string.Equals(
+                                score.Candidate.StationDisposableEnum,
+                                "FreePoint",
+                                StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(score => score.RelativeGain)
+            .ThenBy(score => score.Candidate.RailInstanceId)
+            .ThenBy(score => score.Candidate.LineInstanceId)
+            .FirstOrDefault();
+
+    public AutomationAction BuildInsertAction(RailInsertionPreviewScore score)
+    {
+        if (score == null)
+        {
+            throw new ArgumentNullException(nameof(score));
+        }
+
+        return new AutomationAction(
+            "insertPointFromLine",
+            (JObject)score.Candidate.PreviewArguments.DeepClone(),
+            AutomationStage.PreparingDefense,
+            $"扩充轨道 {score.Candidate.RailInternalId}：站点触发率由 " +
+            $"{score.BaselineTriggerRate:0.###}/秒提升到 {score.PredictedTriggerRate:0.###}/秒，" +
+            $"预测回转周期 {score.PredictedLoopCycleSeconds:0.###} 秒。");
+    }
+
+    public RailInsertionVerification VerifyInsertion(
+        JObject? baselineResult,
+        JObject? currentResult,
+        RailInsertionPreviewScore? selected)
+    {
+        if (selected == null ||
+            !TryReadRailMap(baselineResult, out Dictionary<int, JObject> baselineRails) ||
+            !TryReadRailMap(currentResult, out Dictionary<int, JObject> currentRails))
+        {
+            return Failure("扩轨前后轨道快照缺少唯一实例身份。");
+        }
+
+        if (!baselineRails.Keys.OrderBy(id => id).SequenceEqual(currentRails.Keys.OrderBy(id => id)))
+        {
+            return Failure("扩轨期间轨道集合发生了非预期变化。");
+        }
+
+        RailInsertionCandidate candidate = selected.Candidate;
+        JObject baseline = baselineRails[candidate.RailInstanceId];
+        JObject current = currentRails[candidate.RailInstanceId];
+        int baselineCount = ReadInt(baseline["stationCount"], ReadInt(baseline["pointCount"], -1));
+        int currentCount = ReadInt(current["stationCount"], ReadInt(current["pointCount"], -1));
+        bool containsTarget = RailContainsPoint(current, candidate.StationLinePointInstanceId);
+        if (currentCount == baselineCount && !containsTarget)
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "尚未观察到选定站点加入目标轨道。"
+            };
+        }
+
+        if (baselineCount != candidate.StationCount ||
+            currentCount != baselineCount + 1 ||
+            !containsTarget ||
+            current["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            current["isLoop"]?.Value<bool>() != true ||
+            current["isOnField"]?.Value<bool>() == false ||
+            !TryReadPositiveDouble(current["loopCycleSeconds"], out double observedCycle))
+        {
+            return Failure("目标轨道未形成仅新增一个指定站点的合法闭环。");
+        }
+
+        return new RailInsertionVerification
+        {
+            Verified = true,
+            Detail = "已验证指定站点加入原轨道，且轨道仍为合法玩家闭环。",
+            ObservedLoopCycleSeconds = observedCycle
+        };
+    }
+
+    public bool IsFreshMovableSpecial(
+        JObject? catapultResult,
+        JObject? movableStateResult,
+        RailInsertionCandidate? candidate)
+    {
+        if (candidate == null ||
+            !candidate.StationIsSpecial ||
+            !candidate.StationCanMove ||
+            string.Equals(candidate.StationDisposableEnum, "FreePoint", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        JObject? catapult = (State(catapultResult)["catapults"] as JArray)?
+            .OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["catapultInstanceId"], ReadInt(item["instanceId"], 0)) ==
+                candidate.StationCatapultInstanceId);
+        JObject? station = (State(movableStateResult)["stations"] as JArray)?
+            .OfType<JObject>()
+            .SingleOrDefault(item => ReadInt(item["instanceId"], 0) == candidate.StationCatapultInstanceId);
+        return catapult != null &&
+               station != null &&
+               catapult["isSpecial"]?.Value<bool>() == true &&
+               catapult["isAttribute"]?.Value<bool>() != true &&
+               catapult["canMove"]?.Value<bool>() == true &&
+               station["canMove"]?.Value<bool>() == true &&
+               string.Equals(
+                   catapult["recycleDisposableEnum"]?.Value<string>(),
+                   candidate.StationDisposableEnum,
+                   StringComparison.Ordinal) &&
+               ReadInt(catapult["railMembershipCount"], 0) == 0;
+    }
+
+    public bool IsOwnedMoveInteraction(
+        JObject? movableStateResult,
+        RailInsertionCandidate? candidate,
+        int expectedInteractionInstanceId = 0)
+    {
+        JObject state = State(movableStateResult);
+        JObject? interaction = state["currentMoveInteraction"] as JObject;
+        string targetPath = interaction?.SelectToken("target.path")?.Value<string>() ?? string.Empty;
+        int interactionInstanceId = ReadInt(interaction?["interactionInstanceId"], 0);
+        int targetInstanceId = ReadInt(interaction?.SelectToken("target.instanceId"), 0);
+        return candidate != null &&
+               interaction?["active"]?.Value<bool>() == true &&
+               interactionInstanceId != 0 &&
+               (expectedInteractionInstanceId == 0 ||
+                interactionInstanceId == expectedInteractionInstanceId) &&
+               (candidate.StationGameObjectInstanceId == 0 ||
+                targetInstanceId == candidate.StationGameObjectInstanceId) &&
+               !string.IsNullOrWhiteSpace(candidate.StationPath) &&
+               string.Equals(targetPath, candidate.StationPath, StringComparison.Ordinal);
+    }
+
+    public bool IsMovedSpecialAtGrid(
+        JObject? catapultResult,
+        RailInsertionCandidate? candidate,
+        JObject? expectedGrid)
+    {
+        int? x = expectedGrid?["x"]?.Value<int?>();
+        int? y = expectedGrid?["y"]?.Value<int?>();
+        if (candidate == null || !x.HasValue || !y.HasValue)
+        {
+            return false;
+        }
+
+        List<JObject> matches = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>().Where(item =>
+            item["isSpecial"]?.Value<bool>() == true &&
+            item["isAttribute"]?.Value<bool>() != true &&
+            string.Equals(
+                item["recycleDisposableEnum"]?.Value<string>(),
+                candidate.StationDisposableEnum,
+                StringComparison.Ordinal) &&
+            string.Equals(item["name"]?.Value<string>(), candidate.StationName, StringComparison.Ordinal) &&
+            item.SelectToken("grid.x")?.Value<int?>() == x.Value &&
+            item.SelectToken("grid.y")?.Value<int?>() == y.Value).ToList()
+            ?? new List<JObject>();
+        return matches.Count == 1 &&
+               ReadInt(matches[0]["catapultInstanceId"], ReadInt(matches[0]["instanceId"], 0)) !=
+               candidate.StationCatapultInstanceId;
+    }
+
+    private static int ReadPreviewVehicleInstanceId(IEnumerable<JObject> trains, int railInternalId)
+    {
+        JObject? train = trains
+            .Where(item => ReadInt(item["railId"], 0) == railInternalId)
+            .OrderBy(item => ReadInt(item["index"], int.MaxValue))
+            .FirstOrDefault();
+        if (train == null)
+        {
+            return 0;
+        }
+
+        List<JObject> vehicles = (train["vehicles"] as JArray)?.OfType<JObject>().ToList()
+                                 ?? new List<JObject>();
+        JObject? selected = vehicles
+            .Where(item => ReadInt(item["instanceId"], 0) != 0)
+            .OrderByDescending(item => item["isTrainHead"]?.Value<bool>() == true)
+            .ThenBy(item => item["isFixedHead"]?.Value<bool>() == true)
+            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
+            .FirstOrDefault();
+        return ReadInt(selected?["instanceId"], 0);
+    }
+
+    private static int ReadStationRailId(JObject station) =>
+        ReadInt(
+            station["railId"],
+            ReadInt(station["lastRailId"], ReadInt(station["currentRailId"], 0)));
+
+    private static string BuildStationFingerprint(JObject station)
+    {
+        static string JoinValues(JToken? token) => token is JArray values
+            ? string.Join(",", values.Values<string>().OrderBy(value => value, StringComparer.Ordinal))
+            : string.Empty;
+
+        return string.Join(
+            "|",
+            station["name"]?.Value<string>() ?? string.Empty,
+            station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
+            station["specialSource"]?.Value<string>() ?? string.Empty,
+            station["effectEnum"]?.Value<string>() ?? station["specialEffectEnum"]?.Value<string>() ?? string.Empty,
+            JoinValues(station["pointBuffFlags"]),
+            JoinValues(station["runtimeBuffIdentities"]),
+            JoinValues(station["effectTags"]));
+    }
+
+    private static bool IsAvailableCommonStation(JObject item) =>
+        item["active"]?.Value<bool>() != false &&
+        item["canUseForNewRail"]?.Value<bool>() == true &&
+        item["canPickLine"]?.Value<bool>() != false &&
+        item["frozen"]?.Value<bool>() != true &&
+        item["railReachMax"]?.Value<bool>() != true &&
+        item["isAttribute"]?.Value<bool>() != true &&
+        ReadInt(item["railMembershipCount"], 0) == 0;
+
+    private static bool TryReadRailMap(JObject? result, out Dictionary<int, JObject> rails)
+    {
+        rails = new Dictionary<int, JObject>();
+        List<JObject> items = (State(result)["rails"] as JArray)?.OfType<JObject>().ToList()
+                              ?? new List<JObject>();
+        foreach (JObject rail in items)
+        {
+            int id = ReadInt(rail["instanceId"], 0);
+            if (id == 0 || rails.ContainsKey(id))
+            {
+                rails.Clear();
+                return false;
+            }
+
+            rails[id] = rail;
+        }
+
+        return items.Count > 0;
+    }
+
+    private static bool RailContainsPoint(JObject rail, int pointInstanceId) =>
+        ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+        .OfType<JObject>()
+        .Any(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == pointInstanceId) == true;
+
+    private static bool TryReadPointIdentitySequence(JObject rail, out int[] pointIds)
+    {
+        pointIds = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>()
+            .Select(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)))
+            .ToArray() ?? Array.Empty<int>();
+        return pointIds.Length > 0 && pointIds.All(id => id != 0);
+    }
+
+    private static bool TryReadGrid(JToken? token, out AutoPlayerGrid grid)
+    {
+        grid = default;
+        if (token is not JObject value ||
+            value["x"]?.Type != JTokenType.Integer ||
+            value["y"]?.Type != JTokenType.Integer)
+        {
+            return false;
+        }
+
+        grid = new AutoPlayerGrid(value["x"]!.Value<int>(), value["y"]!.Value<int>());
+        return true;
+    }
+
+    private static double Distance(AutoPlayerGrid left, AutoPlayerGrid right)
+    {
+        double x = left.X - right.X;
+        double y = left.Y - right.Y;
+        return Math.Sqrt(x * x + y * y);
+    }
+
+    private static RailInsertionVerification Failure(string detail) => new() { Detail = detail };
+
+    private static JObject State(JObject? result) =>
+        result?.SelectToken("data.state") as JObject
+        ?? result?["state"] as JObject
+        ?? result
+        ?? new JObject();
+
+    private static int ReadInt(JToken? token, int fallback)
+    {
+        if (token?.Type == JTokenType.Integer)
+        {
+            return token.Value<int>();
+        }
+
+        return int.TryParse(token?.Value<string>(), out int value) ? value : fallback;
+    }
+
+    private static bool TryReadPositiveDouble(JToken? token, out double value)
+    {
+        value = 0d;
+        if (token?.Type is JTokenType.Integer or JTokenType.Float)
+        {
+            value = token.Value<double>();
+        }
+        else if (!double.TryParse(
+                     token?.Value<string>(),
+                     NumberStyles.Float,
+                     CultureInfo.InvariantCulture,
+                     out value))
+        {
+            return false;
+        }
+
+        return value > 0d && IsFinite(value);
+    }
+
+    private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+
+    private static bool ApproximatelyEqual(double left, double right, double relativeTolerance)
+    {
+        double scale = Math.Max(Math.Abs(left), Math.Abs(right));
+        return Math.Abs(left - right) <= Math.Max(0.0001d, scale * relativeTolerance);
+    }
+}
+
+public static class DefenseStationGridRanker
+{
+    public static IReadOnlyList<AutoPlayerGrid> RankPlacement(
+        string disposableEnum,
+        IEnumerable<AutoPlayerGrid>? candidates,
+        JObject? catapultResult)
+    {
+        List<AutoPlayerGrid> source = candidates?.Distinct().ToList() ?? new List<AutoPlayerGrid>();
+        JObject state = catapultResult?.SelectToken("data.state") as JObject
+                        ?? catapultResult?["state"] as JObject
+                        ?? catapultResult
+                        ?? new JObject();
+        List<JObject> points = (state["catapults"] as JArray)?.OfType<JObject>().ToList()
+                               ?? new List<JObject>();
+        List<(double X, double Y)> anchors;
+        if (string.Equals(disposableEnum, "FreePoint", StringComparison.Ordinal))
+        {
+            List<(double X, double Y)> attributes = points
+                .Where(point => point["isAttribute"]?.Value<bool>() == true)
+                .Where(IsAvailable)
+                .Select(point => ReadGrid(point["grid"] as JObject))
+                .Where(grid => grid.HasValue)
+                .Select(grid => grid!.Value)
+                .ToList();
+            List<(double X, double Y)> commons = points
+                .Where(point => point["isAttribute"]?.Value<bool>() != true)
+                .Where(IsAvailable)
+                .Select(point => ReadGrid(point["grid"] as JObject))
+                .Where(grid => grid.HasValue)
+                .Select(grid => grid!.Value)
+                .ToList();
+            anchors = attributes.Concat(commons).ToList();
+            if (attributes.Count > 0 && commons.Count > 0)
+            {
+                return source
+                    .Select(grid => new
+                    {
+                        Grid = grid,
+                        Area = attributes
+                            .SelectMany(attribute => commons.Select(common => Math.Abs(
+                                (common.X - attribute.X) * (grid.Y - attribute.Y) -
+                                (common.Y - attribute.Y) * (grid.X - attribute.X))))
+                            .DefaultIfEmpty(0d)
+                            .Max(),
+                        Distance = anchors.Min(anchor =>
+                            DistanceSquared(grid.X, grid.Y, anchor.X, anchor.Y))
+                    })
+                    .Where(item => item.Area > 0.000001d)
+                    .OrderBy(item => item.Distance)
+                    .ThenByDescending(item => item.Area)
+                    .ThenBy(item => item.Grid.X)
+                    .ThenBy(item => item.Grid.Y)
+                    .Select(item => item.Grid)
+                    .ToArray();
+            }
+        }
+        else
+        {
+            anchors = points
+                .Where(point => point["isAttribute"]?.Value<bool>() != true)
+                .Where(IsAvailable)
+                .Select(point => ReadGrid(point["grid"] as JObject))
+                .Where(grid => grid.HasValue)
+                .Select(grid => grid!.Value)
+                .ToList();
+        }
+
+        return source
+            .Select(grid => new
+            {
+                Grid = grid,
+                Distance = anchors.Count == 0
+                    ? (double)grid.X * grid.X + (double)grid.Y * grid.Y
+                    : anchors.Min(anchor => DistanceSquared(grid.X, grid.Y, anchor.X, anchor.Y))
+            })
+            .OrderBy(item => item.Distance)
+            .ThenBy(item => item.Grid.X)
+            .ThenBy(item => item.Grid.Y)
+            .Select(item => item.Grid)
+            .ToArray();
+    }
+
+    public static IReadOnlyList<AutoPlayerGrid> RankMove(
+        IEnumerable<AutoPlayerGrid>? candidates,
+        JObject? railResult,
+        int lineInstanceId,
+        AutoPlayerGrid currentGrid)
+    {
+        JObject state = railResult?.SelectToken("data.state") as JObject
+                        ?? railResult?["state"] as JObject
+                        ?? railResult
+                        ?? new JObject();
+        JObject? line = (state["rails"] as JArray)?.OfType<JObject>()
+            .SelectMany(rail => (rail["lines"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            .SingleOrDefault(item =>
+                ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], 0)) == lineInstanceId);
+        (double X, double Y)? from = ReadGrid(line?["from"] as JObject);
+        (double X, double Y)? to = ReadGrid(line?["to"] as JObject);
+        if (!from.HasValue || !to.HasValue)
+        {
+            return Array.Empty<AutoPlayerGrid>();
+        }
+
+        double currentDetour = Detour(currentGrid.X, currentGrid.Y, from.Value, to.Value);
+        return (candidates ?? Enumerable.Empty<AutoPlayerGrid>())
+            .Distinct()
+            .Where(grid => !grid.Equals(currentGrid))
+            .Select(grid => new
+            {
+                Grid = grid,
+                Detour = Detour(grid.X, grid.Y, from.Value, to.Value)
+            })
+            .Where(item => item.Detour + 0.001d < currentDetour)
+            .OrderBy(item => item.Detour)
+            .ThenBy(item => item.Grid.X)
+            .ThenBy(item => item.Grid.Y)
+            .Select(item => item.Grid)
+            .ToArray();
+    }
+
+    public static IReadOnlyList<AutoPlayerGrid> RankExistingStationMove(
+        IEnumerable<AutoPlayerGrid>? candidates,
+        RailStationMoveCandidate candidate)
+    {
+        double currentLength = candidate.NeighborGrids.Sum(neighbor =>
+            Math.Sqrt(DistanceSquared(
+                candidate.CurrentGrid.X,
+                candidate.CurrentGrid.Y,
+                neighbor.X,
+                neighbor.Y)));
+        return (candidates ?? Enumerable.Empty<AutoPlayerGrid>())
+            .Distinct()
+            .Where(grid => !grid.Equals(candidate.CurrentGrid))
+            .Select(grid => new
+            {
+                Grid = grid,
+                Length = candidate.NeighborGrids.Sum(neighbor =>
+                    Math.Sqrt(DistanceSquared(grid.X, grid.Y, neighbor.X, neighbor.Y)))
+            })
+            .Where(item => item.Length + 0.001d < currentLength)
+            .OrderBy(item => item.Length)
+            .ThenBy(item => item.Grid.X)
+            .ThenBy(item => item.Grid.Y)
+            .Select(item => item.Grid)
+            .ToArray();
+    }
+
+    private static bool IsAvailable(JObject item) =>
+        item["active"]?.Value<bool>() != false &&
+        item["canUseForNewRail"]?.Value<bool>() == true &&
+        item["frozen"]?.Value<bool>() != true &&
+        item["railReachMax"]?.Value<bool>() != true &&
+        ReadInt(item["railMembershipCount"], 0) == 0;
+
+    private static (double X, double Y)? ReadGrid(JObject? grid)
+    {
+        if (grid?["x"]?.Type is not (JTokenType.Integer or JTokenType.Float) ||
+            grid["y"]?.Type is not (JTokenType.Integer or JTokenType.Float))
+        {
+            return null;
+        }
+
+        return (grid["x"]!.Value<double>(), grid["y"]!.Value<double>());
+    }
+
+    private static double Detour(
+        double x,
+        double y,
+        (double X, double Y) from,
+        (double X, double Y) to) =>
+        Math.Sqrt(DistanceSquared(from.X, from.Y, x, y)) +
+        Math.Sqrt(DistanceSquared(x, y, to.X, to.Y)) -
+        Math.Sqrt(DistanceSquared(from.X, from.Y, to.X, to.Y));
+
+    private static double DistanceSquared(double x1, double y1, double x2, double y2)
+    {
+        double dx = x1 - x2;
+        double dy = y1 - y2;
+        return dx * dx + dy * dy;
+    }
+
+    private static int ReadInt(JToken? token, int fallback) =>
+        token?.Type == JTokenType.Integer && token.Value<int>() is int value ? value : fallback;
+}
+
+/// <summary>Write-once ledger for structural defense mutations reconciled by later read-only snapshots.</summary>
+public sealed class PendingDefenseMutationGuard
+{
+    public bool IsArmed { get; private set; }
+    public string Command { get; private set; } = string.Empty;
+    public string MutationIdentity { get; private set; } = string.Empty;
+    public float StartedAt { get; private set; } = -1f;
+    public bool OutcomeUnknown { get; private set; }
+    public bool InvocationIssued { get; private set; }
+
+    public bool TryArm(AutomationAction? action, string? mutationIdentity, float now)
+    {
+        string command = action?.Command?.Trim() ?? string.Empty;
+        if (IsArmed || action == null || string.IsNullOrWhiteSpace(command) ||
+            string.IsNullOrWhiteSpace(mutationIdentity))
+        {
+            return false;
+        }
+
+        IsArmed = true;
+        Command = command;
+        MutationIdentity = mutationIdentity!.Trim();
+        StartedAt = now;
+        OutcomeUnknown = false;
+        InvocationIssued = false;
+        return true;
+    }
+
+    public bool TryAdvance(AutomationAction? action, string? mutationIdentity, float now)
+    {
+        string command = action?.Command?.Trim() ?? string.Empty;
+        if (!IsArmed || !InvocationIssued || action == null || string.IsNullOrWhiteSpace(command) ||
+            string.IsNullOrWhiteSpace(mutationIdentity))
+        {
+            return false;
+        }
+
+        Command = command;
+        MutationIdentity = mutationIdentity!.Trim();
+        StartedAt = now;
+        OutcomeUnknown = false;
+        InvocationIssued = false;
+        return true;
+    }
+
+    public bool IsPreparedFor(AutomationAction action, string mutationIdentity) =>
+        IsArmed &&
+        !InvocationIssued &&
+        string.Equals(Command, action.Command, StringComparison.Ordinal) &&
+        string.Equals(MutationIdentity, mutationIdentity, StringComparison.Ordinal);
+
+    public void MarkInvocationIssued()
+    {
+        if (IsArmed)
+        {
+            InvocationIssued = true;
+        }
+    }
+
+    public void MarkOutcomeUnknown()
+    {
+        if (IsArmed)
+        {
+            OutcomeUnknown = true;
+        }
+    }
+
+    public bool HasTimedOut(float now, float timeoutSeconds) =>
+        IsArmed && now - StartedAt >= Math.Max(0.1f, timeoutSeconds);
+
+    public void Reset()
+    {
+        IsArmed = false;
+        Command = string.Empty;
+        MutationIdentity = string.Empty;
+        StartedAt = -1f;
+        OutcomeUnknown = false;
+        InvocationIssued = false;
+    }
+}

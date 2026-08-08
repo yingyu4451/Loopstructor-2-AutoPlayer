@@ -95,6 +95,34 @@ public sealed class RuntimeMutationSafetyContractTests
         AssertPostInvocationUncertaintyGate(RequireMethod(fallback, "TryConfirmSettlement"));
     }
 
+    [Fact]
+    public void CheatController_AutoPlayObservationGateRunsBeforeTaintAndRuntimeDispatch()
+    {
+        const string cheatControllerType = "Loopstructor.AutoPlayer.Plugin.CheatController";
+        using AssemblyDefinition assembly = ReadPlugin();
+        MethodDefinition execute = RequireMethod(RequireType(assembly, cheatControllerType), "Execute");
+        Instruction[] instructions = execute.Body.Instructions.ToArray();
+
+        int activeRunCheck = FindCall(
+            instructions,
+            "Loopstructor.AutoPlayer.Plugin.AutoPlayController",
+            "get_IsAutoPlayActive");
+        int observationClassification = FindCall(
+            instructions,
+            "Loopstructor.AutoPlayer.Core.CheatCommands",
+            "IsAutoPlayObservationCommand");
+        int taintMarker = FindCall(
+            instructions,
+            "Loopstructor.AutoPlayer.Plugin.ActivationContext",
+            "TryMarkCheatProfileTainted");
+        int runtimeDispatch = FindCall(instructions, cheatControllerType, "ExecuteCore");
+
+        Assert.True(activeRunCheck >= 0 && activeRunCheck < observationClassification);
+        Assert.True(observationClassification < taintMarker);
+        Assert.True(taintMarker < runtimeDispatch);
+        Assert.Contains("AUTO_PLAY_WRITE_CONFLICT", LoadedStrings(execute));
+    }
+
     public static object ThrowingRuntimeCommand(string arguments) =>
         throw new InvalidOperationException("synthetic runtime failure after dispatch");
 

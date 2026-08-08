@@ -47,6 +47,24 @@ public sealed class DecisionEngine
 
     public AutomationAction DecideInGame(JObject affordanceResult, JObject? rewardResult, JObject? eventResult)
     {
+        return DecideInGameCore(affordanceResult, rewardResult, eventResult, null);
+    }
+
+    public AutomationAction DecideInGame(
+        JObject affordanceResult,
+        JObject? rewardResult,
+        JObject? eventResult,
+        AutomationDecisionPriority priority)
+    {
+        return DecideInGameCore(affordanceResult, rewardResult, eventResult, priority);
+    }
+
+    private AutomationAction DecideInGameCore(
+        JObject affordanceResult,
+        JObject? rewardResult,
+        JObject? eventResult,
+        AutomationDecisionPriority? priority)
+    {
         JObject state = State(affordanceResult);
         if (state["gameOver"]?.Value<bool>() == true)
         {
@@ -61,7 +79,7 @@ public sealed class DecisionEngine
         JArray blockers = state["blockers"] as JArray ?? new JArray();
         if (HasBlocker(blockers, "reward"))
         {
-            return DecideReward(rewardResult);
+            return DecideRewardCore(rewardResult, null, priority);
         }
 
         if (HasBlocker(blockers, "EventUI"))
@@ -97,7 +115,7 @@ public sealed class DecisionEngine
         if (state.SelectToken("map.canSelectNextNode")?.Value<bool>() == true)
         {
             JArray nodes = state.SelectToken("map.selectableNodes") as JArray ?? new JArray();
-            JObject? route = SelectRoute(nodes);
+            JObject? route = SelectRoute(nodes, priority);
             int? index = route?["readyIndex"]?.Value<int?>();
             if (route != null && index.HasValue)
             {
@@ -105,12 +123,12 @@ public sealed class DecisionEngine
                 bool needFight = route["needFight"]?.Value<bool>() == true;
                 int enemies = RouteCount(route["totalEnemyAmount"], 250);
                 string risk = needFight ? $"，预计 {enemies} 个敌人" : "，非战斗节点";
-                string candidates = BuildRouteCandidateSummary(nodes);
+                string candidates = BuildRouteCandidateSummary(nodes, priority);
                 return new AutomationAction(
                     "selectMapNode",
                     JObject.FromObject(new { readyIndex = index.Value }),
                     AutomationStage.SelectingRoute,
-                    $"选择路线选项 {index.Value}（{reward}{risk}，策略评分 {RouteScore(route)}）。候选：{candidates}");
+                    $"选择路线选项 {index.Value}（{reward}{risk}，策略评分 {RouteScore(route, priority)}）。候选：{candidates}");
             }
 
             return AutomationAction.Wait(
@@ -122,6 +140,22 @@ public sealed class DecisionEngine
     }
 
     public AutomationAction DecideReward(JObject? result, JObject? vehicleResult = null)
+    {
+        return DecideRewardCore(result, vehicleResult, null);
+    }
+
+    public AutomationAction DecideReward(
+        JObject? result,
+        JObject? vehicleResult,
+        AutomationDecisionPriority priority)
+    {
+        return DecideRewardCore(result, vehicleResult, priority);
+    }
+
+    private static AutomationAction DecideRewardCore(
+        JObject? result,
+        JObject? vehicleResult,
+        AutomationDecisionPriority? priority)
     {
         JObject state = State(result);
         int rewardObjectCount = state["activeRewardObjectCount"]?.Value<int>() ?? 0;
@@ -144,7 +178,7 @@ public sealed class DecisionEngine
         JArray options = state["options"] as JArray ?? new JArray();
         if (options.Count > 0)
         {
-            int? index = SelectReward(options, vehicleResult);
+            int? index = SelectReward(options, vehicleResult, priority);
             if (index.HasValue)
             {
                 return new AutomationAction("chooseRewardOption", JObject.FromObject(new { index = index.Value }), AutomationStage.ManagingRewards, $"选择奖励选项 {index.Value}。");
@@ -321,7 +355,10 @@ public sealed class DecisionEngine
         _ => "未知节点"
     };
 
-    private static int? SelectReward(JArray options, JObject? vehicleResult)
+    private static int? SelectReward(
+        JArray options,
+        JObject? vehicleResult,
+        AutomationDecisionPriority? priority)
     {
         JObject[] candidates = options.OfType<JObject>()
             .Where(option => option["buttonActive"]?.Value<bool>() != false)
@@ -337,7 +374,7 @@ public sealed class DecisionEngine
             : State(vehicleResult)["vehicles"] as JArray;
         string mainFetter = vehicles == null ? string.Empty : ResolveMainFetter(vehicles);
         return candidates
-            .OrderByDescending(option => RewardStrategicScore(option, vehicles, mainFetter))
+            .OrderByDescending(option => RewardStrategicScore(option, vehicles, mainFetter, priority))
             .ThenByDescending(RewardRarityPriority)
             .ThenBy(option => option["index"]?.Value<int>() ?? int.MaxValue)
             .Select(option => (int?)option["index"]!.Value<int>())
@@ -369,7 +406,11 @@ public sealed class DecisionEngine
             _ => 0
         };
 
-    private static int RewardStrategicScore(JObject option, JArray? vehicles, string mainFetter)
+    private static int RewardStrategicScore(
+        JObject option,
+        JArray? vehicles,
+        string mainFetter,
+        AutomationDecisionPriority? priority)
     {
         int kindPriority = RewardKindPriority(option);
         int score = kindPriority switch
@@ -381,12 +422,17 @@ public sealed class DecisionEngine
             _ => 0
         };
         score += RewardRarityPriority(option) * 40;
-        if (kindPriority == 2 && IsRailExpansionReward(option))
+        if (kindPriority == 2)
         {
-            // AddNewPoint_Attribute is the auto-use reward that grants a
-            // FreePoint_Attribute item. Both are scarce, deterministic rail
-            // expansion resources and must beat ordinary power rewards.
-            score += RailExpansionRewardBonus;
+            bool legacyAttributeExpansion = IsRailExpansionReward(option);
+            bool catapultPointReward = IsCatapultPointReward(option);
+            score += priority switch
+            {
+                AutomationDecisionPriority.ThreeStarVehicles when catapultPointReward => 400,
+                AutomationDecisionPriority.CatapultPoints when catapultPointReward => RailExpansionRewardBonus + 1400,
+                null when legacyAttributeExpansion => RailExpansionRewardBonus,
+                _ => 0
+            };
         }
 
         if (kindPriority != 4)
@@ -394,15 +440,35 @@ public sealed class DecisionEngine
             return score;
         }
 
-        score += RewardVehicleLevel(option) * 100;
+        int vehicleLevel = RewardVehicleLevel(option);
+        score += vehicleLevel * 100;
+        if (priority == AutomationDecisionPriority.ThreeStarVehicles)
+        {
+            score += 600;
+            if (vehicleLevel >= 3)
+            {
+                score += 2800;
+            }
+        }
+
         if (vehicles != null)
         {
-            score += RewardMergePriority(option, vehicles) switch
+            int mergePriority = RewardMergePriority(option, vehicles);
+            score += mergePriority switch
             {
                 2 => 900,
                 1 => 250,
                 _ => 0
             };
+            if (priority == AutomationDecisionPriority.ThreeStarVehicles)
+            {
+                score += mergePriority switch
+                {
+                    2 => 1800,
+                    1 => 500,
+                    _ => 0
+                };
+            }
             score += RewardMatchesFetter(option, mainFetter) * 120;
         }
 
@@ -415,11 +481,27 @@ public sealed class DecisionEngine
                || IsRailExpansionDisposableEnum(option["assignDisposableEnum"]?.Value<string>());
     }
 
+    private static bool IsCatapultPointReward(JObject option)
+    {
+        return IsCatapultPointDisposableEnum(option["disposableEnum"]?.Value<string>())
+               || IsCatapultPointDisposableEnum(option["assignDisposableEnum"]?.Value<string>());
+    }
+
     private static bool IsRailExpansionDisposableEnum(string? value)
     {
         string candidate = value?.Trim() ?? string.Empty;
         return string.Equals(candidate, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase)
                || string.Equals(candidate, "AddNewPoint_Attribute", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCatapultPointDisposableEnum(string? value)
+    {
+        string candidate = value?.Trim() ?? string.Empty;
+        return IsRailExpansionDisposableEnum(candidate)
+               || string.Equals(candidate, "FreePoint", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(candidate, "AddNewPoint", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(candidate, "EnergyPoint", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(candidate, "CreateFreeEnergyExpansion", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int RewardMergePriority(JObject option, JArray vehicles)
@@ -498,12 +580,12 @@ public sealed class DecisionEngine
             : 0;
     }
 
-    private static JObject? SelectRoute(JArray nodes)
+    private static JObject? SelectRoute(JArray nodes, AutomationDecisionPriority? priority)
     {
         return nodes.OfType<JObject>()
             .Where(node => node["canPlayerSelect"]?.Value<bool>() == true)
             .Where(node => node["readyIndex"]?.Type == JTokenType.Integer && node["readyIndex"]!.Value<int>() >= 0)
-            .OrderByDescending(RouteScore)
+            .OrderByDescending(node => RouteScore(node, priority))
             .ThenBy(node => node["needFight"]?.Value<bool>() == true ? 1 : 0)
             .ThenBy(node => RouteCount(node["totalEnemyAmount"], 250))
             .ThenByDescending(RouteRewardDiversity)
@@ -511,7 +593,7 @@ public sealed class DecisionEngine
             .FirstOrDefault();
     }
 
-    private static string BuildRouteCandidateSummary(JArray nodes)
+    private static string BuildRouteCandidateSummary(JArray nodes, AutomationDecisionPriority? priority)
     {
         string[] candidates = nodes.OfType<JObject>()
             .Where(node => node["canPlayerSelect"]?.Value<bool>() == true)
@@ -525,13 +607,13 @@ public sealed class DecisionEngine
                 string risk = node["needFight"]?.Value<bool>() == true
                     ? $"{RouteCount(node["totalEnemyAmount"], 250)} 敌人"
                     : "非战斗";
-                return $"{readyIndex}:{reward}/{risk}/{RouteScore(node)} 分";
+                return $"{readyIndex}:{reward}/{risk}/{RouteScore(node, priority)} 分";
             })
             .ToArray();
         return candidates.Length == 0 ? "无" : string.Join("；", candidates);
     }
 
-    private static int RouteScore(JObject node)
+    private static int RouteScore(JObject node, AutomationDecisionPriority? priority)
     {
         JObject? drops = node["dropCounts"] as JObject;
         int vehicleCount = RouteCount(drops?["vehicle"]);
@@ -540,14 +622,32 @@ public sealed class DecisionEngine
         int disposableCount = RouteCount(drops?["disposable"]);
         int moneyCount = RouteCount(drops?["money"]);
 
-        int rewardScore = (vehicleCount * 700)
-                          + (catapultCount * 350)
+        int vehicleWeight = priority switch
+        {
+            AutomationDecisionPriority.ThreeStarVehicles => 1100,
+            AutomationDecisionPriority.CatapultPoints => 350,
+            _ => 700
+        };
+        int catapultWeight = priority switch
+        {
+            AutomationDecisionPriority.ThreeStarVehicles => 250,
+            AutomationDecisionPriority.CatapultPoints => 1000,
+            _ => 350
+        };
+        int disposableWeight = priority switch
+        {
+            AutomationDecisionPriority.ThreeStarVehicles => 180,
+            AutomationDecisionPriority.CatapultPoints => 650,
+            _ => 250
+        };
+        int rewardScore = (vehicleCount * vehicleWeight)
+                          + (catapultCount * catapultWeight)
                           + (superModuleCount * 600)
-                          + (disposableCount * 250)
+                          + (disposableCount * disposableWeight)
                           + (moneyCount * 60);
 
         string rewardEnum = node["rewardEnum"]?.Value<string>() ?? string.Empty;
-        int score = rewardScore + RouteRewardTypeScore(rewardEnum);
+        int score = rewardScore + RouteRewardTypeScore(rewardEnum, priority);
 
         bool needFight = node["needFight"]?.Value<bool>() == true;
         if (needFight)
@@ -575,8 +675,27 @@ public sealed class DecisionEngine
         return 40 + (normalizedEnemyCount * 3) + (crowdingCount * 18);
     }
 
-    private static int RouteRewardTypeScore(string rewardEnum)
+    private static int RouteRewardTypeScore(string rewardEnum, AutomationDecisionPriority? priority)
     {
+        if (priority == AutomationDecisionPriority.ThreeStarVehicles &&
+            string.Equals(rewardEnum, "vehicle", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1100;
+        }
+
+        if (priority == AutomationDecisionPriority.CatapultPoints)
+        {
+            switch (rewardEnum.ToLowerInvariant())
+            {
+                case "potion":
+                case "disposable": return 650;
+                case "build": return 1000;
+                case "elitecatapult": return 800;
+                case "ferocitycommoncatapult": return 760;
+                case "commoncatapult": return 720;
+            }
+        }
+
         switch (rewardEnum.ToLowerInvariant())
         {
             // Legacy protocol values are retained for compatibility with older game bridges.

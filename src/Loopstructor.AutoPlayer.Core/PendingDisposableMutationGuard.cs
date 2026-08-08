@@ -12,6 +12,7 @@ public enum PendingDisposableMutationResolution
     Waiting,
     InteractionObserved,
     TargetAttributeCatapultObserved,
+    TargetCatapultObserved,
     Unknown
 }
 
@@ -146,6 +147,22 @@ public sealed class PendingDisposableMutationGuard
             return Resolution;
         }
 
+        if (!string.Equals(
+                DisposableEnum,
+                AttributeCatapultDisposableEnum,
+                StringComparison.Ordinal) &&
+            _targetGridX.HasValue &&
+            _targetGridY.HasValue &&
+            HasTargetDisposableCatapult(
+                catapultResult,
+                DisposableEnum,
+                _targetGridX.Value,
+                _targetGridY.Value))
+        {
+            Resolution = PendingDisposableMutationResolution.TargetCatapultObserved;
+            return Resolution;
+        }
+
         float timeout = Math.Max(0.1f, timeoutSeconds);
         if (now - StartedAt >= timeout)
         {
@@ -244,6 +261,25 @@ public sealed class PendingDisposableMutationGuard
                                          ?? Enumerable.Empty<JObject>();
         return catapults.Any(catapult =>
             catapult["isAttribute"]?.Value<bool>() == true &&
+            TryReadGrid(catapult["grid"], out int observedX, out int observedY) &&
+            observedX == gridX &&
+            observedY == gridY);
+    }
+
+    private static bool HasTargetDisposableCatapult(
+        JObject? catapultResult,
+        string disposableEnum,
+        int gridX,
+        int gridY)
+    {
+        JObject? state = TryReadState(catapultResult);
+        IEnumerable<JObject> catapults = (state?["catapults"] as JArray)?.OfType<JObject>()
+                                         ?? Enumerable.Empty<JObject>();
+        return catapults.Any(catapult =>
+            string.Equals(
+                catapult["recycleDisposableEnum"]?.Value<string>(),
+                disposableEnum,
+                StringComparison.Ordinal) &&
             TryReadGrid(catapult["grid"], out int observedX, out int observedY) &&
             observedX == gridX &&
             observedY == gridY);

@@ -191,7 +191,7 @@ public sealed class BattleDecisionEngineTests
     }
 
     [Fact]
-    public void Decide_SkipsTargetRaycastDisposableThatRequiresSceneWideCandidateScan()
+    public void Decide_SkipsTargetRaycastDisposableWithoutCompleteMcpContract()
     {
         JObject disposable = Result(new
         {
@@ -203,6 +203,134 @@ public sealed class BattleDecisionEngineTests
         });
 
         AutomationAction? action = Decide(new BattleDecisionContext(), ActiveWave(), disposable);
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public void Decide_UsesSafeTargetRaycastDisposableWithCompleteMcpContract()
+    {
+        JObject disposable = Result(new
+        {
+            isInPreview = false,
+            items = new[]
+            {
+                CompleteTargetRaycastDisposable(23, "EnergyExpansion", 2)
+            }
+        });
+
+        AutomationAction? action = Decide(new BattleDecisionContext(), ActiveWave(), disposable);
+
+        Assert.NotNull(action);
+        Assert.Equal("useDisposable", action.Command);
+        Assert.Equal(23, action.Arguments["itemInstanceId"]?.Value<int>());
+    }
+
+    [Theory]
+    [InlineData("EnergyPoint")]
+    [InlineData("FreePoint")]
+    [InlineData("FreePoint_Attribute")]
+    [InlineData("AddNewPoint")]
+    [InlineData("AddNewPoint_Attribute")]
+    [InlineData("CreateFreeEnergyExpansion")]
+    public void Decide_NeverConsumesReservedRailExpansionDisposable(string disposableEnum)
+    {
+        JObject disposable = Result(new
+        {
+            isInPreview = false,
+            items = new[]
+            {
+                CompleteTargetRaycastDisposable(23, disposableEnum, 2)
+            }
+        });
+
+        AutomationAction? action = Decide(new BattleDecisionContext(), ActiveWave(), disposable);
+
+        Assert.Null(action);
+    }
+
+    [Fact]
+    public void Decide_TargetConfirmationSkipsPassingCandidateWithoutStableIdentity()
+    {
+        JObject disposable = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "EnergyExpansion",
+            confirmContract = new { confirmKind = "targetRaycast" },
+            targetCandidates = new object[]
+            {
+                new { index = 0, conditionPass = true },
+                new { instanceId = 51, conditionPass = false },
+                new { path = "Scene/Defense/AttributePoint", conditionPass = true }
+            }
+        });
+
+        AutomationAction? action = Decide(
+            new BattleDecisionContext { DisposablePhase = BattleDisposablePhase.Confirming },
+            ActiveWave(),
+            disposable);
+
+        Assert.NotNull(action);
+        Assert.Equal("confirmDisposableTarget", action.Command);
+        Assert.Equal("Scene/Defense/AttributePoint", action.Arguments["path"]?.Value<string>());
+        Assert.Null(action.Arguments["targetInstanceId"]);
+    }
+
+    [Fact]
+    public void Decide_TargetConfirmationReplacesCallerPositionWithPassingStableCandidate()
+    {
+        JObject supplied = JObject.FromObject(new
+        {
+            world = new { x = 99, y = 99, z = 0 },
+            trace = "keep"
+        });
+        JObject disposable = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "EnergyExpansion",
+            confirmContract = new { confirmKind = "targetRaycast" },
+            targetCandidates = new[]
+            {
+                new { instanceId = 52, conditionPass = true }
+            }
+        });
+
+        AutomationAction? action = Decide(
+            new BattleDecisionContext
+            {
+                DisposablePhase = BattleDisposablePhase.Confirming,
+                DisposableConfirmationArguments = supplied
+            },
+            ActiveWave(),
+            disposable);
+
+        Assert.NotNull(action);
+        Assert.Equal(52, action.Arguments["targetInstanceId"]?.Value<int>());
+        Assert.Null(action.Arguments["world"]);
+        Assert.Equal("keep", action.Arguments["trace"]?.Value<string>());
+        Assert.NotSame(supplied, action.Arguments);
+        Assert.NotNull(supplied["world"]);
+    }
+
+    [Fact]
+    public void Decide_TargetConfirmationWaitsWhenNoPassingCandidateHasStableIdentity()
+    {
+        JObject disposable = Result(new
+        {
+            isInPreview = true,
+            disposableEnum = "EnergyExpansion",
+            confirmContract = new { confirmKind = "targetRaycast" },
+            targetCandidates = new object[]
+            {
+                new { index = 0, conditionPass = true },
+                new { instanceId = 51, conditionPass = false }
+            }
+        });
+
+        AutomationAction? action = Decide(
+            new BattleDecisionContext { DisposablePhase = BattleDisposablePhase.Confirming },
+            ActiveWave(),
+            disposable);
 
         Assert.Null(action);
     }
@@ -441,6 +569,8 @@ public sealed class BattleDecisionEngineTests
             wouldBeLegal = true,
             sideEffectCheckPassed = true,
             statePolluted = false,
+            requiresSpeedSource = false,
+            predictedLoopCycleSeconds = 8.5,
             beforeRailCount = 2,
             afterRailCount = 2
         })));
@@ -449,8 +579,31 @@ public sealed class BattleDecisionEngineTests
             wouldBeLegal = true,
             sideEffectCheckPassed = true,
             statePolluted = false,
+            requiresSpeedSource = false,
+            predictedLoopCycleSeconds = 8.5,
             beforeRailCount = 2,
             afterRailCount = 3
+        })));
+
+        Assert.False(engine.IsLegalDefenseExpansionPreview(Result(new
+        {
+            wouldBeLegal = true,
+            sideEffectCheckPassed = true,
+            statePolluted = false,
+            requiresSpeedSource = true,
+            predictedLoopCycleSeconds = 8.5,
+            beforeRailCount = 2,
+            afterRailCount = 2
+        })));
+
+        Assert.False(engine.IsLegalDefenseExpansionPreview(Result(new
+        {
+            wouldBeLegal = true,
+            sideEffectCheckPassed = true,
+            statePolluted = false,
+            predictedLoopCycleSeconds = 8.5,
+            beforeRailCount = 2,
+            afterRailCount = 2
         })));
     }
 
@@ -1176,6 +1329,31 @@ public sealed class BattleDecisionEngineTests
         buttonActive,
         confirmContract = new { confirmKind },
         effectFacts = new { effectKind }
+    };
+
+    private static object CompleteTargetRaycastDisposable(
+        int itemInstanceId,
+        string disposableEnum,
+        int count) => new
+    {
+        index = itemInstanceId,
+        itemInstanceId,
+        disposableEnum,
+        count,
+        active = true,
+        buttonActive = true,
+        confirmCommand = "guigame_confirm_disposable_target",
+        confirmContract = new
+        {
+            confirmKind = "targetRaycast",
+            allowedArgs = new[] { "targetInstanceId", "instanceId", "path", "world", "grid" },
+            needsTarget = true,
+            needsWorldPosition = true,
+            targetCandidatesRequired = true
+        },
+        effectFacts = new { effectKind = "targetBuff" },
+        restoreIdentityArgs = new[] { "disposableEnum", "index", "itemInstanceId", "instanceId", "path" },
+        sameItemIdentityRequiredForConfirm = true
     };
 
     private static object Vehicle(

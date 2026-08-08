@@ -112,6 +112,7 @@ internal sealed partial class MainForm : Window
     {
         _mode.ItemsSource = new[] { "普通模式", "随机模式" };
         _speed.ItemsSource = new[] { "跟随游戏", "1x · 常速（推荐）", "2x · 加速", "3x · 高速" };
+        _decisionPriority.ItemsSource = new[] { "优先拿三星车", "优先拿弹射点" };
         _timelineItems.ItemsSource = _timeline;
         _logs.Document.PagePadding = new Thickness(0);
     }
@@ -163,6 +164,8 @@ internal sealed partial class MainForm : Window
         _mode.SelectedIndex = _settings.GameMode == AutomationGameMode.Random ? 1 : 0;
         _speed.SelectedIndex = SpeedSelectionIndex(_settings.OverrideGameSpeed, _settings.SpeedState);
         _maxMinutes.Text = Math.Clamp(_settings.MaxRunMinutes, 5, 480).ToString();
+        _skipStory.IsChecked = _settings.SkipStory;
+        _decisionPriority.SelectedIndex = _settings.DecisionPriority == AutomationDecisionPriority.ThreeStarVehicles ? 0 : 1;
         _autoUpdateCheck.IsChecked = _settings.CheckUpdatesOnStart;
     }
 
@@ -429,7 +432,7 @@ internal sealed partial class MainForm : Window
         AppendLog("INFO", result.Message, BlueBrush);
         AppendLog("SAFE", "只接受所选游戏目录、当前 SHA-256 与本机令牌对应的插件。", SignalBrush);
         AppendLog("INFO", "玩家模式不会重定向游戏存档或平台写入；连接后可随时开始、暂停或停止自动游玩。", TextBrush);
-        AppendLog("CHEAT", "安全握手通过后可随时打开作弊工具；关闭作弊模式后仍可开始自动游玩，运行记录会保留作弊标记。", GoldBrush);
+        AppendLog("CHEAT", "安全握手通过后可随时打开作弊工具；自动游玩期间仍可查看怪物 ID 与 Buff，其他作弊写操作会被锁定。", GoldBrush);
         _pollTimer.Start();
         SetOperationAvailability();
         _ = PollPluginAsync();
@@ -1020,7 +1023,11 @@ internal sealed partial class MainForm : Window
             OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection),
             SpeedState = SpeedStateFromSelectionIndex(speedSelection),
             MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120),
-            ContinueExistingProfile = _continueProfile.IsChecked == true
+            ContinueExistingProfile = _continueProfile.IsChecked == true,
+            SkipStory = _skipStory.IsChecked == true,
+            DecisionPriority = _decisionPriority.SelectedIndex == 0
+                ? AutomationDecisionPriority.ThreeStarVehicles
+                : AutomationDecisionPriority.CatapultPoints
         };
     }
 
@@ -1304,21 +1311,8 @@ internal sealed partial class MainForm : Window
             SetConnectionState("等待门禁", GoldBrush);
         }
 
-        if (status.CheatModeEnabled)
-        {
-            _restartWarningReported = false;
-            _runState.Text = "作弊模式 / 已启用";
-            _stageDetail.Text = status.CheatUsed
-                ? status.CheatActionCount > 0
-                    ? $"已经执行 {status.CheatActionCount} 项作弊操作；关闭作弊模式后仍可开始自动游玩。"
-                    : "当前存档存在作弊记录；关闭作弊模式后仍可开始自动游玩。"
-                : "作弊工具已就绪；尚未执行会改变对局的操作。";
-            SetStageVisual(GoldBrush, WarningStageBackground);
-            SetConnectionState("作弊模式", GoldBrush);
-            SetTelemetry("process", status.CheatUsed ? "作弊模式 / 已记录修改" : "作弊模式已启用");
-            _cheatMarkerReported = false;
-        }
-        else if (status.NeedsProcessRestart)
+        bool autoPlayActive = status.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
+        if (status.NeedsProcessRestart)
         {
             ShowRestartRequired();
             if (!_restartWarningReported)
@@ -1330,6 +1324,20 @@ internal sealed partial class MainForm : Window
                     GoldBrush);
             }
         }
+        else if (status.CheatModeEnabled && status.RunState == AutoPlayerRunState.Standby)
+        {
+            _restartWarningReported = false;
+            _runState.Text = "作弊模式 / 已启用";
+            _stageDetail.Text = status.CheatUsed
+                ? status.CheatActionCount > 0
+                    ? $"已经执行 {status.CheatActionCount} 项作弊操作；关闭持续效果后仍可开始自动游玩。"
+                    : "当前存档存在作弊记录；关闭持续效果后仍可开始自动游玩。"
+                : "作弊工具已就绪；怪物 ID 与 Buff 监视不会改动对局。";
+            SetStageVisual(GoldBrush, WarningStageBackground);
+            SetConnectionState("作弊模式", GoldBrush);
+            SetTelemetry("process", status.CheatUsed ? "作弊模式 / 已记录修改" : "作弊模式已启用");
+            _cheatMarkerReported = false;
+        }
         else
         {
             _restartWarningReported = false;
@@ -1338,7 +1346,7 @@ internal sealed partial class MainForm : Window
                 _cheatMarkerReported = true;
                 AppendLog(
                     "INFO",
-                    "作弊模式已关闭；现在可以开始自动游玩，本次运行证据会继续标记为 cheat-modified。",
+                    "作弊模式已关闭；本次运行证据会继续标记为 cheat-modified。",
                     GoldBrush);
             }
             else if (!status.CheatUsed)
@@ -1347,6 +1355,10 @@ internal sealed partial class MainForm : Window
             }
 
             SetStageVisual(status.CheatUsed ? GoldBrush : SignalBrush, NormalStageBackground);
+            if (autoPlayActive && status.CheatModeEnabled)
+            {
+                SetTelemetry("process", processPrefix + "自动游玩 / 怪物监视");
+            }
         }
 
         _cheatForm?.UpdateSession(_sessionTrusted, _hello, status);
@@ -1787,6 +1799,10 @@ internal sealed partial class MainForm : Window
         _settings.OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection);
         _settings.SpeedState = SpeedStateFromSelectionIndex(speedSelection);
         _settings.MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120);
+        _settings.SkipStory = _skipStory.IsChecked == true;
+        _settings.DecisionPriority = _decisionPriority.SelectedIndex == 0
+            ? AutomationDecisionPriority.ThreeStarVehicles
+            : AutomationDecisionPriority.CatapultPoints;
         _settings.NormalizeUpdateSource();
         _settings.CheckUpdatesOnStart = _autoUpdateCheck.IsChecked == true;
         try

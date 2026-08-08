@@ -155,6 +155,60 @@ public sealed class AutoPlayFaultPolicyContractTests
         Assert.False(hardFault.CanStart);
     }
 
+    [Fact]
+    public void Start_RejectsPersistentCheatEffectsButDoesNotRejectObservationModeItself()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        MethodDefinition start = RequireMethod(RequireType(assembly, ControllerType), "Start");
+        Instruction[] instructions = start.Body.Instructions.ToArray();
+
+        int baseGodMode = Array.FindIndex(instructions, LoadsField("_baseGodModeEnabled"));
+        int mapSkip = FindCall(instructions, "Loopstructor.AutoPlayer.Plugin.MapSkipPatch", "get_Enabled");
+        int runningStore = Array.FindLastIndex(instructions, StoresField("_runState"));
+
+        Assert.True(baseGodMode >= 0 && baseGodMode < runningStore);
+        Assert.True(mapSkip >= 0 && mapSkip < runningStore);
+        Assert.DoesNotContain(instructions, LoadsField("_cheatModeEnabled"));
+        Assert.Contains(
+            start.Body.Instructions,
+            instruction => instruction.OpCode.Code == Code.Ldstr &&
+                           instruction.Operand is string message &&
+                           message.Contains("敌人 ID 与 Buff 监视可以继续保留", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CheatMonitor_DoesNotFaultAnActiveOwnedPreview()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        MethodDefinition setCheatMode = RequireMethod(
+            RequireType(assembly, ControllerType),
+            "TrySetCheatMode");
+        Instruction[] instructions = setCheatMode.Body.Instructions.ToArray();
+
+        int retainedIdentityGate = FindCall(
+            instructions,
+            ControllerType,
+            "HasOwnedAutomationPreviewIdentity");
+        int runStateGate = Array.FindIndex(
+            instructions,
+            retainedIdentityGate + 1,
+            LoadsField("_runState"));
+        int beginRelease = FindCall(
+            instructions,
+            ControllerType,
+            "BeginOwnedPreviewRelease");
+
+        Assert.True(retainedIdentityGate >= 0);
+        Assert.True(
+            runStateGate > retainedIdentityGate && runStateGate < beginRelease,
+            "An active run must be rejected before retained-preview fault cleanup begins.");
+        Assert.Contains(
+            instructions.Skip(runStateGate).Take(beginRelease - runStateGate),
+            instruction => instruction.OpCode.Code == Code.Ldstr &&
+                           instruction.Operand is string message &&
+                           message.Contains("等待当前预览完成", StringComparison.Ordinal));
+    }
+
     private static void AssertOutcomeRoutesToSoftFault(MethodDefinition method, int outcome)
     {
         Instruction[] instructions = method.Body.Instructions.ToArray();

@@ -164,7 +164,7 @@ public sealed class RewardSettlementFrameIsolationContractTests
             Code.Stfld,
             "_rewardObjectsAppearanceReadyAt",
             grace + 1);
-        int recordingDelay = FindFloat(instructions, 1.5f, appearanceReadyStore + 1);
+        int recordingDelay = FindFloat(instructions, 1.25f, appearanceReadyStore + 1);
         int observationReadyStore = FindField(
             instructions,
             Code.Stfld,
@@ -183,7 +183,7 @@ public sealed class RewardSettlementFrameIsolationContractTests
         Assert.True(recordingDelay < observationReadyStore);
         Assert.Contains(instructions[(recordingDelay + 1)..observationReadyStore], instruction =>
             instruction.OpCode.Code == Code.Add);
-        Assert.Contains(LoadedStrings(wait), value => value.Contains("1.5", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(wait), value => value.Contains("1.25", StringComparison.Ordinal));
     }
 
     private static AssemblyDefinition ReadPlugin() => AssemblyDefinition.ReadAssembly(PluginPath());

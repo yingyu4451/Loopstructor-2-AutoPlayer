@@ -205,6 +205,52 @@ public sealed class CheatFormWpfLayoutTests
         });
     }
 
+    [Theory]
+    [InlineData(AutoPlayerRunState.Running)]
+    [InlineData(AutoPlayerRunState.Paused)]
+    public void ActiveAutoPlay_EnablesObservationControlsAndLocksCheatWrites(AutoPlayerRunState runState)
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                AutoPlayerStatus status = DemoData.CheatStatus();
+                status.RunState = runState;
+                status.CheatModeEnabled = true;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+
+                Assert.True(Assert.IsType<CheckBox>(form.FindName("_enableCheck")).IsEnabled);
+                Assert.True(Assert.IsType<Button>(form.FindName("_catalogRefreshButton")).IsEnabled);
+                Assert.True(Assert.IsType<CatalogPickerControl>(form.FindName("_vehicleCatalog")).IsEnabled);
+                Assert.True(Assert.IsType<CatalogPickerControl>(form.FindName("_enemyCatalog")).IsEnabled);
+                Assert.True(Assert.IsType<Button>(form.FindName("_vehicleRefreshButton")).IsEnabled);
+                Assert.True(Assert.IsType<Button>(form.FindName("_enemyRefreshButton")).IsEnabled);
+                Assert.True(Assert.IsType<DataGrid>(form.FindName("_vehicleGrid")).IsEnabled);
+                Assert.True(Assert.IsType<DataGrid>(form.FindName("_enemyGrid")).IsEnabled);
+                Assert.True(Assert.IsType<CheckBox>(form.FindName("_enemyIdOverlayCheck")).IsEnabled);
+                Assert.True(Assert.IsType<CheckBox>(form.FindName("_enemyBuffOverlayCheck")).IsEnabled);
+
+                Assert.False(Assert.IsType<Button>(form.FindName("_grantVehicleButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_clearEnemiesButton")).IsEnabled);
+                Assert.False(Assert.IsType<CheckBox>(form.FindName("_baseGodModeCheck")).IsEnabled);
+                Assert.False(Assert.IsType<CheckBox>(form.FindName("_mapSkipCheck")).IsEnabled);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
     [Fact]
     public void SpawnPointList_AddsManualPoints_AndDefaultsToCurrentLevel()
     {

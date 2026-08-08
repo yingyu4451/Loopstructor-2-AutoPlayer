@@ -85,10 +85,10 @@ internal readonly record struct RunControlAvailability(
 
         AutoPlayerRunState state = status?.RunState ?? AutoPlayerRunState.Standby;
         bool needsProcessRestart = status?.NeedsProcessRestart == true;
-        bool cheatBlocksNormalRun = status?.CheatModeEnabled == true;
+        bool persistentCheatEffect = status?.BaseGodModeEnabled == true || status?.MapSkipEnabled == true;
         return new RunControlAvailability(
             CanStart: !needsProcessRestart
-                      && !cheatBlocksNormalRun
+                      && !persistentCheatEffect
                       && state is AutoPlayerRunState.Standby
                           or AutoPlayerRunState.Completed
                           or AutoPlayerRunState.Faulted,
@@ -110,6 +110,8 @@ public sealed class ManagerSettings
     public bool OverrideGameSpeed { get; set; } = true;
     public int SpeedState { get; set; }
     public int MaxRunMinutes { get; set; } = 120;
+    public bool SkipStory { get; set; }
+    public AutomationDecisionPriority DecisionPriority { get; set; } = AutomationDecisionPriority.CatapultPoints;
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
     public bool CheckUpdatesOnStart { get; set; } = true;

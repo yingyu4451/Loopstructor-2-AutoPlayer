@@ -217,22 +217,32 @@ internal sealed partial class CheatForm : Window
     private void RegisterAvailabilityControls()
     {
         AddMutationControls(
-            _vehicleCatalog, _vehicleCount, _enchantmentCatalog, _enchantmentLevel,
+            _vehicleCount, _enchantmentLevel,
             _addEnchantmentButton, _removeEnchantmentButton, _clearEnchantmentsButton,
-            _grantVehicleButton, _disposableCatalog, _disposableCount, _grantDisposableButton,
-            _relicCatalog, _ownedRelicCatalog, _grantRelicButton, _removeRelicButton,
-            _catapultCatalog, _ownedCatapultCatalog, _catapultCount, _grantCatapultButton, _removeCatapultButton,
+            _grantVehicleButton, _disposableCount, _grantDisposableButton,
+            _grantRelicButton, _removeRelicButton,
+            _catapultCount, _grantCatapultButton, _removeCatapultButton,
             _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
-            _enemyIdOverlayCheck, _enemyBuffOverlayCheck,
             _removeFieldCatapultButton, _clearFieldCatapultsButton,
-            _vehicleAttribute, _vehicleAttributeValue, _modifyVehicleButton,
-            _vehicleEnchantmentCatalog, _vehicleEnchantmentLevel, _setVehicleEnchantmentButton, _removeVehicleButton,
-            _enemyAttribute, _enemyAttributeValue, _modifyEnemyButton,
-            _enemyCatalog, _enemyLevel, _followCurrentLevelCheck, _enemyCount, _spawnX, _spawnY, _spawnZ, _spawnRadius,
+            _vehicleAttributeValue, _modifyVehicleButton,
+            _vehicleEnchantmentLevel, _setVehicleEnchantmentButton, _removeVehicleButton,
+            _enemyAttributeValue, _modifyEnemyButton,
+            _enemyLevel, _followCurrentLevelCheck, _enemyCount, _spawnX, _spawnY, _spawnZ, _spawnRadius,
             _capturePointButton, _cancelCaptureButton, _addSpawnPointButton,
             _removeSpawnPointButton, _clearSpawnPointsButton, _spawnEnemyButton);
-        _catalogQueryControls.AddRange(new UIElement[] { _catalogRefreshButton, _spawnCatalogRefreshButton });
-        _entityQueryControls.AddRange(new UIElement[] { _vehicleRefreshButton, _enemyRefreshButton, _fieldCatapultRefreshButton });
+        _catalogQueryControls.AddRange(new UIElement[]
+        {
+            _catalogRefreshButton, _spawnCatalogRefreshButton,
+            _vehicleCatalog, _enchantmentCatalog, _disposableCatalog,
+            _relicCatalog, _ownedRelicCatalog,
+            _catapultCatalog, _ownedCatapultCatalog, _enemyCatalog
+        });
+        _entityQueryControls.AddRange(new UIElement[]
+        {
+            _vehicleRefreshButton, _enemyRefreshButton, _fieldCatapultRefreshButton,
+            _vehicleGrid, _enemyGrid, _fieldCatapultGrid,
+            _vehicleAttribute, _vehicleEnchantmentCatalog, _enemyAttribute
+        });
     }
 
     private async void CheatForm_OnLoaded(object sender, RoutedEventArgs eventArgs)
@@ -1189,15 +1199,18 @@ internal sealed partial class CheatForm : Window
         bool runConflict = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
         bool canMutate = available
                          && _status?.CheatModeEnabled == true
+                         && !runConflict
                          && !_writeOutcomeUnknown
                          && !_busy;
         bool canQueryCatalog = available && !_busy;
         bool canQueryEntities = available && _status?.CheatModeEnabled == true && !_busy;
 
-        _enableCheck.IsEnabled = available && !runConflict && !_writeOutcomeUnknown && !_busy;
+        _enableCheck.IsEnabled = available && !_busy;
         foreach (UIElement control in _mutationControls) control.IsEnabled = canMutate;
         foreach (UIElement control in _catalogQueryControls) control.IsEnabled = canQueryCatalog;
         foreach (UIElement control in _entityQueryControls) control.IsEnabled = canQueryEntities;
+        _enemyIdOverlayCheck.IsEnabled = canQueryEntities;
+        _enemyBuffOverlayCheck.IsEnabled = canQueryEntities;
 
         bool selectedAlready = _enchantmentCatalog.SelectedCatalogItem != null
                                && _enchantmentSelections.Any(selection => string.Equals(
@@ -1271,11 +1284,17 @@ internal sealed partial class CheatForm : Window
             rail = RedBrush;
             panel = RedPanelBrush;
         }
-        else if (runConflict)
+        else if (runConflict && _status?.CheatModeEnabled == true)
         {
-            _statusTitle.Text = "自动游玩运行或暂停时不能启用作弊";
+            _statusTitle.Text = "自动游玩监视已开启 / 作弊写操作已锁定";
             rail = AmberBrush;
             panel = AmberPanelBrush;
+        }
+        else if (runConflict)
+        {
+            _statusTitle.Text = "自动游玩中 / 可开启怪物监视";
+            rail = GreenBrush;
+            panel = GreenPanelBrush;
         }
         else if (_status?.CheatModeEnabled == true)
         {
@@ -1321,6 +1340,17 @@ internal sealed partial class CheatForm : Window
             string reason = _status?.CheatAvailabilityReason ?? string.Empty;
             if (string.IsNullOrWhiteSpace(reason)) reason = _hello?.CheatAvailabilityReason ?? string.Empty;
             return string.IsNullOrWhiteSpace(reason) ? "插件未提供作弊运行时合同。" : reason;
+        }
+
+        bool runConflict = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
+        if (runConflict && _status?.CheatModeEnabled == true)
+        {
+            return "自动游玩期间可查询目录、战车和敌人，并切换敌人 ID 与 Buff 显示；资源、属性、清怪等作弊写操作由插件锁定。";
+        }
+
+        if (runConflict)
+        {
+            return "可在自动游玩期间启用作弊监视；启用后仍只开放查询以及敌人 ID、Buff 显示。";
         }
 
         if (_status?.CheatUsed == true)

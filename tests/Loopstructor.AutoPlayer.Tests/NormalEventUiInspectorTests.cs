@@ -93,6 +93,34 @@ public sealed class NormalEventUiInspectorTests
         Assert.NotEqual(story.Fingerprint, choices.Fingerprint);
     }
 
+    [Fact]
+    public void Decision_UsesSkipButtonOnlyWhenStorySkippingIsEnabled()
+    {
+        NormalEventUiSnapshot snapshot = NormalEventUiInspector.Inspect(Result(
+            Item(61, "CountineButton", "Canvas/EventUI_Normal/StoryView/CountineButton"),
+            Item(62, "SkipButton", "Canvas/EventUI_Normal/StoryView/SkipButton")));
+
+        Assert.Equal(61, NormalEventUiDecision.SelectTarget(snapshot, skipStory: false)?.InstanceId);
+        Assert.Equal(62, NormalEventUiDecision.SelectTarget(snapshot, skipStory: true)?.InstanceId);
+    }
+
+    [Fact]
+    public void Decision_AlwaysChoosesVisibleOptionBeforeStoryButtons()
+    {
+        NormalEventUiSnapshot snapshot = NormalEventUiInspector.Inspect(Result(
+            Item(71, "SkipButton", "Canvas/EventUI_Normal/StoryView/SkipButton"),
+            Item(
+                72,
+                "ChoiceButton_1",
+                "Canvas/EventUI_Normal/ChoiceView/ChoiceButton_1",
+                components: new[] { "WaveFunctionNormalOptionButton" })));
+
+        NormalEventUiButton? target = NormalEventUiDecision.SelectTarget(snapshot, skipStory: true);
+
+        Assert.Equal(NormalEventUiButtonRole.ChooseOption, target?.Role);
+        Assert.Equal(72, target?.InstanceId);
+    }
+
     private static JObject Result(params JObject[] items) => new()
     {
         ["success"] = true,

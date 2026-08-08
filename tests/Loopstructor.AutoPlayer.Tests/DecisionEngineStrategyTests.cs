@@ -306,6 +306,104 @@ public sealed class DecisionEngineStrategyTests
         Assert.Equal(8, action.Arguments.Value<int>("readyIndex"));
     }
 
+    [Fact]
+    public void RewardSelection_RespectsConfiguredVehicleOrCatapultPriority()
+    {
+        JObject reward = RewardOptions(
+            new
+            {
+                index = 3,
+                buttonActive = true,
+                rewardKind = "vehicle",
+                rewardRare = "boss4",
+                vehicleType = "Link_ElectricGun_L3",
+                effectiveFetters = Array.Empty<object>()
+            },
+            new
+            {
+                index = 7,
+                buttonActive = true,
+                rewardKind = "disposable",
+                rewardRare = "normal",
+                disposableEnum = "FreePoint_Attribute"
+            });
+        JObject vehicles = VehicleState(
+            Vehicle("Link_ElectricGun_L3", inBag: false),
+            Vehicle("Link_ElectricGun_L3", inBag: true));
+        DecisionEngine engine = new();
+
+        AutomationAction vehicleFirst = engine.DecideReward(
+            reward,
+            vehicles,
+            AutomationDecisionPriority.ThreeStarVehicles);
+        AutomationAction pointFirst = engine.DecideReward(
+            reward,
+            vehicles,
+            AutomationDecisionPriority.CatapultPoints);
+
+        Assert.Equal(3, vehicleFirst.Arguments.Value<int>("index"));
+        Assert.Equal(7, pointFirst.Arguments.Value<int>("index"));
+    }
+
+    [Theory]
+    [InlineData("FreePoint")]
+    [InlineData("AddNewPoint")]
+    [InlineData("FreePoint_Attribute")]
+    [InlineData("AddNewPoint_Attribute")]
+    [InlineData("EnergyPoint")]
+    [InlineData("CreateFreeEnergyExpansion")]
+    public void RewardSelection_CatapultPriorityRecognizesEveryPointAcquisitionPath(string disposableEnum)
+    {
+        JObject reward = RewardOptions(
+            new
+            {
+                index = 1,
+                buttonActive = true,
+                rewardKind = "vehicle",
+                rewardRare = "boss4",
+                vehicleType = "Link_ElectricGun_L3",
+                effectiveFetters = Array.Empty<object>()
+            },
+            new
+            {
+                index = 9,
+                buttonActive = true,
+                rewardKind = "disposable",
+                rewardRare = "normal",
+                disposableEnum
+            });
+
+        AutomationAction action = new DecisionEngine().DecideReward(
+            reward,
+            VehicleState(),
+            AutomationDecisionPriority.CatapultPoints);
+
+        Assert.Equal(9, action.Arguments.Value<int>("index"));
+    }
+
+    [Fact]
+    public void RouteSelection_RespectsConfiguredVehicleOrCatapultPriority()
+    {
+        JObject affordances = Affordances(
+            VehicleRoute(2, enemyCount: 20),
+            CatapultRoute(6, enemyCount: 20));
+        DecisionEngine engine = new();
+
+        AutomationAction vehicleFirst = engine.DecideInGame(
+            affordances,
+            null,
+            null,
+            AutomationDecisionPriority.ThreeStarVehicles);
+        AutomationAction pointFirst = engine.DecideInGame(
+            affordances,
+            null,
+            null,
+            AutomationDecisionPriority.CatapultPoints);
+
+        Assert.Equal(2, vehicleFirst.Arguments.Value<int>("readyIndex"));
+        Assert.Equal(6, pointFirst.Arguments.Value<int>("readyIndex"));
+    }
+
     private static JObject RewardOptions(params object[] options) => JObject.FromObject(new
     {
         data = new
@@ -378,6 +476,25 @@ public sealed class DecisionEngineStrategyTests
             superModule = 0
         },
         vehicleTags = new[] { "Fetter_Link" }
+    };
+
+    private static object CatapultRoute(int readyIndex, int enemyCount) => new
+    {
+        readyIndex,
+        canPlayerSelect = true,
+        rewardEnum = "CommonCatapult",
+        needFight = true,
+        isBoss = false,
+        totalEnemyAmount = enemyCount,
+        dropCounts = new
+        {
+            vehicle = 0,
+            catapult = 1,
+            money = 0,
+            disposable = 0,
+            superModule = 0
+        },
+        disposableTags = new[] { "Special_Point" }
     };
 
     private static object SafeEventRoute(int readyIndex) => new
