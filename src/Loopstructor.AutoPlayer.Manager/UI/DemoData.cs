@@ -31,7 +31,7 @@ internal static class DemoData
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
         ProcessInstanceId = "cb866de72f7b45d4a2e35564bc19e515",
-        PluginVersion = "0.6.2",
+        PluginVersion = "0.6.3",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -150,6 +150,18 @@ internal static class DemoData
             ["enemyIdsVisible"] = _enemyIdsVisible,
             ["enemyBuffsVisible"] = _enemyBuffsVisible,
             ["mapSkipEnabled"] = false,
+            ["grantAllRelics"] = new JObject
+            {
+                ["state"] = "idle",
+                ["totalCount"] = 0,
+                ["processedCount"] = 0,
+                ["grantedCount"] = 0,
+                ["skippedCount"] = 0,
+                ["failedCount"] = 0,
+                ["remainingCount"] = 0,
+                ["failedRelics"] = new JArray(),
+                ["message"] = "未开始"
+            },
             ["ownedRelics"] = new JArray(
                 new JObject
                 {
@@ -227,6 +239,27 @@ internal static class DemoData
             state["enemyBuffsVisible"] = visible;
         }
 
+        if (string.Equals(command, CheatCommands.GrantAllRelics, StringComparison.OrdinalIgnoreCase))
+        {
+            state["ownedRelics"] = new JArray(
+                DemoOwnedRelic("Scope", "瞄准镜"),
+                DemoOwnedRelic("BlackHole", "黑洞"),
+                DemoOwnedRelic("PowerBank", "充电宝"));
+            state["grantAllRelics"] = new JObject
+            {
+                ["state"] = "completed",
+                ["totalCount"] = 3,
+                ["processedCount"] = 3,
+                ["grantedCount"] = 2,
+                ["skippedCount"] = 1,
+                ["failedCount"] = 0,
+                ["remainingCount"] = 0,
+                ["failedRelics"] = new JArray(),
+                ["message"] = "已补齐全部演示遗物"
+            };
+            return Success("已补齐全部演示遗物。", state, status);
+        }
+
         return Success(
             string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase)
                 ? "演示作弊状态已读取。"
@@ -234,6 +267,15 @@ internal static class DemoData
             state,
             status);
     }
+
+    private static JObject DemoOwnedRelic(string relicId, string name) => new()
+    {
+        ["id"] = relicId,
+        ["relicId"] = relicId,
+        ["enumName"] = relicId,
+        ["name"] = name,
+        ["count"] = 1
+    };
 
     private static JObject CheatCatalog() => new()
     {

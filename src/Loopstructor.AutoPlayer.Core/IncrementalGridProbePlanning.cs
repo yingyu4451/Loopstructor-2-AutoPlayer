@@ -74,6 +74,7 @@ public interface IBattleLiveDisposableGridProbe
 public static class DefenseExpansionAttributeGridRanker
 {
     private const double MinimumArea = 0.000001d;
+    private const double MaximumReasonableLoopLengthRatio = 8d;
 
     public static IReadOnlyList<AutoPlayerGrid> Rank(
         IEnumerable<AutoPlayerGrid>? candidates,
@@ -108,7 +109,6 @@ public static class DefenseExpansionAttributeGridRanker
         List<RankedGrid> ranked = new();
         foreach (AutoPlayerGrid candidate in candidates?.Distinct() ?? Enumerable.Empty<AutoPlayerGrid>())
         {
-            LayoutScore? bestScore = null;
             for (int first = 0; first < commonPoints.Count - 1; first++)
             {
                 for (int second = first + 1; second < commonPoints.Count; second++)
@@ -125,23 +125,35 @@ public static class DefenseExpansionAttributeGridRanker
                         continue;
                     }
 
-                    if (!bestScore.HasValue || LayoutScoreComparer.Instance.Compare(score, bestScore.Value) < 0)
-                    {
-                        bestScore = score;
-                    }
+                    ranked.Add(new RankedGrid(candidate, score));
                 }
-            }
-
-            if (bestScore.HasValue)
-            {
-                ranked.Add(new RankedGrid(candidate, bestScore.Value));
             }
         }
 
+        double reasonableLoopLengthLimit = CalculateReasonableLoopLengthLimit(
+            ranked.Select(item => item.Score.Layout));
         return ranked
+            .Where(item => item.Score.Layout.LoopLength <= reasonableLoopLengthLimit)
             .OrderBy(item => item, RankedGridComparer.Instance)
             .Select(item => item.Grid)
+            .Distinct()
             .ToArray();
+    }
+
+    internal static double CalculateReasonableLoopLengthLimit(
+        IEnumerable<RailLayoutScore>? layouts)
+    {
+        double shortest = layouts?
+            .Where(layout => layout?.IsValid == true &&
+                             layout.LoopLength > MinimumArea &&
+                             !double.IsNaN(layout.LoopLength) &&
+                             !double.IsInfinity(layout.LoopLength))
+            .Select(layout => layout.LoopLength)
+            .DefaultIfEmpty(double.PositiveInfinity)
+            .Min() ?? double.PositiveInfinity;
+        return double.IsInfinity(shortest)
+            ? double.PositiveInfinity
+            : shortest * MaximumReasonableLoopLengthRatio;
     }
 
     private static LayoutScore Score(
@@ -158,9 +170,15 @@ public static class DefenseExpansionAttributeGridRanker
         double area = Math.Abs(
             (first.X - attribute.X) * (second.Y - attribute.Y)
             - (first.Y - attribute.Y) * (second.X - attribute.X));
+        RailLayoutScore layout = RailLayoutStrategyPlanner.EvaluateEstimated(new[]
+        {
+            new RailLayoutPoint(attribute.X, attribute.Y),
+            new RailLayoutPoint(first.X, first.Y),
+            new RailLayoutPoint(second.X, second.Y)
+        });
         if (!hasOccupiedCentroid)
         {
-            return new LayoutScore(false, 0, 0d, distance, area);
+            return new LayoutScore(layout, false, 0, 0d, distance, area);
         }
 
         double candidateX = (attribute.X + first.X + second.X) / 3d;
@@ -169,12 +187,12 @@ public static class DefenseExpansionAttributeGridRanker
         double candidateMagnitude = Math.Sqrt(candidateX * candidateX + candidateY * candidateY);
         if (occupiedMagnitude <= MinimumArea || candidateMagnitude <= MinimumArea)
         {
-            return new LayoutScore(false, 0, 0d, distance, area);
+            return new LayoutScore(layout, false, 0, 0d, distance, area);
         }
 
         double cosine = (occupiedX * candidateX + occupiedY * candidateY)
                         / (occupiedMagnitude * candidateMagnitude);
-        return new LayoutScore(true, cosine <= 0d ? 0 : 1, cosine, distance, area);
+        return new LayoutScore(layout, true, cosine <= 0d ? 0 : 1, cosine, distance, area);
     }
 
     private static bool IsAvailableExpansionPoint(JObject point) =>
@@ -260,8 +278,15 @@ public static class DefenseExpansionAttributeGridRanker
 
     private readonly struct LayoutScore
     {
-        public LayoutScore(bool hasCoverageContext, int sideRank, double directionCosine, double distance, double area)
+        public LayoutScore(
+            RailLayoutScore layout,
+            bool hasCoverageContext,
+            int sideRank,
+            double directionCosine,
+            double distance,
+            double area)
         {
+            Layout = layout;
             HasCoverageContext = hasCoverageContext;
             SideRank = sideRank;
             DirectionCosine = directionCosine;
@@ -269,6 +294,7 @@ public static class DefenseExpansionAttributeGridRanker
             Area = area;
         }
 
+        public RailLayoutScore Layout { get; }
         public bool HasCoverageContext { get; }
         public int SideRank { get; }
         public double DirectionCosine { get; }
@@ -294,13 +320,15 @@ public static class DefenseExpansionAttributeGridRanker
 
         public int Compare(LayoutScore left, LayoutScore right)
         {
-            int comparison = left.Distance.CompareTo(right.Distance);
+            int comparison = RailLayoutStrategyPlanner.CompareForDefense(left.Layout, right.Layout);
             if (comparison != 0) return comparison;
             comparison = (left.HasCoverageContext ? left.SideRank : 0)
                 .CompareTo(right.HasCoverageContext ? right.SideRank : 0);
             if (comparison != 0) return comparison;
             comparison = (left.HasCoverageContext ? left.DirectionCosine : 0d)
                 .CompareTo(right.HasCoverageContext ? right.DirectionCosine : 0d);
+            if (comparison != 0) return comparison;
+            comparison = left.Distance.CompareTo(right.Distance);
             if (comparison != 0) return comparison;
             return right.Area.CompareTo(left.Area);
         }

@@ -17,6 +17,7 @@ internal sealed class CheatRuntimeBridge
     private const double MaxAttributeMagnitude = 1_000_000_000d;
     private const float MaxCoordinateMagnitude = 10_000f;
     private const int MaxGrantCount = 20;
+    private const int MaxGrantAllRelicsPerFrame = 1;
     private const int MaxSpawnCount = 10;
     private const int MaxSpawnPointCount = 12;
     private const int MaxTotalSpawnCount = 50;
@@ -268,6 +269,7 @@ internal sealed class CheatRuntimeBridge
     private SpawnPointCapture _spawnPointCapture = SpawnPointCapture.Idle();
     private readonly List<SavedSpawnPoint> _spawnPoints = new();
     private string _lastCapturedPointId = string.Empty;
+    private GrantAllRelicsJob _grantAllRelicsJob = GrantAllRelicsJob.Idle();
 
     private Type? _vehicleManagerType;
     private Type? _vehicleControllerType;
@@ -347,6 +349,7 @@ internal sealed class CheatRuntimeBridge
         _artifactRoot = Path.GetFullPath(artifactRoot);
         _missingMembers.Clear();
         _catalogIcons.Clear();
+        _grantAllRelicsJob = GrantAllRelicsJob.Idle();
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
         _vehicleInterfaceType = Require("MetroTD.VehicleSystem.IVehicle");
@@ -461,15 +464,49 @@ internal sealed class CheatRuntimeBridge
     public JObject QueryOwnedState()
     {
         EnsureAvailable();
-        JArray vehicles = new();
-        foreach (object vehicle in SnapshotVehicles()) vehicles.Add(BuildVehicleState(vehicle));
-        return new JObject
+        JObject state = new()
         {
-            ["ownedVehicles"] = vehicles,
-            ["ownedRelics"] = BuildOwnedRelics(),
-            ["ownedCatapultPoints"] = BuildOwnedCatapultPoints(),
-            ["fieldCatapultPoints"] = BuildFieldCatapultPoints()
+            ["ownedVehicles"] = new JArray(),
+            ["ownedRelics"] = new JArray(),
+            ["ownedCatapultPoints"] = new JArray(),
+            ["fieldCatapultPoints"] = new JArray(),
+            ["grantAllRelics"] = BuildGrantAllRelicsState()
         };
+        List<string> errors = new();
+
+        try
+        {
+            JArray vehicles = new();
+            foreach (object vehicle in SnapshotVehicles()) vehicles.Add(BuildVehicleState(vehicle));
+            state["ownedVehicles"] = vehicles;
+        }
+        catch (Exception exception)
+        {
+            errors.Add("战车：" + Unwrap(exception).Message);
+        }
+
+        TryPopulateInventoryState(state, errors, "ownedRelics", "遗物", BuildOwnedRelics);
+        TryPopulateInventoryState(state, errors, "ownedCatapultPoints", "背包弹射点", BuildOwnedCatapultPoints);
+        TryPopulateInventoryState(state, errors, "fieldCatapultPoints", "场上弹射点", BuildFieldCatapultPoints);
+        if (errors.Count > 0) state["inventoryError"] = string.Join("；", errors.ToArray());
+        return state;
+    }
+
+    private static void TryPopulateInventoryState(
+        JObject state,
+        ICollection<string> errors,
+        string propertyName,
+        string displayName,
+        Func<JArray> read)
+    {
+        try
+        {
+            state[propertyName] = read();
+        }
+        catch (Exception exception)
+        {
+            errors.Add(displayName + "：" + Unwrap(exception).Message);
+        }
     }
 
     public CheatExecutionResult GrantVehicle(JObject arguments)
@@ -882,6 +919,135 @@ internal sealed class CheatRuntimeBridge
             "已获取遗物 " + relicId + "。",
             new JObject { ["relicId"] = relicId, ["before"] = before, ["after"] = after });
     }
+
+    public CheatExecutionResult StartGrantAllRelics()
+    {
+        EnsureAvailable();
+        if (_grantAllRelicsJob.IsRunning)
+        {
+            return CheatExecutionResult.Ok(
+                "一键获取所有遗物任务正在进行中。",
+                BuildGrantAllRelicsResponse());
+        }
+
+        IReadOnlyList<object> configured = ConfiguredRewardValues(
+            "AllSuperModuleRewards",
+            "superModuleEnum",
+            _superModuleType!);
+        if (configured.Count == 0)
+        {
+            return CheatExecutionResult.Fail(
+                "当前游戏的遗物奖励目录为空，未启动一键获取任务。",
+                "RELIC_CATALOG_EMPTY");
+        }
+
+        object manager = GetRequiredSingleton(_superModuleManagerType!, "SuperModuleManager");
+        if (FindMethod(manager.GetType(), "GetSuperModule", _superModuleType!, typeof(bool)) == null)
+        {
+            return CheatExecutionResult.Fail("当前游戏版本缺少遗物获取入口。", "RELIC_API_MISSING");
+        }
+
+        object? owned = GetMember(manager, "superModules");
+        List<object> pending = new();
+        int skippedCount = 0;
+        foreach (object relic in configured)
+        {
+            if (GetDictionaryListCount(owned, relic) > 0)
+            {
+                skippedCount++;
+            }
+            else
+            {
+                pending.Add(relic);
+            }
+        }
+
+        _grantAllRelicsJob = GrantAllRelicsJob.Start(configured.Count, skippedCount, pending);
+        if (pending.Count == 0)
+        {
+            _grantAllRelicsJob.Complete();
+        }
+
+        JObject response = BuildGrantAllRelicsResponse();
+        return pending.Count == 0
+            ? CheatExecutionResult.Ok(_grantAllRelicsJob.Message, response)
+            : CheatExecutionResult.Changed(_grantAllRelicsJob.Message, response);
+    }
+
+    public void TickGrantAllRelics()
+    {
+        if (!_grantAllRelicsJob.IsRunning) return;
+        int remainingBudget = MaxGrantAllRelicsPerFrame;
+        while (remainingBudget-- > 0 && _grantAllRelicsJob.IsRunning)
+        {
+            if (!_grantAllRelicsJob.TryTakeNext(out object? relic) || relic == null)
+            {
+                _grantAllRelicsJob.Complete();
+                return;
+            }
+
+            string relicId = relic.ToString() ?? Convert.ToInt64(relic, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            try
+            {
+                object manager = GetRequiredSingleton(_superModuleManagerType!, "SuperModuleManager");
+                object? owned = GetMember(manager, "superModules");
+                int before = GetDictionaryListCount(owned, relic);
+                if (before > 0)
+                {
+                    _grantAllRelicsJob.RecordSkipped(relicId);
+                }
+                else
+                {
+                    MethodInfo method = FindMethod(manager.GetType(), "GetSuperModule", _superModuleType!, typeof(bool))
+                                        ?? throw new MissingMethodException(manager.GetType().FullName, "GetSuperModule");
+                    method.Invoke(manager, new[] { relic, (object)false });
+                    int after = GetDictionaryListCount(GetMember(manager, "superModules"), relic);
+                    if (after > before)
+                    {
+                        _grantAllRelicsJob.RecordGranted(relicId);
+                    }
+                    else
+                    {
+                        _grantAllRelicsJob.RecordFailed(relicId, "遗物获取后持有数量未增加。");
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                _grantAllRelicsJob.RecordFailed(relicId, Unwrap(exception).Message);
+            }
+        }
+
+        if (!_grantAllRelicsJob.HasRemaining)
+        {
+            _grantAllRelicsJob.Complete();
+        }
+    }
+
+    public void CancelGrantAllRelics(string message)
+    {
+        _grantAllRelicsJob.Cancel(message);
+    }
+
+    private JObject BuildGrantAllRelicsResponse()
+    {
+        JObject response = new()
+        {
+            ["grantAllRelics"] = BuildGrantAllRelicsState(),
+            ["ownedRelics"] = new JArray()
+        };
+        try
+        {
+            response["ownedRelics"] = BuildOwnedRelics();
+        }
+        catch (Exception exception)
+        {
+            response["inventoryError"] = "遗物：" + Unwrap(exception).Message;
+        }
+        return response;
+    }
+
+    private JObject BuildGrantAllRelicsState() => _grantAllRelicsJob.ToData();
 
     public CheatExecutionResult RemoveRelic(JObject arguments)
     {
@@ -3784,6 +3950,121 @@ internal sealed class CheatRuntimeBridge
         exception is TargetInvocationException target && target.InnerException != null
             ? target.InnerException
             : exception;
+
+    private sealed class GrantAllRelicsJob
+    {
+        private readonly List<object> _pending;
+        private readonly List<JObject> _failedRelics = new();
+        private int _nextIndex;
+
+        private GrantAllRelicsJob(string state, int totalCount, int skippedCount, List<object>? pending, string message)
+        {
+            State = state;
+            TotalCount = totalCount;
+            SkippedCount = skippedCount;
+            _pending = pending ?? new List<object>();
+            Message = message;
+        }
+
+        public string State { get; private set; }
+        public int TotalCount { get; }
+        public int GrantedCount { get; private set; }
+        public int SkippedCount { get; private set; }
+        public int FailedCount { get; private set; }
+        public string Message { get; private set; }
+        public bool IsRunning => string.Equals(State, "running", StringComparison.Ordinal);
+        public bool HasRemaining => _nextIndex < _pending.Count;
+        public int RemainingCount => Math.Max(0, _pending.Count - _nextIndex);
+        public int ProcessedCount => Math.Min(TotalCount, SkippedCount + GrantedCount + FailedCount);
+
+        public static GrantAllRelicsJob Idle() =>
+            new("idle", 0, 0, null, "尚未启动一键获取所有遗物任务。");
+
+        public static GrantAllRelicsJob Start(int totalCount, int skippedCount, List<object> pending) =>
+            new(
+                "running",
+                totalCount,
+                skippedCount,
+                pending,
+                pending.Count == 0
+                    ? "全部已配置遗物均已持有。"
+                    : $"正在逐帧获取遗物，共需处理 {pending.Count} 个未持有遗物。");
+
+        public bool TryTakeNext(out object? relic)
+        {
+            if (!IsRunning || !HasRemaining)
+            {
+                relic = null;
+                return false;
+            }
+
+            relic = _pending[_nextIndex++];
+            return true;
+        }
+
+        public void RecordGranted(string relicId)
+        {
+            GrantedCount++;
+            Message = "已获取遗物 " + relicId + "。";
+        }
+
+        public void RecordSkipped(string relicId)
+        {
+            SkippedCount++;
+            Message = "遗物 " + relicId + " 已持有，已跳过。";
+        }
+
+        public void RecordFailed(string relicId, string error)
+        {
+            FailedCount++;
+            _failedRelics.Add(new JObject
+            {
+                ["relicId"] = relicId,
+                ["error"] = error
+            });
+            Message = "获取遗物 " + relicId + " 失败：" + error;
+        }
+
+        public void Complete()
+        {
+            if (!IsRunning) return;
+            if (FailedCount == 0)
+            {
+                State = "completed";
+                Message = $"一键获取所有遗物已完成：新增 {GrantedCount} 个，跳过 {SkippedCount} 个已有遗物。";
+            }
+            else if (GrantedCount > 0 || SkippedCount > 0)
+            {
+                State = "partial";
+                Message = $"一键获取所有遗物已部分完成：新增 {GrantedCount} 个，跳过 {SkippedCount} 个，失败 {FailedCount} 个。";
+            }
+            else
+            {
+                State = "failed";
+                Message = $"一键获取所有遗物失败，共 {FailedCount} 个遗物未能获取。";
+            }
+        }
+
+        public void Cancel(string message)
+        {
+            if (!IsRunning) return;
+            State = "cancelled";
+            Message = string.IsNullOrWhiteSpace(message) ? "一键获取所有遗物任务已取消。" : message;
+        }
+
+        public JObject ToData() => new()
+        {
+            ["state"] = State,
+            ["totalCount"] = TotalCount,
+            ["processedCount"] = ProcessedCount,
+            ["grantedCount"] = GrantedCount,
+            ["skippedCount"] = SkippedCount,
+            ["failedCount"] = FailedCount,
+            ["remainingCount"] = RemainingCount,
+            ["failedRelics"] = new JArray(_failedRelics.Select(item => item.DeepClone())),
+            ["message"] = Message
+        };
+    }
 
     private sealed class CatalogIcon
     {

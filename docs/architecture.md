@@ -101,6 +101,7 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 | `cheat.queryEnemies` / `cheat.modifyEnemy` | 查询运行时敌人 ID，并用中文属性名选择、内部属性 ID 写入指定敌人属性 |
 | `cheat.setEnemyIdOverlay` | 在游戏画面中显示或隐藏敌人 ID |
 | `cheat.grantRelic` | 获得指定遗物 |
+| `cheat.grantAllRelics` | 逐帧补齐全部尚未持有的已配置遗物，并报告进度与单项失败 |
 | `cheat.removeRelic` | 删除指定枚举的已有遗物并撤销其正式运行时效果 |
 | `cheat.setSpawnPointCapture` | 开启或取消左 Alt 加鼠标左键的位置捕获；每次捕获向点位列表追加一个点 |
 | `cheat.removeSpawnPoint` / `cheat.clearSpawnPoints` | 单删或清空当前场景保存的怪物生成点 |
@@ -186,7 +187,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.2-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

@@ -41,8 +41,14 @@ public static class OpeningDefenseGridRanker
 
         return candidates?
             .Distinct()
-            .Select(grid => new RankedGrid(grid, Score(grid, anchors)))
-            .OrderBy(item => item.Score)
+            .Select(grid => new RankedGrid(
+                grid,
+                Score(grid, anchors),
+                ScoreCandidateLayout(grid, anchors)))
+            .OrderBy(
+                item => item.Layout,
+                Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareForDefense))
+            .ThenBy(item => item.Score)
             .ThenBy(item => item.Grid.X)
             .ThenBy(item => item.Grid.Y)
             .Select(item => item.Grid)
@@ -85,16 +91,51 @@ public static class OpeningDefenseGridRanker
     private static double MagnitudeSquared(OpeningDefenseGrid grid) =>
         (double)grid.X * grid.X + (double)grid.Y * grid.Y;
 
+    /// <summary>
+    /// Ranks an attribute-grid candidate without running the full greedy rail planner. The grid
+    /// probe can contain hundreds of candidates, while the common stations are stable for the
+    /// whole probe. Sorting the candidate plus those anchors once is O(N log N) per candidate and
+    /// still exposes the coverage, blind-arc, radius and estimated-perimeter facts needed here.
+    /// The selected grid is planned in full (and previewed by the game) in TryBuildRailAction.
+    /// </summary>
+    private static RailLayoutScore? ScoreCandidateLayout(
+        OpeningDefenseGrid attribute,
+        IReadOnlyList<OpeningDefenseGrid> anchors)
+    {
+        if (anchors.Count < 2) return null;
+
+        RailLayoutPoint[] ordered = anchors
+            .Select(anchor => new RailLayoutPoint(anchor.X, anchor.Y))
+            .Append(new RailLayoutPoint(attribute.X, attribute.Y))
+            .Distinct()
+            .OrderBy(PolarAngle)
+            .ThenBy(point => point.X * point.X + point.Y * point.Y)
+            .ThenBy(point => point.X)
+            .ThenBy(point => point.Y)
+            .ToArray();
+        return ordered.Length >= 3
+            ? RailLayoutStrategyPlanner.EvaluateEstimated(ordered)
+            : null;
+    }
+
+    private static double PolarAngle(RailLayoutPoint point)
+    {
+        double angle = Math.Atan2(point.Y, point.X);
+        return angle < 0d ? angle + Math.PI * 2d : angle;
+    }
+
     private sealed class RankedGrid
     {
-        public RankedGrid(OpeningDefenseGrid grid, double score)
+        public RankedGrid(OpeningDefenseGrid grid, double score, RailLayoutScore? layout)
         {
             Grid = grid;
             Score = score;
+            Layout = layout;
         }
 
         public OpeningDefenseGrid Grid { get; }
         public double Score { get; }
+        public RailLayoutScore? Layout { get; }
     }
 }
 
@@ -386,7 +427,7 @@ public sealed class OpeningDefensePreparationPlanner
                 return Command("queryVehicle", null, "读取背包战车并持久化首辆战车的实例身份。");
 
             case OpeningDefensePreparationPhase.PreviewRailPath:
-                return CloneRailAction("previewRailPath", "只读预览开局三点闭环。");
+                return CloneRailAction("previewRailPath", "只读预览开局四向优先闭环。");
 
             case OpeningDefensePreparationPhase.QueryRailBaseline:
                 return Command("queryRail", null, "记录画轨前的轨道数量与实例身份基线。");
@@ -397,7 +438,7 @@ public sealed class OpeningDefensePreparationPlanner
                     return Failure("开局轨道写入已经提交过；拒绝重复画轨。");
                 }
 
-                return CloneRailAction("drawRailPath", "按已验证的三个站点身份创建开局闭环。");
+                return CloneRailAction("drawRailPath", "按已验证的站点身份创建开局闭环。");
 
             case OpeningDefensePreparationPhase.VerifyRail:
                 return Command("queryRail", null, "验证唯一新增轨道的身份、点集与合法性。");
@@ -1026,7 +1067,7 @@ public sealed class OpeningDefensePreparationPlanner
         error = string.Empty;
         if (!TryReadCatapults(catapultResult, out List<JObject> catapults))
         {
-            error = "弹射点快照丢失，无法创建稳定的三点计划。";
+            error = "弹射点快照丢失，无法创建稳定的闭环计划。";
             return false;
         }
 
@@ -1045,52 +1086,45 @@ public sealed class OpeningDefensePreparationPlanner
             .ToList();
         if (attributes.Count == 0 || commons.Count < 2)
         {
-            error = "没有 1 个匹配的属性站和 2 个可用普通站组成开局闭环。";
+            error = "没有 1 个匹配的属性站和至少 2 个可用普通站组成开局闭环。";
             return false;
         }
 
-        RailCandidate? best = null;
-        foreach (JObject attribute in attributes)
-        {
-            if (!TryReadGrid(attribute, out OpeningDefenseGrid attributeGrid)) continue;
-            int attributeId = ReadInt(attribute["linePointInstanceId"], 0);
-            if (attributeId == 0) continue;
-
-            for (int first = 0; first < commons.Count - 1; first++)
+        List<RailLoopPointCandidate> loopCandidates = attributes
+            .Concat(commons)
+            .Select(point =>
             {
-                if (!TryReadGrid(commons[first], out OpeningDefenseGrid firstGrid)) continue;
-                int firstId = ReadInt(commons[first]["linePointInstanceId"], 0);
-                if (firstId == 0 || firstId == attributeId) continue;
-
-                for (int second = first + 1; second < commons.Count; second++)
-                {
-                    if (!TryReadGrid(commons[second], out OpeningDefenseGrid secondGrid)) continue;
-                    int secondId = ReadInt(commons[second]["linePointInstanceId"], 0);
-                    if (secondId == 0 || secondId == attributeId || secondId == firstId) continue;
-
-                    double area = Math.Abs(
-                        ((double)firstGrid.X - attributeGrid.X) * (secondGrid.Y - attributeGrid.Y) -
-                        ((double)firstGrid.Y - attributeGrid.Y) * (secondGrid.X - attributeGrid.X));
-                    if (area <= 0.000001d) continue;
-
-                    double distance = DistanceSquared(attributeGrid, firstGrid) +
-                                      DistanceSquared(attributeGrid, secondGrid) +
-                                      DistanceSquared(firstGrid, secondGrid);
-                    RailCandidate candidate = new(attributeId, firstId, secondId, distance, area);
-                    if (best == null || candidate.CompareTo(best) < 0)
+                if (!TryReadGrid(point, out OpeningDefenseGrid grid)) return null;
+                int instanceId = ReadInt(point["linePointInstanceId"], 0);
+                return instanceId == 0
+                    ? null
+                    : new RailLoopPointCandidate
                     {
-                        best = candidate;
-                        _selectedGrid = attributeGrid;
-                    }
-                }
-            }
-        }
+                        InstanceId = instanceId,
+                        IsAttribute = point["isAttribute"]?.Value<bool>() == true,
+                        Grid = new RailLayoutPoint(grid.X, grid.Y)
+                    };
+            })
+            .Where(candidate => candidate != null)
+            .Cast<RailLoopPointCandidate>()
+            .ToList();
+        RailLoopPlan? best = RailLayoutStrategyPlanner.PlanPlayerLoop(loopCandidates);
 
-        if (best == null)
+        if (best == null || !best.Score.IsValid || best.OrderedPointInstanceIds.Count < 3)
         {
-            error = "可用站点无法组成非共线的三点闭环。";
+            error = "可用站点无法组成至少三点的合法闭环。";
             return false;
         }
+
+        int selectedAttributeId = best.OrderedPointInstanceIds[0];
+        JObject? selectedAttribute = attributes.SingleOrDefault(point =>
+            ReadInt(point["linePointInstanceId"], 0) == selectedAttributeId);
+        if (selectedAttribute == null ||
+            !TryReadGrid(selectedAttribute, out OpeningDefenseGrid selectedAttributeGrid))
+        {
+            return false;
+        }
+        _selectedGrid = selectedAttributeGrid;
 
         if (_selectedVehicleInstanceId == 0)
         {
@@ -1102,15 +1136,12 @@ public sealed class OpeningDefensePreparationPlanner
             "drawRailPath",
             new JObject
             {
-                ["linePointInstanceIds"] = new JArray(
-                    best.AttributeInstanceId,
-                    best.FirstInstanceId,
-                    best.SecondInstanceId),
+                ["linePointInstanceIds"] = new JArray(best.OrderedPointInstanceIds),
                 ["vehicle"] = new JObject { ["instanceId"] = _selectedVehicleInstanceId },
                 ["vehicleInstanceId"] = _selectedVehicleInstanceId
             },
             AutomationStage.PreparingDefense,
-            "使用已持久化的三个站点实例身份创建最短合法开局闭环。");
+            "使用已持久化的站点实例身份创建四向优先的合法开局闭环。");
         return true;
     }
 
@@ -1262,38 +1293,4 @@ public sealed class OpeningDefensePreparationPlanner
             AutomationAction.Wait(AutomationStage.PreparingDefense, detail),
             detail);
 
-    private sealed class RailCandidate
-    {
-        public RailCandidate(
-            int attributeInstanceId,
-            int firstInstanceId,
-            int secondInstanceId,
-            double distance,
-            double area)
-        {
-            AttributeInstanceId = attributeInstanceId;
-            FirstInstanceId = firstInstanceId;
-            SecondInstanceId = secondInstanceId;
-            Distance = distance;
-            Area = area;
-        }
-
-        public int AttributeInstanceId { get; }
-        public int FirstInstanceId { get; }
-        public int SecondInstanceId { get; }
-        public double Distance { get; }
-        public double Area { get; }
-
-        public int CompareTo(RailCandidate other)
-        {
-            int byDistance = Distance.CompareTo(other.Distance);
-            if (byDistance != 0) return byDistance;
-            int byArea = other.Area.CompareTo(Area);
-            if (byArea != 0) return byArea;
-            int byAttribute = AttributeInstanceId.CompareTo(other.AttributeInstanceId);
-            if (byAttribute != 0) return byAttribute;
-            int byFirst = FirstInstanceId.CompareTo(other.FirstInstanceId);
-            return byFirst != 0 ? byFirst : SecondInstanceId.CompareTo(other.SecondInstanceId);
-        }
-    }
 }

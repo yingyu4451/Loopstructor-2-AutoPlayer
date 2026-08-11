@@ -6,7 +6,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class OpeningDefensePreparationPlannerTests
 {
     [Fact]
-    public void GridRanking_MatchesTwoNearestAnchorScoreAndStableCoordinateTieBreak()
+    public void GridRanking_PrefersRepairingDirectionalCoverageBeforeNearestAnchorDistance()
     {
         OpeningDefenseGrid[] anchors =
         {
@@ -26,8 +26,8 @@ public sealed class OpeningDefensePreparationPlannerTests
 
         Assert.Equal(3, ranked.Count);
         Assert.Equal(new OpeningDefenseGrid(2, -1), ranked[0]);
-        Assert.Equal(new OpeningDefenseGrid(2, 1), ranked[1]);
-        Assert.Equal(new OpeningDefenseGrid(8, 8), ranked[2]);
+        Assert.Equal(new OpeningDefenseGrid(8, 8), ranked[1]);
+        Assert.Equal(new OpeningDefenseGrid(2, 1), ranked[2]);
     }
 
     [Fact]

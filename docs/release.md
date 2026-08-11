@@ -65,7 +65,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `0.5.1` 引入了 BepInEx 管理对象跨场景保护、有界读写和四路并发监听；现场复验随后确认，仅保护 BepInEx 管理对象仍不足以跨过游戏的首次场景装载，因此生命周期修复由 `0.5.2` 的独立运行时宿主取代。Manager 使用相同请求 ID 取得耗时命令的最终缓存结果，并在首次断线时立即禁用控制、重新握手。玩家模式使用 PID 专属端点，绑定同时核对可执行路径、进程启动时间与随机进程实例标识；多个未绑定的同目录游戏进程不会被任意选择。游戏目录中的旧插件若与当前发布载荷不一致，Manager 会要求重新安装而不会把它误报为可用。
 
-玩家常驻验收必须覆盖：安装后手动启动游戏也能连接；Manager 最小化后保持后台且不因作弊窗口操作抢到前台；玩家模式四个 QA 隔离标志均为 false；PID、路径、程序集指纹、协议和 token 任一不符都会拒绝。作弊工具逐项覆盖中文名、枚举名和图标搜索；获取/删除战车、遗物、背包及场上弹射点；已有战车附魔图标与编辑；战斗操作；以及多点怪物生成。
+玩家常驻验收必须覆盖：安装后手动启动游戏也能连接；Manager 最小化后保持后台且不因作弊窗口操作抢到前台；玩家模式四个 QA 隔离标志均为 false；PID、路径、程序集指纹、协议和 token 任一不符都会拒绝。作弊工具逐项覆盖中文名、枚举名和图标搜索；获取/删除战车、遗物、背包及场上弹射点；一键逐帧补齐全部遗物的进度、幂等跳过和部分失败；已有战车附魔图标与编辑；战斗操作；以及多点怪物生成。
 
 仅携带或实际启用作弊能力都必须允许 `start`，但基地无敌或地图跳关仍开启时必须拒绝。自动游玩运行或暂停期间只开放目录/实体查询以及敌人 ID、Buff 覆盖层，其余作弊写命令由 Manager 和插件双重拒绝；覆盖层不设置 `CheatUsed`。获准的写操作尝试要持久标记 `cheat-modified`，但不单独要求重启。场景切换必须关闭基地无敌、敌人 ID、位置捕获、生成点列表与地图跳关；Manager 断连或心跳超时必须关闭作弊模式及瞬态功能。背包弹射点删除必须从 `ownedCatapultPoints` 选择真实 `catapultPointId`，不得仅按枚举删任意同类 Buff 行。怪物生成默认等级必须与 `WaveProgressController.CurrentAILevel` 一致，多点按每点数量分散，且每个对象通过阵营、碰撞、战斗和受击验证。
 
@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.2
+.\scripts\package.ps1 -Version 0.6.3
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.2 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.3 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-  Loopstructor.AutoPlayer-0.6.2-win-x64.zip
-  Loopstructor.AutoPlayer-0.6.2-win-x64.zip.sha256
-  Loopstructor.AutoPlayer-0.6.1-to-0.6.2-win-x64.delta.zip        可选
-  Loopstructor.AutoPlayer-0.6.1-to-0.6.2-win-x64.delta.zip.sha256 可选
+  Loopstructor.AutoPlayer-0.6.3-win-x64.zip
+  Loopstructor.AutoPlayer-0.6.3-win-x64.zip.sha256
+  Loopstructor.AutoPlayer-0.6.2-to-0.6.3-win-x64.delta.zip        可选
+  Loopstructor.AutoPlayer-0.6.2-to-0.6.3-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.2-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.2-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.3-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 64631369,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.1",
-      "assetName": "Loopstructor.AutoPlayer-0.6.1-to-0.6.2-win-x64.delta.zip",
+      "fromVersion": "0.6.2",
+      "assetName": "Loopstructor.AutoPlayer-0.6.2-to-0.6.3-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2054728
     }
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.2
-git push origin v0.6.2
+git tag v0.6.3
+git push origin v0.6.3
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -225,7 +225,7 @@ git push origin v0.6.2
 - 确认四个强制平台写入补丁全部应用；使用 QA 账号或离线环境，不得把“无已知成就写入”等同于账号零痕迹；
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
-- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；Manager 与作弊工具可独立最小化且不会互相抢前台；验证自动游玩期间仅开放作弊监视、敌人 ID/Buff 覆盖层不产生作弊标记、其他写命令被双重锁定，且基地无敌/地图跳关会阻止开始；中文/枚举/图标搜索、多附魔、对象图标、已有附魔图标、战车/遗物/背包及场上弹射点删除、多点生成列表、游戏内点位标记、当前 AI 等级链、写命令前置作弊标记、场景复位和 Manager 租约失效关闭均符合预期；
+- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；Manager 与作弊工具可独立最小化且不会互相抢前台；验证自动游玩期间仅开放作弊监视、敌人 ID/Buff 覆盖层不产生作弊标记、其他写命令被双重锁定，且基地无敌/地图跳关会阻止开始；中文/枚举/图标搜索、多附魔、对象图标、已有附魔图标、战车/遗物/背包及场上弹射点删除、一键逐帧补齐全部遗物及其进度/幂等/部分失败、多点生成列表、游戏内点位标记、当前 AI 等级链、写命令前置作弊标记、场景复位和 Manager 租约失效关闭均符合预期；
 - 验证地图跳关仍隐藏当前进度层及历史层，只开放进度之后的节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 验证普通事件剧情开关只点击 `EventUI_Normal` 的真实 Skip 按钮，轨神事件不受影响；两种决策优先级可持久化并改变奖励与路线排序；右侧目标型道具只使用最新 MCP 合法候选，扩轨资源不会被战斗逻辑消耗；

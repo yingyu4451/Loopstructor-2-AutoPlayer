@@ -79,6 +79,7 @@ public sealed class CheatFormWpfLayoutTests
 
                 AssertTabFits(form, 0);
                 AssertTopAligned(form, "_enchantmentCatalog", "_enchantmentLevel", "_addEnchantmentButton");
+                AssertMinimumWidth(form, 160, "_grantAllRelicsButton");
 
                 AssertTabFits(form, 1);
                 AssertTopAligned(form, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
@@ -240,6 +241,7 @@ public sealed class CheatFormWpfLayoutTests
                 Assert.True(Assert.IsType<CheckBox>(form.FindName("_enemyBuffOverlayCheck")).IsEnabled);
 
                 Assert.False(Assert.IsType<Button>(form.FindName("_grantVehicleButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_grantAllRelicsButton")).IsEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearEnemiesButton")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_baseGodModeCheck")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_mapSkipCheck")).IsEnabled);
@@ -447,6 +449,94 @@ public sealed class CheatFormWpfLayoutTests
         });
     }
 
+    [Fact]
+    public void GrantAllRelics_DoesNotRequireSelection_SendsOneCommandAndPollsUntilCompleted()
+    {
+        RunSta(() =>
+        {
+            List<string> calls = new();
+            int queryStateCalls = 0;
+            CheatForm form = new((command, _) =>
+            {
+                calls.Add(command);
+                if (string.Equals(command, CheatCommands.GrantAllRelics, StringComparison.Ordinal))
+                {
+                    return Task.FromResult<ControlResponse?>(GrantAllRelicsResponse(
+                        "running",
+                        processed: 0,
+                        total: 2));
+                }
+
+                if (string.Equals(command, CheatCommands.QueryState, StringComparison.Ordinal))
+                {
+                    queryStateCalls++;
+                    return Task.FromResult<ControlResponse?>(GrantAllRelicsResponse(
+                        "completed",
+                        processed: 2,
+                        total: 2));
+                }
+
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, null));
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+
+                CatalogPickerControl relics = Assert.IsType<CatalogPickerControl>(form.FindName("_relicCatalog"));
+                Assert.Null(relics.SelectedCatalogItem);
+
+                Button grantAll = Assert.IsType<Button>(form.FindName("_grantAllRelicsButton"));
+                Assert.True(grantAll.IsEnabled);
+                grantAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpDispatcher();
+
+                Assert.Single(calls, command => command == CheatCommands.GrantAllRelics);
+                Assert.False(grantAll.IsEnabled);
+
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(550));
+
+                Assert.Single(calls, command => command == CheatCommands.GrantAllRelics);
+                Assert.True(queryStateCalls >= 1);
+                Assert.True(grantAll.IsEnabled);
+                TextBlock status = Assert.IsType<TextBlock>(form.FindName("_grantAllRelicsStatus"));
+                Assert.Contains("2 / 2", status.Text, StringComparison.Ordinal);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    private static ControlResponse GrantAllRelicsResponse(
+        string state,
+        int processed,
+        int total) => new()
+    {
+        Success = true,
+        Status = DemoData.CheatStatus(),
+        Data = new JObject
+        {
+            ["grantAllRelics"] = new JObject
+            {
+                ["state"] = state,
+                ["processedCount"] = processed,
+                ["totalCount"] = total,
+                ["grantedCount"] = processed,
+                ["skippedCount"] = 0,
+                ["failedCount"] = 0
+            },
+            ["ownedRelics"] = new JArray()
+        }
+    };
+
     private static void AssertTabFits(CheatForm form, int index)
     {
         form.SelectDemoTab(index);
@@ -515,4 +605,20 @@ public sealed class CheatFormWpfLayoutTests
 
     private static void PumpDispatcher() =>
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+
+    private static void PumpDispatcherFor(TimeSpan duration)
+    {
+        DispatcherFrame frame = new();
+        DispatcherTimer timer = new(DispatcherPriority.ApplicationIdle)
+        {
+            Interval = duration
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
 }

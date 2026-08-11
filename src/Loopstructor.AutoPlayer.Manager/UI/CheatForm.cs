@@ -35,6 +35,7 @@ internal sealed partial class CheatForm : Window
     private readonly Dictionary<string, BitmapSource> _iconCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeCatalogIconKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _capturePollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private readonly DispatcherTimer _grantAllRelicsPollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly ObservableCollection<CheatEnchantmentSelection> _enchantmentSelections = new();
     private readonly ObservableCollection<CheatVehicleRow> _vehicleRows = new();
     private readonly ObservableCollection<CheatEnemyRow> _enemyRows = new();
@@ -47,6 +48,7 @@ internal sealed partial class CheatForm : Window
     private bool _loadingEntities;
     private bool _writeOutcomeUnknown;
     private bool _capturePollInProgress;
+    private bool _grantAllRelicsPollInProgress;
     private bool _isClosed;
     private bool _hasLoaded;
     private BridgeHello? _hello;
@@ -56,6 +58,7 @@ internal sealed partial class CheatForm : Window
     private bool _lastMessageIsError;
     private long _captureEpoch;
     private string _spawnCaptureState = "idle";
+    private string _grantAllRelicsState = "idle";
     private int _maxEnchantmentsPerVehicle = 5;
     private int? _lastResolvedEnemyLevel;
     private string _lastResolvedLevelSource = string.Empty;
@@ -80,6 +83,7 @@ internal sealed partial class CheatForm : Window
         Closing += CheatForm_OnClosing;
         Closed += CheatForm_OnClosed;
         _capturePollTimer.Tick += CapturePollTimerTick;
+        _grantAllRelicsPollTimer.Tick += GrantAllRelicsPollTimerTick;
         ApplyAvailability();
     }
 
@@ -149,6 +153,7 @@ internal sealed partial class CheatForm : Window
         _clearEnchantmentsButton.Click += (_, _) => ClearEnchantments();
         _grantDisposableButton.Click += async (_, _) => await GrantDisposableAsync();
         _grantRelicButton.Click += async (_, _) => await GrantRelicAsync();
+        _grantAllRelicsButton.Click += async (_, _) => await GrantAllRelicsAsync();
         _removeRelicButton.Click += async (_, _) => await RemoveRelicAsync();
         _grantCatapultButton.Click += async (_, _) => await GrantCatapultPointAsync();
         _removeCatapultButton.Click += async (_, _) => await RemoveCatapultPointAsync();
@@ -220,7 +225,7 @@ internal sealed partial class CheatForm : Window
             _vehicleCount, _enchantmentLevel,
             _addEnchantmentButton, _removeEnchantmentButton, _clearEnchantmentsButton,
             _grantVehicleButton, _disposableCount, _grantDisposableButton,
-            _grantRelicButton, _removeRelicButton,
+            _grantRelicButton, _grantAllRelicsButton, _removeRelicButton,
             _catapultCount, _grantCatapultButton, _removeCatapultButton,
             _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
             _removeFieldCatapultButton, _clearFieldCatapultsButton,
@@ -269,6 +274,8 @@ internal sealed partial class CheatForm : Window
         _isClosed = true;
         _capturePollTimer.Stop();
         _capturePollTimer.Tick -= CapturePollTimerTick;
+        _grantAllRelicsPollTimer.Stop();
+        _grantAllRelicsPollTimer.Tick -= GrantAllRelicsPollTimerTick;
         _iconCache.Clear();
         _activeCatalogIconKeys.Clear();
     }
@@ -435,6 +442,11 @@ internal sealed partial class CheatForm : Window
             CheatCommands.GrantRelic,
             new JObject { ["relicId"] = item!.Id });
         if (response?.Success == true) await RefreshOwnedStateAsync();
+    }
+
+    private async Task GrantAllRelicsAsync()
+    {
+        await ExecuteCommandAsync(CheatCommands.GrantAllRelics, null);
     }
 
     private async Task RemoveRelicAsync()
@@ -1008,6 +1020,53 @@ internal sealed partial class CheatForm : Window
         _captureStatusLabel.Foreground = RedBrush;
     }
 
+    private async void GrantAllRelicsPollTimerTick(object? sender, EventArgs eventArgs)
+    {
+        if (_grantAllRelicsPollInProgress
+            || _busy
+            || !string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)) return;
+
+        string pollSessionKey = _sessionKey;
+        _grantAllRelicsPollInProgress = true;
+        try
+        {
+            ControlResponse? response = await _sendCommand(CheatCommands.QueryState, null);
+            if (_isClosed || !string.Equals(_sessionKey, pollSessionKey, StringComparison.Ordinal)) return;
+            if (response == null)
+            {
+                SetGrantAllRelicsPollingError("插件没有返回批量获取状态，将继续重试。");
+                return;
+            }
+
+            if (response.Status != null) UpdateSession(_trusted, response.Hello ?? _hello, response.Status);
+            ApplyStateData(response.Data);
+            if (!response.Success)
+            {
+                SetGrantAllRelicsPollingError(string.IsNullOrWhiteSpace(response.Message)
+                    ? "读取批量获取状态失败，将继续重试。"
+                    : response.Message + "；将继续重试。");
+            }
+        }
+        catch (Exception exception)
+        {
+            if (!_isClosed && string.Equals(_sessionKey, pollSessionKey, StringComparison.Ordinal))
+            {
+                SetGrantAllRelicsPollingError("读取批量获取状态失败：" + exception.Message + "；将继续重试。");
+            }
+        }
+        finally
+        {
+            _grantAllRelicsPollInProgress = false;
+            if (!_isClosed) ApplyAvailability();
+        }
+    }
+
+    private void SetGrantAllRelicsPollingError(string message)
+    {
+        _grantAllRelicsStatus.Text = "全部遗物：" + message;
+        _grantAllRelicsStatus.Foreground = RedBrush;
+    }
+
     private static JObject? ExtractSpawnPointCapture(JObject? data)
     {
         if (data == null) return null;
@@ -1185,6 +1244,7 @@ internal sealed partial class CheatForm : Window
 
         JObject? capture = ExtractSpawnPointCapture(data);
         if (capture != null) ApplySpawnPointCapture(capture);
+        if (data["grantAllRelics"] is JObject grantAllRelics) ApplyGrantAllRelics(grantAllRelics);
         if (data["ownedRelics"] is JArray ownedRelics)
             PopulateOwnedCatalog(_ownedRelicCatalog, ownedRelics, "relicId", "遗物");
         if (data["ownedCatapultPoints"] is JArray ownedCatapultPoints)
@@ -1192,14 +1252,76 @@ internal sealed partial class CheatForm : Window
         if (data["fieldCatapultPoints"] is JArray fieldCatapults) PopulateFieldCatapultGrid(fieldCatapults);
     }
 
+    private void ApplyGrantAllRelics(JObject job)
+    {
+        string state = (job.Value<string>("state") ?? "idle").Trim().ToLowerInvariant();
+        int total = Math.Max(0, job.Value<int?>("totalCount") ?? 0);
+        int processed = Math.Clamp(job.Value<int?>("processedCount") ?? 0, 0, Math.Max(total, 0));
+        int granted = Math.Max(0, job.Value<int?>("grantedCount") ?? 0);
+        int skipped = Math.Max(0, job.Value<int?>("skippedCount") ?? 0);
+        int failed = Math.Max(0, job.Value<int?>("failedCount") ?? 0);
+        string message = job.Value<string>("message") ?? string.Empty;
+        string[] failedDetails = (job["failedRelics"] as JArray)?
+            .OfType<JObject>()
+            .Select(item => $"{item.Value<string>("relicId") ?? "未知遗物"}：{item.Value<string>("error") ?? "未知原因"}")
+            .ToArray() ?? Array.Empty<string>();
+
+        _grantAllRelicsState = state;
+        _grantAllRelicsStatus.ToolTip = failedDetails.Length == 0
+            ? null
+            : string.Join(Environment.NewLine, failedDetails);
+        switch (state)
+        {
+            case "running":
+                _grantAllRelicsStatus.Text = $"全部遗物：处理中 {processed} / {total} · 新增 {granted} · 已有 {skipped} · 失败 {failed}";
+                _grantAllRelicsStatus.Foreground = AmberBrush;
+                _grantAllRelicsPollTimer.Start();
+                break;
+            case "completed":
+                _grantAllRelicsStatus.Text = $"全部遗物：已完成 {processed} / {total} · 新增 {granted} · 已有 {skipped}";
+                _grantAllRelicsStatus.Foreground = GreenBrush;
+                _grantAllRelicsPollTimer.Stop();
+                break;
+            case "partial":
+                _grantAllRelicsStatus.Text = $"全部遗物：部分完成 {processed} / {total} · 新增 {granted} · 已有 {skipped} · 失败 {failed}";
+                _grantAllRelicsStatus.Foreground = failed > 0 ? RedBrush : AmberBrush;
+                _grantAllRelicsPollTimer.Stop();
+                break;
+            case "cancelled":
+                _grantAllRelicsStatus.Text = string.IsNullOrWhiteSpace(message)
+                    ? $"全部遗物：已取消 · 已处理 {processed} / {total}"
+                    : "全部遗物：" + message;
+                _grantAllRelicsStatus.Foreground = AmberBrush;
+                _grantAllRelicsPollTimer.Stop();
+                break;
+            case "failed":
+                _grantAllRelicsStatus.Text = string.IsNullOrWhiteSpace(message)
+                    ? $"全部遗物：执行失败 · 已处理 {processed} / {total}"
+                    : "全部遗物：" + message;
+                _grantAllRelicsStatus.Foreground = RedBrush;
+                _grantAllRelicsPollTimer.Stop();
+                break;
+            default:
+                _grantAllRelicsState = "idle";
+                _grantAllRelicsStatus.Text = "全部遗物：未开始";
+                _grantAllRelicsStatus.Foreground = MutedBrush;
+                _grantAllRelicsPollTimer.Stop();
+                break;
+        }
+
+        ApplyAvailability();
+    }
+
     private void ApplyAvailability()
     {
         if (_isClosed) return;
         bool available = _trusted && _status?.CheatAvailable == true;
         bool runConflict = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
+        bool grantAllRelicsRunning = string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase);
         bool canMutate = available
                          && _status?.CheatModeEnabled == true
                          && !runConflict
+                         && !grantAllRelicsRunning
                          && !_writeOutcomeUnknown
                          && !_busy;
         bool canQueryCatalog = available && !_busy;
@@ -1225,6 +1347,7 @@ internal sealed partial class CheatForm : Window
         _grantVehicleButton.IsEnabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
         _grantDisposableButton.IsEnabled = canMutate && _disposableCatalog.SelectedCatalogItem != null;
         _grantRelicButton.IsEnabled = canMutate && _relicCatalog.SelectedCatalogItem != null;
+        _grantAllRelicsButton.IsEnabled = canMutate;
         _removeRelicButton.IsEnabled = canMutate && _ownedRelicCatalog.SelectedCatalogItem != null;
         _grantCatapultButton.IsEnabled = canMutate && _catapultCatalog.SelectedCatalogItem != null;
         _removeCatapultButton.IsEnabled = canMutate && _ownedCatapultCatalog.SelectedCatalogItem != null;
@@ -1367,7 +1490,9 @@ internal sealed partial class CheatForm : Window
         _writeOutcomeUnknown = false;
         _captureEpoch++;
         _capturePollTimer.Stop();
+        _grantAllRelicsPollTimer.Stop();
         _spawnCaptureState = "idle";
+        _grantAllRelicsState = "idle";
         _vehicleCatalog.ClearItems();
         _enchantmentCatalog.ClearItems();
         _vehicleEnchantmentCatalog.ClearItems();
@@ -1398,6 +1523,9 @@ internal sealed partial class CheatForm : Window
         UpdateResolvedLevelLabel();
         _captureStatusLabel.Text = "选点状态：未启动";
         _captureStatusLabel.Foreground = MutedBrush;
+        _grantAllRelicsStatus.Text = "全部遗物：未开始";
+        _grantAllRelicsStatus.Foreground = MutedBrush;
+        _grantAllRelicsStatus.ToolTip = null;
         _spawnStatusLabel.Text = "生成状态：尚未执行";
         _spawnStatusLabel.Foreground = MutedBrush;
         SetCheckedSilently(_baseGodModeCheck, false);

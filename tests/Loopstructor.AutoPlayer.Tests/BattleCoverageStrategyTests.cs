@@ -6,7 +6,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class BattleCoverageStrategyTests
 {
     [Fact]
-    public void DecideDefenseExpansion_WhenExistingRailCoversLeft_SelectsSeparatedRightLoop()
+    public void DecideDefenseExpansion_WhenExistingRailCoversLeft_SelectsOrderedSurroundingLoop()
     {
         JObject catapults = CatapultResult(
             // Existing left-side loop.
@@ -28,11 +28,11 @@ public sealed class BattleCoverageStrategyTests
 
         Assert.NotNull(action);
         Assert.Equal("drawRailPath", action.Command);
-        Assert.Equal(new[] { 200, 201, 202 }, SelectedPointIds(action));
+        Assert.Equal(new[] { 100, 101, 201, 202, 102 }, SelectedPointIds(action));
     }
 
     [Fact]
-    public void DecideDefenseExpansion_MirroredLayout_SelectsMirroredSeparatedLoop()
+    public void DecideDefenseExpansion_MirroredLayout_SelectsMirroredOrderedSurroundingLoop()
     {
         JObject catapults = CatapultResult(
             // Mirror the existing coverage to the right. Stable-id ordering still favors the right candidate.
@@ -53,7 +53,7 @@ public sealed class BattleCoverageStrategyTests
 
         Assert.NotNull(action);
         Assert.Equal("drawRailPath", action.Command);
-        Assert.Equal(new[] { 200, 201, 202 }, SelectedPointIds(action));
+        Assert.Equal(new[] { 100, 102, 202, 201, 101 }, SelectedPointIds(action));
     }
 
     [Fact]

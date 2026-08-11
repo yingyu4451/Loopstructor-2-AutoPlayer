@@ -9,6 +9,13 @@ using UnityEngine;
 
 namespace Loopstructor.AutoPlayer.Plugin;
 
+internal enum DefenseStationGridProbeInitializationFailure
+{
+    None,
+    NoBeneficialCandidate,
+    TransientUnavailable
+}
+
 /// <summary>Incrementally validates placement or move grids without scanning the complete MCP option payload.</summary>
 internal sealed class IncrementalDefenseStationGridProbe
 {
@@ -25,6 +32,8 @@ internal sealed class IncrementalDefenseStationGridProbe
     private bool _initialized;
     private bool _validateCandidates = true;
     private string _contractError = string.Empty;
+
+    public DefenseStationGridProbeInitializationFailure InitializationFailure { get; private set; }
 
     public bool TryInitializePlacement(
         string disposableEnum,
@@ -147,6 +156,7 @@ internal sealed class IncrementalDefenseStationGridProbe
         _initialized = false;
         _validateCandidates = true;
         _contractError = string.Empty;
+        InitializationFailure = DefenseStationGridProbeInitializationFailure.None;
     }
 
     private bool TryInitialize(
@@ -160,27 +170,48 @@ internal sealed class IncrementalDefenseStationGridProbe
         {
             error = "缺少站点道具枚举。";
             _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.NoBeneficialCandidate;
             return false;
         }
 
-        if (!TryResolveContract(out error) ||
-            !_candidateReader.TryRead(out IReadOnlyList<AutoPlayerGrid> candidates, out error))
+        if (!TryResolveContract(out error))
         {
             _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.TransientUnavailable;
+            return false;
+        }
+
+        if (!_candidateReader.TryRead(out IReadOnlyList<AutoPlayerGrid> candidates, out error))
+        {
+            _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.TransientUnavailable;
             return false;
         }
 
         _disposableEnum = disposableEnum.Trim();
         _validateCandidates = validateCandidates;
-        _rankedCandidates.AddRange(rank(candidates));
+        try
+        {
+            _rankedCandidates.AddRange(rank(candidates));
+        }
+        catch (Exception ex)
+        {
+            error = "站点候选格排序暂时不可用：" + Unwrap(ex).Message;
+            _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.TransientUnavailable;
+            return false;
+        }
+
         if (_rankedCandidates.Count == 0)
         {
             error = "没有比当前站点位置更合适的候选格。";
             _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.NoBeneficialCandidate;
             return false;
         }
 
         _initialized = true;
+        InitializationFailure = DefenseStationGridProbeInitializationFailure.None;
         error = string.Empty;
         return true;
     }

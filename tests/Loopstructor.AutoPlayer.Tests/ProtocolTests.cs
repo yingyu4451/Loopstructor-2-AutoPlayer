@@ -47,7 +47,7 @@ public sealed class ProtocolTests
 
         Assert.Null(legacy.Arguments);
         Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
-        Assert.Equal(5, Protocol.CheatCurrentVersion);
+        Assert.Equal(6, Protocol.CheatCurrentVersion);
         Assert.Equal(4321, roundTrip.TargetGameProcessId);
         Assert.Equal(current.TargetProcessInstanceId, roundTrip.TargetProcessInstanceId);
         Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
@@ -138,8 +138,8 @@ public sealed class ProtocolTests
     [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
-        Assert.Equal(27, CheatCommands.All.Count);
-        Assert.Equal(17, CheatCommands.Mutations.Count);
+        Assert.Equal(28, CheatCommands.All.Count);
+        Assert.Equal(18, CheatCommands.Mutations.Count);
         Assert.Equal(7, CheatCommands.AutoPlayObservationCommands.Count);
         Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
         Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
@@ -151,6 +151,7 @@ public sealed class ProtocolTests
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnemyBuffOverlay));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveVehicle));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveRelic));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantAllRelics));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveFieldCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.ClearFieldCatapultPoints));
@@ -168,6 +169,7 @@ public sealed class ProtocolTests
         Assert.True(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetEnemyBuffOverlay.ToUpperInvariant()));
         Assert.False(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.ClearEnemies));
         Assert.False(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.SetBaseGodMode));
+        Assert.False(CheatCommands.IsAutoPlayObservationCommand(CheatCommands.GrantAllRelics));
     }
 
     [Fact]

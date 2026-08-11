@@ -350,20 +350,45 @@
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="44" />
+                                                <RowDefinition Height="8" />
+                                                <RowDefinition Height="44" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <TextBlock Style="{StaticResource CaptionStyle}" Text="操作" />
-                                            <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                            <Button x:Name="_grantAllRelicsButton"
+                                                    Grid.Row="1"
+                                                    HorizontalAlignment="Stretch"
+                                                    VerticalAlignment="Stretch"
+                                                    AutomationProperties.Name="一键补齐全部遗物"
+                                                    Style="{StaticResource GoldButtonStyle}"
+                                                    Content="一键补齐全部遗物"
+                                                    ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
+                                            <Grid Grid.Row="3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="8" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
                                                 <Button x:Name="_grantRelicButton"
+                                                        Grid.Column="0"
+                                                        HorizontalAlignment="Stretch"
                                                         VerticalAlignment="Stretch"
                                                         Style="{StaticResource PrimaryButtonStyle}"
-                                                        Content="获取遗物" />
+                                                        Content="获取所选" />
                                                 <Button x:Name="_removeRelicButton"
-                                                        Margin="8,0,0,0"
+                                                        Grid.Column="2"
+                                                        HorizontalAlignment="Stretch"
                                                         VerticalAlignment="Stretch"
                                                         Style="{StaticResource DangerButtonStyle}"
                                                         Content="删除已有"
                                                         ToolTip="删除当前选择的已有遗物" />
-                                            </StackPanel>
+                                            </Grid>
+                                            <TextBlock x:Name="_grantAllRelicsStatus"
+                                                       Grid.Row="4"
+                                                       Margin="0,8,0,0"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       Text="全部遗物：未开始"
+                                                       TextWrapping="Wrap" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>

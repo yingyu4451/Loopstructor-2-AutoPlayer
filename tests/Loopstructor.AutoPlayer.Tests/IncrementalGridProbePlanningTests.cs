@@ -6,7 +6,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class IncrementalGridProbePlanningTests
 {
     [Fact]
-    public void ExpansionRankerMatchesExistingSelectionPolicy()
+    public void ExpansionRankerMatchesCoverageFirstSelectionPolicy()
     {
         JObject catapults = Result(new
         {
@@ -41,7 +41,7 @@ public sealed class IncrementalGridProbePlanningTests
         Assert.NotNull(selected);
         Assert.Equal(selected["x"]?.Value<int>(), ranked[0].X);
         Assert.Equal(selected["y"]?.Value<int>(), ranked[0].Y);
-        Assert.Equal(new AutoPlayerGrid(5, 1), ranked[0]);
+        Assert.Equal(new AutoPlayerGrid(0, 10), ranked[0]);
         Assert.DoesNotContain(new AutoPlayerGrid(5, 0), ranked);
         Assert.Equal(ranked.Count, ranked.Distinct().Count());
     }
@@ -66,6 +66,39 @@ public sealed class IncrementalGridProbePlanningTests
             DefenseExpansionAttributeGridRanker.Rank(candidates.Reverse(), catapults);
 
         Assert.Equal(new AutoPlayerGrid(4, 0), ranked[0]);
+    }
+
+    [Fact]
+    public void ExpansionRankerAndSelector_PreferFartherEnclosingGridOverNearOneSidedGrid()
+    {
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                Catapult(100, false, -5, -1),
+                Catapult(101, false, -5, 1)
+            }
+        });
+        AutoPlayerGrid nearOneSided = new(-6, 0);
+        AutoPlayerGrid fartherEnclosing = new(6, 0);
+        AutoPlayerGrid[] candidates = { nearOneSided, fartherEnclosing };
+        JObject options = Result(new
+        {
+            disposableEnum = "FreePoint_Attribute",
+            validGrids = candidates.Select(candidate => new
+            {
+                grid = new { x = candidate.X, y = candidate.Y }
+            })
+        });
+
+        IReadOnlyList<AutoPlayerGrid> ranked =
+            DefenseExpansionAttributeGridRanker.Rank(candidates, catapults);
+        JObject? selected = new BattleDecisionEngine().SelectExpansionAttributeGrid(options, catapults);
+
+        Assert.Equal(fartherEnclosing, ranked[0]);
+        Assert.NotNull(selected);
+        Assert.Equal(fartherEnclosing.X, selected["x"]?.Value<int>());
+        Assert.Equal(fartherEnclosing.Y, selected["y"]?.Value<int>());
     }
 
     [Fact]

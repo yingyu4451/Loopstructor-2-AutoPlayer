@@ -36,7 +36,9 @@ public sealed class RailExpansionPlannerTests
         Assert.Equal(900, candidates[0].VehicleInstanceId);
         Assert.Equal(900, candidates[0].PreviewArguments.SelectToken("vehicle.instanceId")?.Value<int>());
         Assert.Equal(900, candidates[0].PreviewArguments["vehicleInstanceId"]?.Value<int>());
+        Assert.Equal(1d, candidates[0].TrainPowerScore);
         Assert.Equal(71, candidates[1].RailInternalId);
+        Assert.Equal(0d, candidates[1].TrainPowerScore);
     }
 
     [Fact]
@@ -109,10 +111,12 @@ public sealed class RailExpansionPlannerTests
         });
         RailStationMoveCandidate candidate = Assert.Single(
             _planner.BuildExistingSpecialMoveCandidates(baseline, sourceCatapults));
-        Assert.Equal(new AutoPlayerGrid(10, 0), Assert.Single(
-            DefenseStationGridRanker.RankExistingStationMove(
-                new[] { new AutoPlayerGrid(10, 0), new AutoPlayerGrid(10, 12) },
-                candidate)));
+        IReadOnlyList<AutoPlayerGrid> rankedMoves = DefenseStationGridRanker.RankExistingStationMove(
+            new[] { new AutoPlayerGrid(5, 5), new AutoPlayerGrid(10, 12) },
+            candidate);
+        Assert.NotEmpty(rankedMoves);
+        Assert.Equal(new AutoPlayerGrid(10, 12), rankedMoves[0]);
+        Assert.Contains(new AutoPlayerGrid(5, 5), rankedMoves);
 
         JObject movable = Result(new
         {
@@ -139,31 +143,31 @@ public sealed class RailExpansionPlannerTests
 
         JObject current = Result(new
         {
-            rails = new[] { SpecialRail(cycle: 8d) }
+            rails = new[] { SpecialRail(cycle: 8d, movedPointId: 302, movedX: 5, movedY: 5, railLength: 32d) }
         });
         JObject movedCatapults = Result(new
         {
-            catapults = new[] { SpecialStation(402, 502, 302, x: 10, y: 0) }
+            catapults = new[] { SpecialStation(402, 502, 302, x: 5, y: 5) }
         });
         RailInsertionVerification verification = _planner.VerifyMove(
             baseline,
             current,
             movedCatapults,
             candidate,
-            JObject.FromObject(new { x = 10, y = 0 }));
+            JObject.FromObject(new { x = 5, y = 5 }));
 
         Assert.True(verification.Verified);
 
         JObject wrongRail = Result(new
         {
-            catapults = new[] { SpecialStation(402, 502, 302, x: 10, y: 0, railId: 72) }
+            catapults = new[] { SpecialStation(402, 502, 302, x: 5, y: 5, railId: 72) }
         });
         Assert.False(_planner.VerifyMove(
             baseline,
             current,
             wrongRail,
             candidate,
-            JObject.FromObject(new { x = 10, y = 0 })).Verified);
+            JObject.FromObject(new { x = 5, y = 5 })).Verified);
     }
 
     [Fact]
@@ -237,6 +241,54 @@ public sealed class RailExpansionPlannerTests
     }
 
     [Fact]
+    public void ExistingEnergyStation_UsesSameFreshMoveVerifyAndRollbackContract()
+    {
+        JObject baseline = Result(new { rails = new[] { SpecialRail(cycle: 10d) } });
+        JObject sourceCatapults = Result(new
+        {
+            catapults = new[] { EnergyStation(401, 501, 301, x: 10, y: 10) }
+        });
+        RailStationMoveCandidate candidate = Assert.Single(
+            _planner.BuildExistingSpecialMoveCandidates(baseline, sourceCatapults));
+        Assert.True(candidate.StationIsAttribute);
+
+        JObject movable = Result(new
+        {
+            stations = new[]
+            {
+                new
+                {
+                    instanceId = 401,
+                    gameObjectInstanceId = 501,
+                    path = "Scene/Energy",
+                    canMove = true
+                }
+            }
+        });
+        Assert.True(_planner.IsFreshMovableSpecial(sourceCatapults, movable, candidate));
+
+        JObject movedRail = Result(new
+        {
+            rails = new[] { SpecialRail(cycle: 8d, movedPointId: 302, movedX: 5, movedY: 5, railLength: 32d) }
+        });
+        JObject movedCatapults = Result(new
+        {
+            catapults = new[] { EnergyStation(402, 502, 302, x: 5, y: 5) }
+        });
+        Assert.True(_planner.VerifyMove(
+            baseline,
+            movedRail,
+            movedCatapults,
+            candidate,
+            JObject.FromObject(new { x = 5, y = 5 })).Verified);
+        Assert.True(_planner.VerifyMoveCancellationRollback(
+            baseline,
+            baseline,
+            sourceCatapults,
+            candidate).Verified);
+    }
+
+    [Fact]
     public void FreePointRanking_ExcludesCollinearTargetsAndRequiredDisposableRepairsCollinearLoop()
     {
         JObject catapults = Result(new
@@ -306,7 +358,12 @@ public sealed class RailExpansionPlannerTests
         lines = new[] { new { lineInstanceId = lineId } }
     };
 
-    private static object SpecialRail(double cycle) => new
+    private static object SpecialRail(
+        double cycle,
+        int movedPointId = 301,
+        int movedX = 10,
+        int movedY = 10,
+        double railLength = 40d) => new
     {
         instanceId = 701,
         railInternalId = 71,
@@ -317,17 +374,17 @@ public sealed class RailExpansionPlannerTests
         loopCycleSecondsKnown = true,
         loopCycleSeconds = cycle,
         stationCount = 3,
-        railLength = 40d,
+        railLength,
         orderedStations = new[]
         {
-            new { linePointInstanceId = 11 },
-            new { linePointInstanceId = 301 },
-            new { linePointInstanceId = 13 }
+            new { linePointInstanceId = 11, grid = new { x = 0, y = 0 } },
+            new { linePointInstanceId = movedPointId, grid = new { x = movedX, y = movedY } },
+            new { linePointInstanceId = 13, grid = new { x = 20, y = 0 } }
         },
         lines = new object[]
         {
-            new { lineInstanceId = 801, from = new { x = 0, y = 0 }, to = new { x = 10, y = 10 } },
-            new { lineInstanceId = 802, from = new { x = 10, y = 10 }, to = new { x = 20, y = 0 } },
+            new { lineInstanceId = 801, from = new { x = 0, y = 0 }, to = new { x = movedX, y = movedY } },
+            new { lineInstanceId = 802, from = new { x = movedX, y = movedY }, to = new { x = 20, y = 0 } },
             new { lineInstanceId = 803, from = new { x = 20, y = 0 }, to = new { x = 0, y = 0 } }
         }
     };
@@ -393,15 +450,27 @@ public sealed class RailExpansionPlannerTests
         predictedLoopCycleSeconds = predictedCycle
     });
 
-    private static RailInsertionPreviewScore Score(int railInternalId, double baseline, double predicted) => new()
+    private static RailInsertionPreviewScore Score(int railInternalId, double baseline, double predicted)
     {
-        Candidate = Candidate(railInternalId, 3, 6d),
-        BaselineTriggerRate = baseline,
-        PredictedTriggerRate = predicted,
-        TriggerRateGain = predicted - baseline,
-        RelativeGain = predicted / baseline - 1d,
-        PredictedLoopCycleSeconds = 7d
-    };
+        RailLayoutPoint[] ring =
+        {
+            new(0, 2),
+            new(2, 0),
+            new(0, -2),
+            new(-2, 0)
+        };
+        return new RailInsertionPreviewScore
+        {
+            Candidate = Candidate(railInternalId, 3, 6d),
+            BaselineTriggerRate = baseline,
+            PredictedTriggerRate = predicted,
+            TriggerRateGain = predicted - baseline,
+            RelativeGain = predicted / baseline - 1d,
+            PredictedLoopCycleSeconds = 7d,
+            BaselineLayout = RailLayoutStrategyPlanner.Evaluate(ring, 1, 1d / baseline),
+            PredictedLayout = RailLayoutStrategyPlanner.Evaluate(ring, 1, 1d / predicted)
+        };
+    }
 
     private static object SpecialStation(
         int catapultId,
@@ -431,6 +500,37 @@ public sealed class RailExpansionPlannerTests
         pointBuffFlags = new[] { "Poison" },
         runtimeBuffIdentities = new[] { "Poison:2" },
         effectTags = new[] { "Poison" },
+        grid = new { x, y }
+    };
+
+    private static object EnergyStation(
+        int catapultId,
+        int gameObjectId,
+        int linePointId,
+        int x,
+        int y,
+        int railId = 71,
+        bool canMove = true) => new
+    {
+        instanceId = catapultId,
+        catapultInstanceId = catapultId,
+        gameObjectInstanceId = gameObjectId,
+        linePointInstanceId = linePointId,
+        name = "EnergyStation",
+        path = "Scene/Energy",
+        active = true,
+        canMove,
+        canPickLine = true,
+        isAttribute = true,
+        isSpecial = false,
+        railMembershipCount = 1,
+        railId,
+        recycleDisposableEnum = "FreePoint_Attribute",
+        specialSource = string.Empty,
+        effectEnum = string.Empty,
+        pointBuffFlags = Array.Empty<string>(),
+        runtimeBuffIdentities = Array.Empty<string>(),
+        effectTags = Array.Empty<string>(),
         grid = new { x, y }
     };
 

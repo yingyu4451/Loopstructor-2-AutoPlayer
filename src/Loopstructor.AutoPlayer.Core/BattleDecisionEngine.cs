@@ -340,6 +340,36 @@ public sealed class BattleDecisionEngine
         }
 
         List<ExpansionPathCandidate> paths = new();
+        List<RailLoopPointCandidate> loopPoints = new();
+        foreach (JObject point in attributes.Concat(commonPoints))
+        {
+            int instanceId = ReadInt(point["linePointInstanceId"], 0);
+            if (instanceId == 0 || !TryReadPoint(point["grid"], out double x, out double y))
+            {
+                continue;
+            }
+
+            loopPoints.Add(new RailLoopPointCandidate
+            {
+                InstanceId = instanceId,
+                IsAttribute = point["isAttribute"]?.Value<bool>() == true,
+                Grid = new RailLayoutPoint(x, y)
+            });
+        }
+        RailLoopPlan? plannedLoop = RailLayoutStrategyPlanner.PlanPlayerLoop(loopPoints);
+        if (plannedLoop != null && plannedLoop.OrderedPointInstanceIds.Count >= 3)
+        {
+            JArray plannedIds = new(plannedLoop.OrderedPointInstanceIds);
+            string plannedKey = BuildDefenseExpansionPathKey(plannedIds);
+            if (rejectedPathKeys?.Contains(plannedKey) != true)
+            {
+                paths.Add(new ExpansionPathCandidate(
+                    ScoreExpansionPlan(plannedLoop, occupiedPoints),
+                    plannedKey,
+                    plannedIds));
+            }
+        }
+
         foreach (JObject attribute in attributes)
         {
             if (!TryReadPoint(attribute["grid"], out double attributeX, out double attributeY))
@@ -383,9 +413,12 @@ public sealed class BattleDecisionEngine
         }
 
         JArray? linePointInstanceIds = paths
-            .OrderBy(path => path.Score.Distance)
+            .OrderBy(
+                path => path.Score.Layout,
+                Comparer<RailLayoutScore>.Create(RailLayoutStrategyPlanner.CompareForDefense))
             .ThenBy(path => path.Score.HasCoverageContext ? path.Score.SideRank : 0)
             .ThenBy(path => path.Score.HasCoverageContext ? path.Score.DirectionCosine : 0d)
+            .ThenBy(path => path.Score.Distance)
             .ThenByDescending(path => path.Score.Area)
             .ThenBy(path => path.Key, StringComparer.Ordinal)
             .Select(path => path.Ids)
@@ -561,7 +594,7 @@ public sealed class BattleDecisionEngine
         JObject addedRail = currentRails[addedRailId];
         if (!RailMatchesSelectedPoints(addedRail, selectedPointIds))
         {
-            return RailVerificationFailure("唯一新增轨道的站点身份与本次选定三点不一致。");
+            return RailVerificationFailure("唯一新增轨道的站点身份与本次选定点集不一致。");
         }
 
         if (addedRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
@@ -582,7 +615,7 @@ public sealed class BattleDecisionEngine
 
             if (!RailMatchesSelectedPoints(drawRail, selectedPointIds))
             {
-                return RailVerificationFailure("drawResult.rail 的站点身份与本次选定三点不一致。");
+                return RailVerificationFailure("drawResult.rail 的站点身份与本次选定点集不一致。");
             }
 
             int drawInternalId = ReadInt(drawRail["railInternalId"], ReadInt(drawRail["id"], 0));
@@ -779,10 +812,17 @@ public sealed class BattleDecisionEngine
             }
         }
 
+        double reasonableLoopLengthLimit =
+            DefenseExpansionAttributeGridRanker.CalculateReasonableLoopLengthLimit(
+                candidates.Select(candidate => candidate.Score.Layout));
         JObject? selected = candidates
-            .OrderBy(candidate => candidate.Score.Distance)
+            .Where(candidate => candidate.Score.Layout.LoopLength <= reasonableLoopLengthLimit)
+            .OrderBy(
+                candidate => candidate.Score.Layout,
+                Comparer<RailLayoutScore>.Create(RailLayoutStrategyPlanner.CompareForDefense))
             .ThenBy(candidate => candidate.Score.HasCoverageContext ? candidate.Score.SideRank : 0)
             .ThenBy(candidate => candidate.Score.HasCoverageContext ? candidate.Score.DirectionCosine : 0d)
+            .ThenBy(candidate => candidate.Score.Distance)
             .ThenByDescending(candidate => candidate.Score.Area)
             .ThenBy(candidate => candidate.X)
             .ThenBy(candidate => candidate.Y)
@@ -1251,7 +1291,7 @@ public sealed class BattleDecisionEngine
         if (!TryReadPoint(first["grid"], out double firstX, out double firstY) ||
             !TryReadPoint(second["grid"], out double secondX, out double secondY))
         {
-            return new ExpansionLayoutScore(false, 1, 1d, double.MaxValue, 0d);
+            return new ExpansionLayoutScore(false, 1, 1d, double.MaxValue, 0d, new RailLayoutScore());
         }
 
         double distance = DistanceSquared(firstX, firstY, attributeX, attributeY)
@@ -1260,12 +1300,57 @@ public sealed class BattleDecisionEngine
         double area = Math.Abs(
             (firstX - attributeX) * (secondY - attributeY)
             - (firstY - attributeY) * (secondX - attributeX));
+        RailLayoutPoint[] layoutPoints =
+        {
+            new RailLayoutPoint(attributeX, attributeY),
+            new RailLayoutPoint(firstX, firstY),
+            new RailLayoutPoint(secondX, secondY)
+        };
+        return ScoreExpansionContext(
+            RailLayoutStrategyPlanner.EvaluateEstimated(layoutPoints),
+            layoutPoints,
+            occupiedPoints,
+            distance,
+            area);
+    }
+
+    private static ExpansionLayoutScore ScoreExpansionPlan(
+        RailLoopPlan plan,
+        IReadOnlyCollection<JObject> occupiedPoints)
+    {
+        RailLayoutPoint[] points = plan.OrderedPoints.ToArray();
+        double distance = 0d;
+        double twiceArea = 0d;
+        for (int index = 0; index < points.Length; index++)
+        {
+            RailLayoutPoint from = points[index];
+            RailLayoutPoint to = points[(index + 1) % points.Length];
+            double dx = from.X - to.X;
+            double dy = from.Y - to.Y;
+            distance += dx * dx + dy * dy;
+            twiceArea += from.X * to.Y - from.Y * to.X;
+        }
+        return ScoreExpansionContext(
+            plan.Score,
+            points,
+            occupiedPoints,
+            distance,
+            Math.Abs(twiceArea));
+    }
+
+    private static ExpansionLayoutScore ScoreExpansionContext(
+        RailLayoutScore layout,
+        IReadOnlyCollection<RailLayoutPoint> candidatePoints,
+        IReadOnlyCollection<JObject> occupiedPoints,
+        double distance,
+        double area)
+    {
         JObject[] locatedOccupied = occupiedPoints
             .Where(item => TryReadPoint(item["grid"], out _, out _))
             .ToArray();
-        if (locatedOccupied.Length == 0)
+        if (locatedOccupied.Length == 0 || candidatePoints.Count == 0)
         {
-            return new ExpansionLayoutScore(false, 0, 0d, distance, area);
+            return new ExpansionLayoutScore(false, 0, 0d, distance, area, layout);
         }
 
         double existingX = locatedOccupied.Average(item =>
@@ -1278,18 +1363,24 @@ public sealed class BattleDecisionEngine
             TryReadPoint(item["grid"], out _, out double y);
             return y;
         });
-        double candidateX = (attributeX + firstX + secondX) / 3d;
-        double candidateY = (attributeY + firstY + secondY) / 3d;
+        double candidateX = candidatePoints.Average(point => point.X);
+        double candidateY = candidatePoints.Average(point => point.Y);
         double existingMagnitude = Math.Sqrt(existingX * existingX + existingY * existingY);
         double candidateMagnitude = Math.Sqrt(candidateX * candidateX + candidateY * candidateY);
         if (existingMagnitude <= 0.000001d || candidateMagnitude <= 0.000001d)
         {
-            return new ExpansionLayoutScore(false, 0, 0d, distance, area);
+            return new ExpansionLayoutScore(false, 0, 0d, distance, area, layout);
         }
 
         double cosine = (existingX * candidateX + existingY * candidateY)
                         / (existingMagnitude * candidateMagnitude);
-        return new ExpansionLayoutScore(true, cosine <= 0d ? 0 : 1, cosine, distance, area);
+        return new ExpansionLayoutScore(
+            true,
+            cosine <= 0d ? 0 : 1,
+            cosine,
+            distance,
+            area,
+            layout);
     }
 
     private static bool HasTrainCapacity(JObject train)
@@ -1956,13 +2047,15 @@ public sealed class BattleDecisionEngine
             int sideRank,
             double directionCosine,
             double distance,
-            double area)
+            double area,
+            RailLayoutScore layout)
         {
             HasCoverageContext = hasCoverageContext;
             SideRank = sideRank;
             DirectionCosine = directionCosine;
             Distance = distance;
             Area = area;
+            Layout = layout;
         }
 
         public bool HasCoverageContext { get; }
@@ -1970,6 +2063,7 @@ public sealed class BattleDecisionEngine
         public double DirectionCosine { get; }
         public double Distance { get; }
         public double Area { get; }
+        public RailLayoutScore Layout { get; }
     }
 
     private sealed class ExpansionPathCandidate

@@ -69,12 +69,22 @@ internal sealed class CheatController : IDisposable
         if (currentSceneHandle != _sceneHandle)
         {
             _sceneHandle = currentSceneHandle;
+            _runtime.CancelGrantAllRelics("游戏场景已切换，一键获取所有遗物任务已取消。");
             ResetTransientFeatures();
             _log.LogInfo("作弊工具已在场景切换后关闭基地无敌、敌人信息显示、位置捕获与地图跳关。");
         }
 
         if (Enabled)
         {
+            if (_autoPlay.IsAutoPlayActive)
+            {
+                _runtime.CancelGrantAllRelics("自动游玩已开始，一键获取所有遗物任务已取消。");
+            }
+            else
+            {
+                _runtime.TickGrantAllRelics();
+            }
+
             MapSkipPatch.Tick();
             _runtime.TickEnemyOverlays();
         }
@@ -185,6 +195,7 @@ internal sealed class CheatController : IDisposable
             "cheat.setenemyidoverlay" => SetEnemyIdOverlay(arguments),
             "cheat.setenemybuffoverlay" => SetEnemyBuffOverlay(arguments),
             "cheat.grantrelic" => _runtime.GrantRelic(arguments),
+            "cheat.grantallrelics" => _runtime.StartGrantAllRelics(),
             "cheat.removerelic" => _runtime.RemoveRelic(arguments),
             "cheat.spawnenemy" => _runtime.SpawnEnemy(arguments),
             "cheat.setspawnpointcapture" => _runtime.SetSpawnPointCapture(arguments),
@@ -226,6 +237,7 @@ internal sealed class CheatController : IDisposable
         Enabled = enabled;
         if (!enabled)
         {
+            _runtime.CancelGrantAllRelics("作弊模式已关闭，一键获取所有遗物任务已取消。");
             ResetTransientFeatures();
         }
 
@@ -235,6 +247,7 @@ internal sealed class CheatController : IDisposable
 
     private void DisableAndReset(string? logMessage)
     {
+        _runtime.CancelGrantAllRelics("作弊控制已中断，一键获取所有遗物任务已取消。");
         ResetTransientFeatures();
         Enabled = false;
         _autoPlay.TrySetCheatMode(false, out _);
@@ -335,7 +348,19 @@ internal sealed class CheatController : IDisposable
             ["ownedVehicles"] = new JArray(),
             ["ownedRelics"] = new JArray(),
             ["ownedCatapultPoints"] = new JArray(),
-            ["fieldCatapultPoints"] = new JArray()
+            ["fieldCatapultPoints"] = new JArray(),
+            ["grantAllRelics"] = new JObject
+            {
+                ["state"] = "idle",
+                ["totalCount"] = 0,
+                ["processedCount"] = 0,
+                ["grantedCount"] = 0,
+                ["skippedCount"] = 0,
+                ["failedCount"] = 0,
+                ["remainingCount"] = 0,
+                ["failedRelics"] = new JArray(),
+                ["message"] = "尚未启动一键获取所有遗物任务。"
+            }
         };
         if (!IsAvailable) return state;
 

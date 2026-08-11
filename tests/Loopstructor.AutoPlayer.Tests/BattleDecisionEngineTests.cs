@@ -784,7 +784,7 @@ public sealed class BattleDecisionEngineTests
     }
 
     [Fact]
-    public void SelectExpansionAttributeGrid_PrefersGridNearestTwoUnusedCommonStationsDeterministically()
+    public void SelectExpansionAttributeGrid_PrefersBetterAngularCoverageBeforeDistanceDeterministically()
     {
         BattleDecisionEngine engine = new();
         JObject catapults = Result(new
@@ -810,8 +810,8 @@ public sealed class BattleDecisionEngineTests
         JObject? grid = engine.SelectExpansionAttributeGrid(options, catapults);
 
         Assert.NotNull(grid);
-        Assert.Equal(5, grid["x"]?.Value<int>());
-        Assert.Equal(1, grid["y"]?.Value<int>());
+        Assert.Equal(0, grid["x"]?.Value<int>());
+        Assert.Equal(10, grid["y"]?.Value<int>());
     }
 
     [Fact]

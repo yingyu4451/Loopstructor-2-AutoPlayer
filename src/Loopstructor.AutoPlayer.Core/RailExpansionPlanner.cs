@@ -24,6 +24,8 @@ public sealed class RailInsertionCandidate
     public int StationCount { get; set; }
     public double CurrentLoopCycleSeconds { get; set; }
     public int VehicleInstanceId { get; set; }
+    public double TrainPowerScore { get; set; }
+    public IReadOnlyList<AutoPlayerGrid> OrderedStationGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
     public JObject PreviewArguments { get; set; } = new();
 
     public string Identity => string.Join(
@@ -41,6 +43,11 @@ public sealed class RailInsertionPreviewScore
     public double PredictedTriggerRate { get; set; }
     public double TriggerRateGain { get; set; }
     public double RelativeGain { get; set; }
+    public double BaselineEffectiveAttackRate { get; set; }
+    public double PredictedEffectiveAttackRate { get; set; }
+    public double EffectiveAttackRateGain { get; set; }
+    public RailLayoutScore? BaselineLayout { get; set; }
+    public RailLayoutScore? PredictedLayout { get; set; }
     public bool IsBeneficial => TriggerRateGain > 0.000001d;
 }
 
@@ -66,13 +73,16 @@ public sealed class RailStationMoveCandidate
     public string StationName { get; set; } = string.Empty;
     public string StationDisposableEnum { get; set; } = string.Empty;
     public string StationFingerprint { get; set; } = string.Empty;
+    public bool StationIsAttribute { get; set; }
     public AutoPlayerGrid CurrentGrid { get; set; }
     public IReadOnlyList<AutoPlayerGrid> NeighborGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
+    public IReadOnlyList<AutoPlayerGrid> OrderedStationGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
 }
 
 /// <summary>
 /// Plans existing-loop expansion from runtime snapshots. Throughput is the number of station
-/// triggers per real vehicle per loop, N/T; an insertion is useful only when (N+1)/T' exceeds N/T.
+/// triggers per real vehicle per loop, N/T. Across rails it is weighted by the non-fixed train
+/// power sum (level squared); directional coverage remains a hard tier above that output score.
 /// </summary>
 public sealed class RailExpansionPlanner
 {
@@ -112,6 +122,7 @@ public sealed class RailExpansionPlanner
             int railInstanceId = ReadInt(rail["instanceId"], 0);
             int railInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"], 0));
             int stationCount = ReadInt(rail["stationCount"], ReadInt(rail["pointCount"], 0));
+            List<AutoPlayerGrid> orderedStationGrids = ReadRailGeometryGrids(rail);
             if (railInstanceId == 0 || railInternalId == 0 || stationCount < 3)
             {
                 continue;
@@ -122,6 +133,7 @@ public sealed class RailExpansionPlanner
             {
                 continue;
             }
+            double trainPowerScore = ReadTrainPowerScore(trains, railInternalId);
 
             foreach (JObject line in (rail["lines"] as JArray)?.OfType<JObject>()
                      ?? Enumerable.Empty<JObject>())
@@ -168,6 +180,8 @@ public sealed class RailExpansionPlanner
                         StationCount = stationCount,
                         CurrentLoopCycleSeconds = cycleSeconds,
                         VehicleInstanceId = vehicleInstanceId,
+                        TrainPowerScore = trainPowerScore,
+                        OrderedStationGrids = orderedStationGrids,
                         PreviewArguments = arguments
                     });
                 }
@@ -177,7 +191,8 @@ public sealed class RailExpansionPlanner
         return candidates
             .GroupBy(candidate => candidate.Identity, StringComparer.Ordinal)
             .Select(group => group.Single())
-            .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
+            .OrderByDescending(candidate =>
+                candidate.TrainPowerScore * candidate.StationCount / candidate.CurrentLoopCycleSeconds)
             .ThenBy(candidate => candidate.RailInstanceId)
             .ThenBy(candidate => candidate.LineInstanceId)
             .ThenBy(candidate => candidate.StationLinePointInstanceId)
@@ -195,14 +210,17 @@ public sealed class RailExpansionPlanner
         foreach (JObject station in (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
                  ?? Enumerable.Empty<JObject>())
         {
-            if (station["isSpecial"]?.Value<bool>() != true ||
-                station["isAttribute"]?.Value<bool>() == true ||
-                station["canMove"]?.Value<bool>() != true ||
+            bool isAttribute = station["isAttribute"]?.Value<bool>() == true;
+            bool isSpecial = station["isSpecial"]?.Value<bool>() == true;
+            string disposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty;
+            bool isSupportedMovableStation = isAttribute ||
+                                             (isSpecial && !string.Equals(
+                                                 disposableEnum,
+                                                 "FreePoint",
+                                                 StringComparison.OrdinalIgnoreCase));
+            if (station["canMove"]?.Value<bool>() != true ||
                 ReadInt(station["railMembershipCount"], 0) != 1 ||
-                string.Equals(
-                    station["recycleDisposableEnum"]?.Value<string>(),
-                    "FreePoint",
-                    StringComparison.OrdinalIgnoreCase) ||
+                !isSupportedMovableStation ||
                 !TryReadGrid(station["grid"], out AutoPlayerGrid currentGrid))
             {
                 continue;
@@ -244,6 +262,12 @@ public sealed class RailExpansionPlanner
                 continue;
             }
 
+            List<AutoPlayerGrid> orderedStationGrids = ReadRailGeometryGrids(rail);
+            if (orderedStationGrids.Count < 3)
+            {
+                continue;
+            }
+
             result.Add(new RailStationMoveCandidate
             {
                 RailInstanceId = ReadInt(rail["instanceId"], 0),
@@ -260,8 +284,10 @@ public sealed class RailExpansionPlanner
                 StationName = station["name"]?.Value<string>() ?? string.Empty,
                 StationDisposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
                 StationFingerprint = BuildStationFingerprint(station),
+                StationIsAttribute = isAttribute,
                 CurrentGrid = currentGrid,
-                NeighborGrids = neighbors
+                NeighborGrids = neighbors,
+                OrderedStationGrids = orderedStationGrids
             });
         }
 
@@ -289,6 +315,35 @@ public sealed class RailExpansionPlanner
             : double.PositiveInfinity;
     }
 
+    public RailLayoutScore ScoreCurrentLayout(RailStationMoveCandidate candidate) =>
+        RailLayoutStrategyPlanner.Evaluate(
+            candidate.OrderedStationGrids.Select(ToLayoutPoint),
+            candidate.StationCount,
+            candidate.CurrentLoopCycleSeconds);
+
+    public RailLayoutScore ScoreMovedLayout(RailStationMoveCandidate candidate, AutoPlayerGrid targetGrid)
+    {
+        double predictedCycle = PredictCycleAfterMove(candidate, targetGrid);
+        IReadOnlyList<AutoPlayerGrid> moved = candidate.OrderedStationGrids
+            .Select(grid => grid.Equals(candidate.CurrentGrid) ? targetGrid : grid)
+            .ToArray();
+        return RailLayoutStrategyPlanner.Evaluate(
+            moved.Select(ToLayoutPoint),
+            candidate.StationCount,
+            predictedCycle);
+    }
+
+    /// <summary>
+    /// A move is useful when it repairs a weaker coverage tier, or improves N/T without reducing
+    /// all-direction coverage. This lets one-sided layouts recover before cycle optimization.
+    /// </summary>
+    public bool IsBeneficialMove(RailStationMoveCandidate candidate, AutoPlayerGrid targetGrid)
+    {
+        RailLayoutScore baseline = ScoreCurrentLayout(candidate);
+        RailLayoutScore predicted = ScoreMovedLayout(candidate, targetGrid);
+        return RailLayoutStrategyPlanner.IsStrictDefenseImprovement(baseline, predicted);
+    }
+
     public bool IsFreshMovableSpecial(
         JObject? catapultResult,
         JObject? movableStateResult,
@@ -311,8 +366,7 @@ public sealed class RailExpansionPlanner
         JObject catapult = catapults[0];
         JObject station = stations[0];
         return
-               catapult["isSpecial"]?.Value<bool>() == true &&
-               catapult["isAttribute"]?.Value<bool>() != true &&
+               MatchesMovableStationKind(catapult, candidate) &&
                catapult["canMove"]?.Value<bool>() == true &&
                station["canMove"]?.Value<bool>() == true &&
                ReadInt(catapult["gameObjectInstanceId"], 0) == candidate.StationGameObjectInstanceId &&
@@ -374,8 +428,7 @@ public sealed class RailExpansionPlanner
         }
 
         List<JObject> targetStations = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
-            .Where(item => item["isSpecial"]?.Value<bool>() == true &&
-                           item["isAttribute"]?.Value<bool>() != true &&
+            .Where(item => MatchesMovableStationKind(item, candidate) &&
                            string.Equals(item["name"]?.Value<string>(), candidate.StationName, StringComparison.Ordinal) &&
                            string.Equals(
                                item["recycleDisposableEnum"]?.Value<string>(),
@@ -391,10 +444,19 @@ public sealed class RailExpansionPlanner
                            item.SelectToken("grid.y")?.Value<int?>() == y.Value)
             .ToList() ?? new List<JObject>();
         JObject currentRail = currentRails[candidate.RailInstanceId];
+        JObject baselineRail = baselineRails[candidate.RailInstanceId];
         int currentCount = ReadInt(currentRail["stationCount"], ReadInt(currentRail["pointCount"], -1));
         if (targetStations.Count == 0 && currentCount == candidate.StationCount)
         {
             return new RailInsertionVerification { Pending = true, Detail = "尚未观察到特殊弹射点移动到目标格。" };
+        }
+        if (targetStations.Count == 1 && SameRailStructure(baselineRail, currentRail))
+        {
+            return new RailInsertionVerification
+            {
+                Pending = true,
+                Detail = "已看到站点到达目标格，但轨道快照仍停留在移动前一帧；继续只读复核。"
+            };
         }
 
         bool sourceGridStillOccupied = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
@@ -403,6 +465,18 @@ public sealed class RailExpansionPlanner
                 item.SelectToken("grid.y")?.Value<int?>() == candidate.CurrentGrid.Y &&
                 string.Equals(BuildStationFingerprint(item), candidate.StationFingerprint, StringComparison.Ordinal)) == true;
         JObject? targetStation = targetStations.Count == 1 ? targetStations[0] : null;
+        RailLayoutScore baselineLayout = ScoreCurrentLayout(candidate);
+        List<AutoPlayerGrid> observedGrids = ReadRailGeometryGrids(currentRail);
+        RailLayoutScore observedLayout = RailLayoutStrategyPlanner.Evaluate(
+            observedGrids.Select(ToLayoutPoint),
+            currentCount,
+            TryReadPositiveDouble(currentRail["loopCycleSeconds"], out double candidateCycle)
+                ? candidateCycle
+                : 0d);
+        bool coverageImproved = RailLayoutStrategyPlanner.CompareCoverage(observedLayout, baselineLayout) < 0;
+        bool sameCoverageAndFaster =
+            RailLayoutStrategyPlanner.CompareCoverage(observedLayout, baselineLayout) == 0 &&
+            observedLayout.TriggerRate > baselineLayout.TriggerRate + 0.000001d;
         if (targetStation == null ||
             sourceGridStillOccupied ||
             ReadInt(targetStation["catapultInstanceId"], ReadInt(targetStation["instanceId"], 0)) ==
@@ -412,15 +486,15 @@ public sealed class RailExpansionPlanner
             currentCount != candidate.StationCount ||
             currentRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
             !TryReadPositiveDouble(currentRail["loopCycleSeconds"], out double observedCycle) ||
-            observedCycle >= candidate.CurrentLoopCycleSeconds - 0.0001d)
+            (!coverageImproved && !sameCoverageAndFaster))
         {
-            return Failure("特殊弹射点移动后未保持同一合法闭环，或回转周期没有改善。");
+            return Failure("弹射点移动后未保持同一合法闭环，或四向覆盖与真实触发率均未改善。");
         }
 
         return new RailInsertionVerification
         {
             Verified = true,
-            Detail = "已验证特殊弹射点仍属于同一合法闭环，且回转周期缩短。",
+            Detail = "已验证弹射点仍属于同一合法闭环，且四向覆盖或真实触发率已改善。",
             ObservedLoopCycleSeconds = observedCycle
         };
     }
@@ -499,8 +573,7 @@ public sealed class RailExpansionPlanner
 
         JObject sourceStation = sourceStations[0];
         if (sourceStation["active"]?.Value<bool>() == false ||
-            sourceStation["isSpecial"]?.Value<bool>() != true ||
-            sourceStation["isAttribute"]?.Value<bool>() == true ||
+            !MatchesMovableStationKind(sourceStation, candidate) ||
             ReadInt(sourceStation["gameObjectInstanceId"], 0) != candidate.StationGameObjectInstanceId ||
             ReadInt(sourceStation["linePointInstanceId"], 0) != candidate.StationLinePointInstanceId ||
             !string.Equals(sourceStation["path"]?.Value<string>(), candidate.StationPath, StringComparison.Ordinal) ||
@@ -563,6 +636,9 @@ public sealed class RailExpansionPlanner
 
         double baselineRate = candidate.StationCount / observedCurrent;
         double predictedRate = (candidate.StationCount + 1d) / predicted;
+        double power = Math.Max(candidate.TrainPowerScore, 0d);
+        RailLayoutScore? baselineLayout = TryBuildCandidateLayout(candidate, null, observedCurrent);
+        RailLayoutScore? predictedLayout = TryBuildCandidateLayout(candidate, previewResult, predicted);
         score = new RailInsertionPreviewScore
         {
             Candidate = candidate,
@@ -570,15 +646,33 @@ public sealed class RailExpansionPlanner
             BaselineTriggerRate = baselineRate,
             PredictedTriggerRate = predictedRate,
             TriggerRateGain = predictedRate - baselineRate,
-            RelativeGain = predictedRate / baselineRate - 1d
+            RelativeGain = predictedRate / baselineRate - 1d,
+            BaselineEffectiveAttackRate = power * baselineRate,
+            PredictedEffectiveAttackRate = power * predictedRate,
+            EffectiveAttackRateGain = power * (predictedRate - baselineRate),
+            BaselineLayout = baselineLayout,
+            PredictedLayout = predictedLayout
         };
         return IsFinite(score.TriggerRateGain) && IsFinite(score.RelativeGain);
     }
 
     public RailInsertionPreviewScore? SelectBest(IEnumerable<RailInsertionPreviewScore>? scores) =>
         scores?
-            .Where(score => score != null && score.IsBeneficial)
-            .OrderByDescending(score => score.TriggerRateGain)
+            .Where(score => score != null &&
+                            score.BaselineLayout != null &&
+                            score.PredictedLayout != null &&
+                            RailLayoutStrategyPlanner.IsStrictDefenseImprovement(
+                                score.BaselineLayout,
+                                score.PredictedLayout))
+            .OrderBy(
+                score => score.PredictedLayout,
+                Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareCoverage))
+            .ThenByDescending(score => score.PredictedEffectiveAttackRate)
+            .ThenByDescending(score => score.EffectiveAttackRateGain)
+            .ThenByDescending(score => score.TriggerRateGain)
+            .ThenBy(
+                score => score.PredictedLayout,
+                Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareForDefense))
             .ThenByDescending(score => score.RelativeGain)
             .ThenBy(score => score.PredictedLoopCycleSeconds)
             .ThenBy(score => score.Candidate.RailInstanceId)
@@ -614,7 +708,7 @@ public sealed class RailExpansionPlanner
             (JObject)score.Candidate.PreviewArguments.DeepClone(),
             AutomationStage.PreparingDefense,
             $"扩充轨道 {score.Candidate.RailInternalId}：站点触发率由 " +
-            $"{score.BaselineTriggerRate:0.###}/秒提升到 {score.PredictedTriggerRate:0.###}/秒，" +
+            $"{score.BaselineTriggerRate:0.###}/秒变为 {score.PredictedTriggerRate:0.###}/秒，" +
             $"预测回转周期 {score.PredictedLoopCycleSeconds:0.###} 秒。");
     }
 
@@ -659,6 +753,24 @@ public sealed class RailExpansionPlanner
             !TryReadPositiveDouble(current["loopCycleSeconds"], out double observedCycle))
         {
             return Failure("目标轨道未形成仅新增一个指定站点的合法闭环。");
+        }
+
+        double baselineCycle = TryReadPositiveDouble(baseline["loopCycleSeconds"], out double readBaselineCycle)
+            ? readBaselineCycle
+            : candidate.CurrentLoopCycleSeconds;
+        RailLayoutScore baselineLayout = ScoreObservedOrPlannedLayout(
+            baseline,
+            baselineCount,
+            baselineCycle,
+            selected.BaselineLayout);
+        RailLayoutScore currentLayout = ScoreObservedOrPlannedLayout(
+            current,
+            currentCount,
+            observedCycle,
+            selected.PredictedLayout);
+        if (!RailLayoutStrategyPlanner.IsStrictDefenseImprovement(baselineLayout, currentLayout))
+        {
+            return Failure("新增站点后的四向覆盖与真实站点触发率均未改善。");
         }
 
         return new RailInsertionVerification
@@ -774,6 +886,131 @@ public sealed class RailExpansionPlanner
         return ReadInt(selected?["instanceId"], 0);
     }
 
+    private static double ReadTrainPowerScore(IEnumerable<JObject> trains, int railInternalId) =>
+        trains
+            .Where(train => ReadInt(train["railId"], 0) == railInternalId)
+            .SelectMany(train => (train["vehicles"] as JArray)?.OfType<JObject>()
+                                 ?? Enumerable.Empty<JObject>())
+            .Where(vehicle => vehicle["isFixedHead"]?.Value<bool>() != true)
+            .Where(vehicle => ReadInt(vehicle["instanceId"], 0) != 0)
+            .GroupBy(vehicle => ReadInt(vehicle["instanceId"], 0))
+            .Select(group => group.First())
+            .Sum(vehicle =>
+            {
+                int level = Math.Max(ReadInt(vehicle["level"], 1), 1);
+                return (double)level * level;
+            });
+
+    private static List<AutoPlayerGrid> ReadRailGeometryGrids(JObject rail)
+    {
+        List<AutoPlayerGrid> ordered = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>()
+            .Select(item => TryReadGrid(item["grid"], out AutoPlayerGrid grid)
+                ? (AutoPlayerGrid?)grid
+                : null)
+            .Where(grid => grid.HasValue)
+            .Select(grid => grid!.Value)
+            .Distinct()
+            .ToList() ?? new List<AutoPlayerGrid>();
+        if (ordered.Count >= 3)
+        {
+            return ordered;
+        }
+
+        List<AutoPlayerGrid> endpoints = new();
+        foreach (JObject line in (rail["lines"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+        {
+            if (TryReadGrid(line["from"], out AutoPlayerGrid from)) endpoints.Add(from);
+            if (TryReadGrid(line["to"], out AutoPlayerGrid to)) endpoints.Add(to);
+        }
+        return endpoints.Distinct().ToList();
+    }
+
+    private static RailLayoutScore? TryBuildCandidateLayout(
+        RailInsertionCandidate candidate,
+        JObject? previewResult,
+        double cycleSeconds)
+    {
+        JObject state = State(previewResult);
+        JArray? grids = state["predictedStationGrids"] as JArray;
+        RailLayoutPoint[] baselinePoints = candidate.OrderedStationGrids
+            .Select(ToLayoutPoint)
+            .ToArray();
+        if (previewResult == null)
+        {
+            return baselinePoints.Length < 3
+                ? null
+                : RailLayoutStrategyPlanner.Evaluate(
+                    baselinePoints,
+                    candidate.StationCount,
+                    cycleSeconds);
+        }
+
+        RailLayoutPoint[] points;
+        if (grids != null && grids.Count >= 3)
+        {
+            points = grids
+                .OfType<JObject>()
+                .Where(item => item["x"]?.Type is JTokenType.Integer or JTokenType.Float &&
+                               item["y"]?.Type is JTokenType.Integer or JTokenType.Float)
+                .Select(item => new RailLayoutPoint(item["x"]!.Value<double>(), item["y"]!.Value<double>()))
+                .ToArray();
+        }
+        else
+        {
+            points = candidate.OrderedStationGrids
+                .Concat(new[] { new AutoPlayerGrid(candidate.OriginalGridX, candidate.OriginalGridY) })
+                .Distinct()
+                .Select(ToLayoutPoint)
+                .ToArray();
+        }
+        return points.Length < 3
+            ? null
+            : RailLayoutStrategyPlanner.Evaluate(
+                points,
+                candidate.StationCount + (previewResult == null ? 0 : 1),
+                cycleSeconds);
+    }
+
+    private static RailLayoutPoint ToLayoutPoint(AutoPlayerGrid grid) => new(grid.X, grid.Y);
+
+    private static RailLayoutScore ScoreObservedOrPlannedLayout(
+        JObject rail,
+        int stationCount,
+        double cycleSeconds,
+        RailLayoutScore? planned)
+    {
+        List<AutoPlayerGrid> grids = ReadRailGeometryGrids(rail);
+        if (grids.Count >= 3)
+        {
+            return RailLayoutStrategyPlanner.Evaluate(
+                grids.Select(ToLayoutPoint),
+                stationCount,
+                cycleSeconds);
+        }
+
+        if (planned?.IsValid != true || stationCount < 1 || cycleSeconds <= 0d)
+        {
+            return new RailLayoutScore();
+        }
+
+        return new RailLayoutScore
+        {
+            IsValid = planned.IsValid,
+            EncirclesBase = planned.EncirclesBase,
+            CoveredQuadrants = planned.CoveredQuadrants,
+            AngularCoverageDegrees = planned.AngularCoverageDegrees,
+            MaxAngularGapDegrees = planned.MaxAngularGapDegrees,
+            AverageRadius = planned.AverageRadius,
+            RadiusVariance = planned.RadiusVariance,
+            LoopLength = planned.LoopLength,
+            StationCount = stationCount,
+            LoopCycleSeconds = cycleSeconds,
+            TriggerRate = stationCount / cycleSeconds,
+            DefenseUtility = planned.DefenseUtility
+        };
+    }
+
     private static int ReadStationRailId(JObject station) =>
         ReadInt(
             station["railId"],
@@ -794,6 +1031,17 @@ public sealed class RailExpansionPlanner
             JoinValues(station["pointBuffFlags"]),
             JoinValues(station["runtimeBuffIdentities"]),
             JoinValues(station["effectTags"]));
+    }
+
+    private static bool MatchesMovableStationKind(JObject station, RailStationMoveCandidate candidate)
+    {
+        bool isAttribute = station["isAttribute"]?.Value<bool>() == true;
+        if (candidate.StationIsAttribute)
+        {
+            return isAttribute;
+        }
+
+        return !isAttribute && station["isSpecial"]?.Value<bool>() == true;
     }
 
     private static bool IsAvailableCommonStation(JObject item) =>
@@ -903,6 +1151,30 @@ public sealed class RailExpansionPlanner
     {
         double scale = Math.Max(Math.Abs(left), Math.Abs(right));
         return Math.Abs(left - right) <= Math.Max(0.0001d, scale * relativeTolerance);
+    }
+
+    private static bool SameRailStructure(JObject baseline, JObject current)
+    {
+        int baselineCount = ReadInt(baseline["stationCount"], ReadInt(baseline["pointCount"], -1));
+        int currentCount = ReadInt(current["stationCount"], ReadInt(current["pointCount"], -1));
+        if (baselineCount < 3 || currentCount != baselineCount ||
+            !TryReadPointIdentitySequence(baseline, out int[] baselinePointIds) ||
+            !TryReadPointIdentitySequence(current, out int[] currentPointIds) ||
+            !baselinePointIds.SequenceEqual(currentPointIds))
+        {
+            return false;
+        }
+
+        List<AutoPlayerGrid> baselineGrids = ReadRailGeometryGrids(baseline);
+        List<AutoPlayerGrid> currentGrids = ReadRailGeometryGrids(current);
+        if (baselineGrids.Count >= 3 || currentGrids.Count >= 3)
+        {
+            return baselineGrids.SequenceEqual(currentGrids);
+        }
+
+        return TryReadPositiveDouble(baseline["railLength"], out double baselineLength) &&
+               TryReadPositiveDouble(current["railLength"], out double currentLength) &&
+               ApproximatelyEqual(baselineLength, currentLength, 0.001d);
     }
 }
 
@@ -1030,23 +1302,19 @@ public static class DefenseStationGridRanker
         IEnumerable<AutoPlayerGrid>? candidates,
         RailStationMoveCandidate candidate)
     {
-        double currentLength = candidate.NeighborGrids.Sum(neighbor =>
-            Math.Sqrt(DistanceSquared(
-                candidate.CurrentGrid.X,
-                candidate.CurrentGrid.Y,
-                neighbor.X,
-                neighbor.Y)));
+        RailExpansionPlanner planner = new();
         return (candidates ?? Enumerable.Empty<AutoPlayerGrid>())
             .Distinct()
             .Where(grid => !grid.Equals(candidate.CurrentGrid))
             .Select(grid => new
             {
                 Grid = grid,
-                Length = candidate.NeighborGrids.Sum(neighbor =>
-                    Math.Sqrt(DistanceSquared(grid.X, grid.Y, neighbor.X, neighbor.Y)))
+                Layout = planner.ScoreMovedLayout(candidate, grid)
             })
-            .Where(item => item.Length + 0.001d < currentLength)
-            .OrderBy(item => item.Length)
+            .Where(item => planner.IsBeneficialMove(candidate, item.Grid))
+            .OrderBy(
+                item => item.Layout,
+                Comparer<RailLayoutScore>.Create(RailLayoutStrategyPlanner.CompareForDefense))
             .ThenBy(item => item.Grid.X)
             .ThenBy(item => item.Grid.Y)
             .Select(item => item.Grid)
