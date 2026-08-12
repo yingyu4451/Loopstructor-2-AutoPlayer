@@ -14,7 +14,7 @@
         AllowsTransparency="False"
         ResizeMode="CanResize"
         Icon="/Loopstructor.AutoPlayer.Updater;component/Assets/Branding/manager-logo-256.png"
-        Background="#080706"
+        Background="#3A2517"
         Foreground="#F1DFC0"
         FontFamily="Microsoft YaHei UI"
         FontSize="13"
@@ -166,8 +166,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="#070604"
-                                BorderBrush="#070604"
+                        <Border Background="{StaticResource DarkCopperBrush}"
+                                BorderBrush="{StaticResource DarkCopperBrush}"
                                 BorderThickness="2">
                             <Border x:Name="BadgeSocket"
                                     Margin="1"
@@ -205,8 +205,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="#070604"
-                                BorderBrush="#070604"
+                        <Border Background="{StaticResource DarkCopperBrush}"
+                                BorderBrush="{StaticResource DarkCopperBrush}"
                                 BorderThickness="2">
                             <Border x:Name="Chrome"
                                     Margin="1"
@@ -256,7 +256,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <Border Background="#070604" BorderBrush="#070604" BorderThickness="2">
+                            <Border Background="{StaticResource DarkCopperBrush}" BorderBrush="{StaticResource DarkCopperBrush}" BorderThickness="2">
                                 <Border x:Name="ButtonFace"
                                         Margin="2"
                                         Padding="{TemplateBinding Padding}"
@@ -319,7 +319,7 @@
     <Border x:Name="WindowFrame"
             Margin="0"
             Background="{StaticResource CoalBrush}"
-            BorderBrush="#1F130C"
+            BorderBrush="{StaticResource CopperBrush}"
             BorderThickness="3">
         <Border Background="{StaticResource CoalBrush}"
                 BorderBrush="{StaticResource CopperBrush}"

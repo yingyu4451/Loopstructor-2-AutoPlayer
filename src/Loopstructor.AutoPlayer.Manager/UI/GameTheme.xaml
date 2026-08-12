@@ -60,6 +60,12 @@
         <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
     </Style>
 
+    <Style TargetType="ToolTip">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
     <Style TargetType="{x:Type controls:MechanicalShell}">
         <Setter Property="Background" Value="{StaticResource InstrumentTexture}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
@@ -68,8 +74,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type controls:MechanicalShell}">
                     <Grid x:Name="ShellRoot" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
-                        <Border x:Name="OuterShadow" Margin="0" BorderBrush="#090705" BorderThickness="7" CornerRadius="0" />
-                        <Border x:Name="OuterBronzeFrame" Margin="6" BorderBrush="{StaticResource BronzeDarkBrush}" BorderThickness="7" CornerRadius="0" />
+                        <Border x:Name="OuterShadow" Margin="0" BorderBrush="{StaticResource BronzeDarkBrush}" BorderThickness="7" CornerRadius="0" />
+                        <Border x:Name="OuterBronzeFrame" Margin="6" BorderBrush="#70492B" BorderThickness="7" CornerRadius="0" />
                         <Border x:Name="OuterBrassFrame" Margin="12" BorderBrush="{StaticResource BrassBrush}" BorderThickness="2" CornerRadius="0" />
                         <Border x:Name="InnerFrame" Margin="16" BorderBrush="#24160E" BorderThickness="4" CornerRadius="0" />
 
@@ -111,7 +117,7 @@
                                           ToolTip="窗口菜单"
                                           AutomationProperties.Name="窗口菜单"
                                           shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                                        <Ellipse Fill="#100D0A" Stroke="#090705" StrokeThickness="5" />
+                                        <Ellipse Fill="#100D0A" Stroke="{StaticResource BronzeDarkBrush}" StrokeThickness="5" />
                                         <Ellipse Margin="5" Fill="#2B1D13" Stroke="{TemplateBinding AccentBrush}" StrokeThickness="2" />
                                         <Ellipse Margin="9" Fill="#120F0C" Stroke="{StaticResource BrassBrush}" StrokeThickness="1" />
                                         <Image Margin="7"
@@ -179,7 +185,7 @@
                     <ControlTemplate.Triggers>
                         <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="Maximized">
                             <Setter TargetName="OuterShadow" Property="Margin" Value="0" />
-                            <Setter TargetName="OuterShadow" Property="BorderThickness" Value="4" />
+                            <Setter TargetName="OuterShadow" Property="BorderThickness" Value="3" />
                             <Setter TargetName="OuterShadow" Property="CornerRadius" Value="0" />
                             <Setter TargetName="OuterBronzeFrame" Property="Margin" Value="4" />
                             <Setter TargetName="OuterBronzeFrame" Property="BorderThickness" Value="5" />
@@ -213,7 +219,7 @@
                     <Grid Background="Transparent" SnapsToDevicePixels="True">
                         <Border x:Name="ButtonFrame"
                                 Background="#100D0A"
-                                BorderBrush="#090705"
+                                BorderBrush="{StaticResource BronzeDarkBrush}"
                                 BorderThickness="3"
                                 CornerRadius="2" />
                         <Border x:Name="ButtonFace"

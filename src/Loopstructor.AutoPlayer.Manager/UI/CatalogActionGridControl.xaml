@@ -60,7 +60,9 @@
                 Background="{StaticResource ScreenBrush}"
                 BorderBrush="#4E3522"
                 BorderThickness="1">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          ScrollChanged="ItemsScrollViewer_OnScrollChanged">
                 <ItemsControl x:Name="ItemsHost" Margin="6">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -80,7 +82,14 @@
                                     Focusable="True"
                                     Cursor="Hand"
                                     AutomationProperties.Name="{Binding AutomationName}"
+                                    ToolTipService.InitialShowDelay="1000"
+                                    ToolTipService.ShowDuration="30000"
                                     PreviewMouseDown="Choice_OnPreviewMouseDown">
+                                <Border.ToolTip>
+                                    <ToolTip DataContext="{Binding PlacementTarget.DataContext.Item, RelativeSource={RelativeSource Self}}">
+                                        <local:CatalogDetailToolTip />
+                                    </ToolTip>
+                                </Border.ToolTip>
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Style.Triggers>
@@ -104,7 +113,7 @@
                                         <ColumnDefinition Width="46" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="40" Height="40" VerticalAlignment="Top" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
+                                    <Border Width="40" Height="40" VerticalAlignment="Center" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
                                         <Grid>
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
                                             <Image Margin="2" Source="{Binding Item.Icon}" Stretch="Uniform" />
@@ -121,7 +130,7 @@
                                             Visibility="{Binding CountVisibility}">
                                         <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="#F5E8D4" Text="{Binding OwnedCount}" />
                                     </Border>
-                                    <StackPanel Grid.Column="1">
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource DataFont}" FontSize="9" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Margin="0,4,0,0" FontSize="10" Foreground="{StaticResource SignalGreenBrush}" Text="{Binding StateLabel}" TextTrimming="CharacterEllipsis" />

@@ -77,20 +77,31 @@ public sealed class CheatFormWpfLayoutTests
                 form.Activate();
                 PumpDispatcher();
 
+                TabControl navigation = Assert.IsType<TabControl>(form.FindName("_tabs"));
+                TabItem[] navigationTabs = navigation.Items.Cast<TabItem>().ToArray();
+                Assert.Equal(new[] { "战车", "道具", "遗物", "战斗", "对象属性", "生成" }, navigationTabs.Select(tab => tab.Header));
+                Assert.Equal(6, navigationTabs.Length);
+                Assert.All(navigationTabs, tab => Assert.Equal(navigationTabs[0].ActualWidth, tab.ActualWidth, precision: 2));
+
                 AssertTabFits(form, 0);
                 AssertMinimumWidth(form, 420, "_enchantmentSelector");
-                AssertMinimumWidth(form, 160, "_grantAllRelicsButton");
 
                 AssertTabFits(form, 1);
+                AssertMinimumWidth(form, 120, "_clearBackpackCatapultsButton", "_clearFieldCatapultsButton");
+
+                AssertTabFits(form, 2);
+                AssertMinimumWidth(form, 120, "_grantAllRelicsButton", "_removeAllRelicsButton");
+
+                AssertTabFits(form, 3);
                 AssertTopAligned(form, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
                 AssertMinimumWidth(form, 180, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
 
-                AssertTabFits(form, 2);
+                AssertTabFits(form, 4);
                 AssertTopAligned(form, "_vehicleAttribute", "_vehicleCurrentValueFrame", "_vehicleAttributeValue", "_modifyVehicleButton");
                 AssertTopAligned(form, "_vehicleEnchantmentCatalog", "_vehicleEnchantmentCurrentFrame", "_vehicleEnchantmentLevel", "_setVehicleEnchantmentButton");
                 AssertTopAligned(form, "_enemyAttribute", "_enemyCurrentValueFrame", "_enemyAttributeValue", "_modifyEnemyButton");
 
-                AssertTabFits(form, 3);
+                AssertTabFits(form, 5);
                 AssertTopAligned(form, "_enemyCatalog", "_enemyLevel", "_followCurrentLevelCheck", "_enemyCount");
                 AssertTopAligned(form, "_spawnX", "_spawnY", "_spawnZ", "_spawnRadius", "_capturePointButton", "_cancelCaptureButton", "_addSpawnPointButton");
             }
@@ -123,7 +134,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(1);
+                form.SelectDemoTab(3);
                 PumpDispatcher();
 
                 CheckBox idOverlay = Assert.IsType<CheckBox>(form.FindName("_enemyIdOverlayCheck"));
@@ -189,7 +200,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(1);
+                form.SelectDemoTab(3);
                 PumpDispatcher();
 
                 CheckBox buffOverlay = Assert.IsType<CheckBox>(form.FindName("_enemyBuffOverlayCheck"));
@@ -289,7 +300,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(0);
+                form.SelectDemoTab(1);
                 PumpDispatcher();
 
                 Assert.Null(form.FindName("_fieldCatapultGrid"));
@@ -344,7 +355,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(3);
+                form.SelectDemoTab(5);
                 PumpDispatcher();
 
                 CheckBox follow = Assert.IsType<CheckBox>(form.FindName("_followCurrentLevelCheck"));
@@ -391,7 +402,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(2);
+                form.SelectDemoTab(4);
                 PumpDispatcher();
 
                 Assert.IsType<Button>(form.FindName("_vehicleRefreshButton"))
@@ -480,7 +491,7 @@ public sealed class CheatFormWpfLayoutTests
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
                 form.Show();
-                form.SelectDemoTab(3);
+                form.SelectDemoTab(5);
                 PumpDispatcher();
 
                 CheatNumericInput x = Assert.IsType<CheatNumericInput>(form.FindName("_spawnX"));

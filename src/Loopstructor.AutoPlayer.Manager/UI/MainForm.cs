@@ -55,6 +55,7 @@ internal sealed partial class MainForm : Window
     private bool _sessionTrusted;
     private bool _legacyProbeDone;
     private bool _updateAvailable;
+    private string _latestUpdateVersion = string.Empty;
     private bool _contentShown;
     private int _transportFailures;
     private string _lastStatusSignature = string.Empty;
@@ -1586,13 +1587,13 @@ internal sealed partial class MainForm : Window
         SaveSettings();
         if (_updateAvailable)
         {
-            MessageBoxResult confirmation = System.Windows.MessageBox.Show(
-                this,
-                "Updater 将等待游戏与 Manager 退出，再校验并替换工具文件。现在开始？",
-                "安装 AutoPlayer 更新",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Information);
-            if (confirmation != MessageBoxResult.OK) return;
+            UpdateConfirmationDialog confirmation = new(
+                ManagerProductInfo.Version,
+                _latestUpdateVersion)
+            {
+                Owner = this
+            };
+            if (confirmation.ShowDialog() != true) return;
             (bool success, string message) = _updates.StartApply(_settings, _session?.ProcessId);
             AppendLog(success ? "INFO" : "ERROR", message, success ? BlueBrush : DangerBrush);
             if (success)
@@ -1613,6 +1614,7 @@ internal sealed partial class MainForm : Window
         ManagerUpdateStatus result = await _updates.CheckAsync(_settings, _lifetime.Token);
         _updateButton.IsEnabled = true;
         _updateAvailable = result.Success && result.UpdateAvailable;
+        _latestUpdateVersion = _updateAvailable ? result.LatestVersion : string.Empty;
         _updateState.Text = result.UpdateAvailable
             ? $"可更新 {result.LatestVersion}"
             : result.Success ? "当前已是最新版本" : "更新检查不可用";

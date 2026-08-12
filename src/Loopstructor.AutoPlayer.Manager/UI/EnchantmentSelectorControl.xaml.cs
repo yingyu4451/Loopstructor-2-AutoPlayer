@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
@@ -65,6 +66,11 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public void CloseDetails()
+    {
+        CloseDetails(ItemsHost);
+    }
+
     private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
     {
         SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
@@ -76,6 +82,7 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
     private void Choice_OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (!IsEnabled || sender is not Border { DataContext: EnchantmentChoice choice }) return;
+        CloseDetails();
         if (e.ChangedButton == MouseButton.Left)
         {
             choice.Level = choice.Level == int.MaxValue ? int.MaxValue : choice.Level + 1;
@@ -88,6 +95,21 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         RefreshSummary();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         e.Handled = true;
+    }
+
+    private void ItemsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs eventArgs)
+    {
+        if (eventArgs.VerticalChange == 0 && eventArgs.HorizontalChange == 0) return;
+        CloseDetails();
+    }
+
+    private static void CloseDetails(DependencyObject root)
+    {
+        if (root is FrameworkElement { ToolTip: ToolTip toolTip }) toolTip.IsOpen = false;
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            CloseDetails(VisualTreeHelper.GetChild(root, index));
+        }
     }
 
     private void RefreshSummary()

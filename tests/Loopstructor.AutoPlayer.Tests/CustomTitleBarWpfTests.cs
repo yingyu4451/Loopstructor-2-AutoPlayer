@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
@@ -124,6 +125,43 @@ public sealed class CustomTitleBarWpfTests
             finally
             {
                 form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void UpdateConfirmation_UsesMechanicalModalActionsAndVersionPlaques()
+    {
+        RunSta(() =>
+        {
+            UpdateConfirmationDialog dialog = new("0.6.5", "0.6.6")
+            {
+                ShowInTaskbar = false
+            };
+            try
+            {
+                dialog.Show();
+                PumpDispatcher();
+
+                Assert.Equal(WindowStyle.None, dialog.WindowStyle);
+                Assert.False(dialog.AllowsTransparency);
+                WindowChrome chrome = Assert.IsType<WindowChrome>(WindowChrome.GetWindowChrome(dialog));
+                Assert.Equal(72d, chrome.CaptionHeight);
+                MechanicalShell shell = Assert.IsType<MechanicalShell>(dialog.Content);
+                Assert.Equal("UPDATE READY", shell.BrandText);
+                Assert.NotNull(shell.LogoSource);
+                TextBlock current = Assert.IsType<TextBlock>(dialog.FindName("CurrentVersionText"));
+                TextBlock latest = Assert.IsType<TextBlock>(dialog.FindName("LatestVersionText"));
+                Assert.Equal("v0.6.5", current.Text);
+                Assert.Equal("v0.6.6", latest.Text);
+                Button apply = Assert.IsType<Button>(dialog.FindName("ApplyButton"));
+                Button later = Assert.IsType<Button>(dialog.FindName("LaterButton"));
+                Assert.True(apply.IsDefault);
+                Assert.True(later.IsCancel);
+            }
+            finally
+            {
+                dialog.Close();
             }
         });
     }

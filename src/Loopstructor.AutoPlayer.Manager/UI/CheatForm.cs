@@ -147,6 +147,14 @@ internal sealed partial class CheatForm : Window
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
         _enchantmentSelector.SelectionChanged += (_, _) => ApplyAvailability();
         _clearEnchantmentsButton.Click += (_, _) => _enchantmentSelector.ClearSelections();
+        _tabs.SelectionChanged += (_, eventArgs) =>
+        {
+            if (!ReferenceEquals(eventArgs.OriginalSource, _tabs)) return;
+            _enchantmentSelector.CloseDetails();
+            _disposableActions.CloseDetails();
+            _catapultActions.CloseDetails();
+            _relicActions.CloseDetails();
+        };
         _disposableActions.ItemInvoked += async (_, eventArgs) =>
         {
             if (eventArgs.Button == System.Windows.Input.MouseButton.Left) await GrantDisposableAsync(eventArgs.Item);
@@ -1500,8 +1508,8 @@ internal sealed partial class CheatForm : Window
         if (ReferenceEquals(picker, _vehicleCatalog) || ReferenceEquals(picker, _vehicleEnchantmentCatalog))
         {
             catalogItems = catalogItems
-                .OrderBy(item => item.GroupOrder)
-                .ThenBy(item => item.GroupName, StringComparer.Ordinal)
+                .OrderBy(item => item.TypeOrder)
+                .ThenBy(item => item.FamilyOrder)
                 .ThenBy(item => item.ItemOrder)
                 .ThenBy(item => item.EnumName, StringComparer.Ordinal)
                 .ToList();

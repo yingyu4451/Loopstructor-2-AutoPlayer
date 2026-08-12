@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Loopstructor.AutoPlayer.Manager.UI;
 
@@ -63,6 +64,11 @@ internal sealed partial class CatalogActionGridControl : UserControl
         SearchBox.Clear();
     }
 
+    public void CloseDetails()
+    {
+        CloseDetails(ItemsHost);
+    }
+
     private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs eventArgs)
     {
         SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
@@ -75,8 +81,24 @@ internal sealed partial class CatalogActionGridControl : UserControl
     {
         if (!IsEnabled || !IsActionEnabled || sender is not Border { DataContext: CatalogActionChoice choice }) return;
         if (eventArgs.ChangedButton is not (MouseButton.Left or MouseButton.Right)) return;
+        CloseDetails();
         ItemInvoked?.Invoke(this, new CatalogActionInvokedEventArgs(choice.Item, choice.OwnedCount, eventArgs.ChangedButton));
         eventArgs.Handled = true;
+    }
+
+    private void ItemsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs eventArgs)
+    {
+        if (eventArgs.VerticalChange == 0 && eventArgs.HorizontalChange == 0) return;
+        CloseDetails();
+    }
+
+    private static void CloseDetails(DependencyObject root)
+    {
+        if (root is FrameworkElement { ToolTip: ToolTip toolTip }) toolTip.IsOpen = false;
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            CloseDetails(VisualTreeHelper.GetChild(root, index));
+        }
     }
 }
 

@@ -31,7 +31,7 @@ internal static class DemoData
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
         ProcessInstanceId = "cb866de72f7b45d4a2e35564bc19e515",
-            PluginVersion = "0.6.5",
+            PluginVersion = "0.6.6",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -309,7 +309,7 @@ internal static class DemoData
 
     private static JObject CheatCatalog() => new()
     {
-        ["catalogVersion"] = 4,
+        ["catalogVersion"] = 5,
         ["locale"] = "zh",
         ["vehicles"] = new JArray(
             CatalogItem("Shell_DoubleShell_L4", "双发重炮", "战车", 4, "Shell_DoubleShell", 0),
@@ -407,8 +407,17 @@ internal static class DemoData
             ["groupKey"] = category + ":" + (groupName ?? category),
             ["groupName"] = groupName ?? category,
             ["groupOrder"] = groupOrder,
-            ["itemOrder"] = itemOrder
+            ["itemOrder"] = itemOrder,
+            ["description"] = $"{name}的游戏原始说明（演示数据）。"
         };
+        if (string.Equals(category, "战车", StringComparison.Ordinal))
+        {
+            string type = id.Split('_')[0];
+            item["typeKey"] = type;
+            item["typeOrder"] = type switch { "Shell" => 0, "Link" => 1, "Penetrate" => 2, _ => 99 };
+            item["familyKey"] = groupName ?? id;
+            item["familyOrder"] = groupOrder;
+        }
         if (level.HasValue) item["level"] = level.Value;
         return item;
     }

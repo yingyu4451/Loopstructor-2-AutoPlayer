@@ -441,12 +441,13 @@ internal sealed class CheatRuntimeBridge
         IReadOnlyList<object> vehicles = ConfiguredVehicleValues();
         IReadOnlyList<object> enchantments = ConfiguredEnchantmentValues();
         IReadOnlyList<object> allDisposables = ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!);
-        IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
+        IReadOnlyList<object> catalogDisposables = AddConfiguredLegacyCatapultPoints(allDisposables);
+        IReadOnlyList<object> catapultPoints = catalogDisposables.Where(IsCatapultPoint).ToList();
         IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();
         IReadOnlyList<object> relics = ConfiguredRewardValues("AllSuperModuleRewards", "superModuleEnum", _superModuleType!);
         return new JObject
         {
-            ["catalogVersion"] = 4,
+            ["catalogVersion"] = 5,
             ["locale"] = "zh",
             ["vehicles"] = CatalogItems(vehicles, BuildVehicleCatalogItem),
             ["enchantments"] = CatalogItems(enchantments, BuildEnchantmentCatalogItem),
@@ -3152,6 +3153,7 @@ internal sealed class CheatRuntimeBridge
             _fetterType,
             _fetterDetailDataType?.MakeByRefType());
         RequireMember(_fetterDetailDataType, "enchantmentWordTextName");
+        RequireMember(_fetterDetailDataType, "enchantmentWordText");
         RequireMember(_fetterDetailDataType, "icon");
         RequireMember(_fetterModuleDataType, "fetterEnum");
         RequireMember(_fetterModuleDataType, "level");
@@ -3170,8 +3172,10 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_razorDescriptionType, "sprite");
         RequireMember(_disposableDataType, "name");
         RequireMember(_disposableDataType, "icon");
+        RequireMember(_disposableDataType, "description");
         RequireMember(_superModuleDataType, "name");
         RequireMember(_superModuleDataType, "icon");
+        RequireMember(_superModuleDataType, "description");
         RequireSingletonAccessor(_superModuleManagerType);
         RequireMember(_superModuleManagerType, "superModules");
         RequireMethodContract(_superModuleManagerType, "GetSuperModule", _superModuleType, typeof(bool));
@@ -3559,7 +3563,14 @@ internal sealed class CheatRuntimeBridge
         JObject item = BuildCatalogItem(value, data, "name", "sprite", "战车");
         string enumName = value.ToString() ?? string.Empty;
         string family = VehicleFamily(enumName, out int level);
-        ApplyGrouping(item, "vehicle:" + family, family, EnumGroupOrder(_vehicleType!, family), level);
+        string type = VehicleTypeFamily(enumName);
+        int typeOrder = VehicleTypeOrder(_vehicleType!, type);
+        int familyOrder = EnumGroupOrder(_vehicleType!, family);
+        ApplyGrouping(item, "vehicle:" + family, family, familyOrder, level);
+        item["typeKey"] = type;
+        item["typeOrder"] = typeOrder;
+        item["familyKey"] = family;
+        item["familyOrder"] = familyOrder;
         item["level"] = level;
         return item;
     }
@@ -3572,6 +3583,7 @@ internal sealed class CheatRuntimeBridge
         string family = enumName.Split(new[] { '_' }, 2)[0];
         int variantOrder = enumName.IndexOf('_') < 0 ? 0 : EnchantmentVariantOrder(enumName);
         ApplyGrouping(item, "enchantment:" + family, family, EnumGroupOrder(_fetterType!, family), variantOrder);
+        item["description"] = ResolveCatalogDescription(data, "enchantmentWordText");
         return item;
     }
 
@@ -3596,19 +3608,25 @@ internal sealed class CheatRuntimeBridge
     private JObject BuildDisposableCatalogItem(object value)
     {
         TryGetDisposableData(value, out object? data);
-        return BuildCatalogItem(value, data, "name", "icon", "消耗品");
+        JObject item = BuildCatalogItem(value, data, "name", "icon", "消耗品");
+        item["description"] = ResolveCatalogDescription(data, "description");
+        return item;
     }
 
     private JObject BuildCatapultPointCatalogItem(object value)
     {
         TryGetDisposableData(value, out object? data);
-        return BuildCatalogItem(value, data, "name", "icon", "弹射点");
+        JObject item = BuildCatalogItem(value, data, "name", "icon", "弹射点");
+        item["description"] = ResolveCatalogDescription(data, "description");
+        return item;
     }
 
     private JObject BuildRelicCatalogItem(object value)
     {
         object? data = InvokeInfoManager("GetSuperModuleData", _superModuleType!, value);
-        return BuildCatalogItem(value, data, "name", "icon", "遗物");
+        JObject item = BuildCatalogItem(value, data, "name", "icon", "遗物");
+        item["description"] = ResolveCatalogDescription(data, "description");
+        return item;
     }
 
     private JObject BuildEnemyCatalogItem(object value)
@@ -3686,6 +3704,21 @@ internal sealed class CheatRuntimeBridge
         return (behaviour?.GetType().Name ?? string.Empty).StartsWith("CreateFreeStation", StringComparison.Ordinal);
     }
 
+    private IReadOnlyList<object> AddConfiguredLegacyCatapultPoints(IReadOnlyList<object> values)
+    {
+        List<object> result = new(values);
+        foreach (string id in new[] { "FreePoint", "FreePoint_Attribute" })
+        {
+            object value;
+            try { value = ParseEnum(_disposableType!, id, "弹射点类型"); }
+            catch { continue; }
+            if (!TryGetDisposableData(value, out _) || result.Any(existing => Equals(existing, value))) continue;
+            result.Add(value);
+        }
+
+        return DistinctEnumValues(result);
+    }
+
     private object? TryGetDisposableTemplate(object value)
     {
         object? manager = TryGetSingleton(_disposableManagerType!);
@@ -3723,6 +3756,34 @@ internal sealed class CheatRuntimeBridge
             return enumName.Substring(0, marker);
         }
         return enumName;
+    }
+
+    private static string VehicleTypeFamily(string enumName)
+    {
+        int separator = enumName.IndexOf('_');
+        return separator > 0 ? enumName.Substring(0, separator) : enumName;
+    }
+
+    private static int VehicleTypeOrder(Type? enumType, string type)
+    {
+        if (enumType == null) return int.MaxValue;
+        int order = 0;
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (object value in Enum.GetValues(enumType).Cast<object>()
+                     .OrderBy(value => Convert.ToInt64(value, CultureInfo.InvariantCulture)))
+        {
+            string family = VehicleTypeFamily(value.ToString() ?? string.Empty);
+            if (!seen.Add(family)) continue;
+            if (string.Equals(family, type, StringComparison.Ordinal)) return order;
+            order++;
+        }
+        return int.MaxValue;
+    }
+
+    private string ResolveCatalogDescription(object? data, string memberName)
+    {
+        string description = ResolveChineseLocalizedString(GetMember(data, memberName));
+        return string.IsNullOrWhiteSpace(description) ? "游戏未提供描述" : description;
     }
 
     private static int EnchantmentVariantOrder(string enumName)

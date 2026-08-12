@@ -54,7 +54,9 @@
                 Background="{StaticResource ScreenBrush}"
                 BorderBrush="{StaticResource BronzeBrush}"
                 BorderThickness="1">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          ScrollChanged="ItemsScrollViewer_OnScrollChanged">
                 <ItemsControl x:Name="ItemsHost" Margin="8">
                     <ItemsControl.GroupStyle>
                         <GroupStyle>
@@ -75,8 +77,8 @@
                     </ItemsControl.GroupStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:EnchantmentChoice}">
-                            <Border Width="132"
-                                    Height="76"
+                            <Border Width="140"
+                                    Height="78"
                                     Margin="3"
                                     Padding="6"
                                     Background="#211D19"
@@ -85,7 +87,14 @@
                                     CornerRadius="2"
                                     Focusable="True"
                                     AutomationProperties.Name="{Binding AutomationName}"
+                                    ToolTipService.InitialShowDelay="1000"
+                                    ToolTipService.ShowDuration="30000"
                                     PreviewMouseDown="Choice_OnPreviewMouseDown">
+                                <Border.ToolTip>
+                                    <ToolTip DataContext="{Binding PlacementTarget.DataContext.Item, RelativeSource={RelativeSource Self}}">
+                                        <local:CatalogDetailToolTip />
+                                    </ToolTip>
+                                </Border.ToolTip>
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Cursor" Value="Hand" />
@@ -103,10 +112,10 @@
                                 </Border.Style>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="46" />
+                                        <ColumnDefinition Width="50" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="40" Height="40" Background="#171513" BorderBrush="#5B3B24" BorderThickness="1">
+                                    <Border Width="42" Height="42" VerticalAlignment="Center" Background="#171513" BorderBrush="#5B3B24" BorderThickness="1">
                                         <Grid>
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
                                             <Image Margin="2" Source="{Binding Item.Icon}" Stretch="Uniform" />
@@ -123,8 +132,8 @@
                                             Visibility="{Binding BadgeVisibility}">
                                         <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="11" FontWeight="Bold" Foreground="White" Text="{Binding Level}" />
                                     </Border>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock FontWeight="Bold" LineHeight="18" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Grid>

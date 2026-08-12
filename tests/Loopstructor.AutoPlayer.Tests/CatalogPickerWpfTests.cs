@@ -1,10 +1,13 @@
 using System.Runtime.ExceptionServices;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Manager.UI;
+using Loopstructor.AutoPlayer.Core;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -187,6 +190,56 @@ public sealed class CatalogPickerWpfTests
             Assert.True(search.IsInactiveSelectionHighlightEnabled);
         });
     }
+
+    [Fact]
+    public void VehicleOrdering_UsesTypeThenFamilyThenAscendingLevel()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((_, _) => Task.FromResult<ControlResponse?>(null));
+            try
+            {
+                JArray items = new(
+                    Vehicle("Link_ForkLightning_L2", "Link", 1, "Link_ForkLightning", 20, 2),
+                    Vehicle("Shell_DoubleShell_L3", "Shell", 0, "Shell_DoubleShell", 10, 3),
+                    Vehicle("Link_ElectricFork_L1", "Link", 1, "Link_ElectricFork", 15, 1),
+                    Vehicle("Shell_DoubleShell_L1", "Shell", 0, "Shell_DoubleShell", 10, 1),
+                    Vehicle("Link_ForkLightning_L1", "Link", 1, "Link_ForkLightning", 20, 1));
+                MethodInfo create = typeof(CheatForm).GetMethod("CreateCatalogItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                List<CatalogPickerItem> sorted = ((List<CatalogPickerItem>)create.Invoke(form, new object?[] { items })!)
+                    .OrderBy(item => item.TypeOrder)
+                    .ThenBy(item => item.FamilyOrder)
+                    .ThenBy(item => item.ItemOrder)
+                    .ThenBy(item => item.EnumName, StringComparer.Ordinal)
+                    .ToList();
+                CatalogPickerControl picker = new();
+                picker.SetItems(sorted);
+
+                IEnumerable<CatalogPickerItem> allItems = (IEnumerable<CatalogPickerItem>)typeof(CatalogPickerControl)
+                    .GetField("_allItems", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(picker)!;
+                Assert.Equal(
+                    new[] { "Shell_DoubleShell_L1", "Shell_DoubleShell_L3", "Link_ElectricFork_L1", "Link_ForkLightning_L1", "Link_ForkLightning_L2" },
+                    allItems.Select(item => item.EnumName));
+            }
+            finally { form.Close(); }
+        });
+    }
+
+    private static JObject Vehicle(string id, string type, int typeOrder, string family, int familyOrder, int level) => new()
+    {
+        ["id"] = id,
+        ["enumName"] = id,
+        ["name"] = id,
+        ["typeKey"] = type,
+        ["typeOrder"] = typeOrder,
+        ["familyKey"] = family,
+        ["familyOrder"] = familyOrder,
+        ["groupKey"] = family,
+        ["groupName"] = family,
+        ["groupOrder"] = familyOrder,
+        ["itemOrder"] = level,
+        ["level"] = level
+    };
 
     private static void RunSta(Action action)
     {

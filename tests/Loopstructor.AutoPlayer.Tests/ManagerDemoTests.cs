@@ -137,6 +137,19 @@ public sealed class ManagerDemoTests
     }
 
     [Fact]
+    public void Parse_DemoCheatWindow_AllowsSixthTab()
+    {
+        ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[]
+        {
+            "--demo-cheat-window",
+            "--demo-cheat-tab",
+            "5"
+        });
+
+        Assert.Equal(5, options.DemoCheatTab);
+    }
+
+    [Fact]
     public void Parse_WindowSize_AllowsCheatMinimumWidth()
     {
         ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[]

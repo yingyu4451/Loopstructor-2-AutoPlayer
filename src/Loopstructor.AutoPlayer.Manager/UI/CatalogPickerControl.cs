@@ -348,6 +348,11 @@ internal sealed class CatalogPickerItem
         GroupName = ReadText(payload, "groupName", GroupKey);
         GroupOrder = ReadInt(payload, "groupOrder", int.MaxValue);
         ItemOrder = ReadInt(payload, "itemOrder", int.MaxValue);
+        TypeKey = ReadText(payload, "typeKey", GroupKey);
+        TypeOrder = ReadInt(payload, "typeOrder", GroupOrder);
+        FamilyKey = ReadText(payload, "familyKey", GroupKey);
+        FamilyOrder = ReadInt(payload, "familyOrder", GroupOrder);
+        Description = ReadText(payload, "description", "游戏未提供描述");
     }
 
     public string Id { get; }
@@ -373,6 +378,16 @@ internal sealed class CatalogPickerItem
     public int GroupOrder { get; }
 
     public int ItemOrder { get; }
+
+    public string TypeKey { get; }
+
+    public int TypeOrder { get; }
+
+    public string FamilyKey { get; }
+
+    public int FamilyOrder { get; }
+
+    public string Description { get; }
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Name)
         ? Name

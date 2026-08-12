@@ -35,7 +35,7 @@ public sealed class ManagerLaunchOptions
                     result.DemoCheatWindow = true;
                     break;
                 case "--demo-cheat-tab" when index + 1 < args.Length:
-                    if (int.TryParse(args[++index], out int tabIndex) && tabIndex is >= 0 and <= 3)
+                    if (int.TryParse(args[++index], out int tabIndex) && tabIndex is >= 0 and <= 5)
                     {
                         result.DemoCheatTab = tabIndex;
                     }

@@ -10,7 +10,7 @@ public sealed class CheatResourceRefactorContractTests
     private const string DisplayPatchType = "Loopstructor.AutoPlayer.Plugin.VehicleEnchantmentDisplayPatch";
 
     [Fact]
-    public void CatalogV4_GroupsVehiclesAndEnchantments_AndPartitionsOneDisposablePool()
+    public void CatalogV5_GroupsVehiclesAndEnchantments_AndPartitionsOneDisposablePool()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -18,17 +18,28 @@ public sealed class CheatResourceRefactorContractTests
         MethodDefinition vehicle = RequireMethod(bridge, "BuildVehicleCatalogItem");
         MethodDefinition enchantment = RequireMethod(bridge, "BuildEnchantmentCatalogItem");
 
-        Assert.Contains(4, LoadedInts(catalog));
+        Assert.Contains(5, LoadedInts(catalog));
         Assert.Contains("AllDisposableRewards", LoadedStrings(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "IsCatapultPoint"));
+        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AddConfiguredLegacyCatapultPoints"));
         Assert.Contains(Calls(vehicle), IsCall(BridgeType, "VehicleFamily"));
-        Assert.Contains(Calls(vehicle), IsCall(BridgeType, "EnumGroupOrder"));
+        Assert.Contains(Calls(vehicle), IsCall(BridgeType, "VehicleTypeOrder"));
         Assert.DoesNotContain(Calls(vehicle), IsCall(BridgeType, "VehicleFamilyOrder"));
         Assert.Contains(Calls(enchantment), IsCall(BridgeType, "EnchantmentVariantOrder"));
         foreach (string field in new[] { "groupKey", "groupName", "groupOrder", "itemOrder" })
         {
             Assert.Contains(field, LoadedStrings(RequireMethod(bridge, "ApplyGrouping")));
         }
+        foreach (string field in new[] { "typeKey", "typeOrder", "familyKey", "familyOrder" })
+        {
+            Assert.Contains(field, LoadedStrings(vehicle));
+        }
+
+        Assert.Contains("FreePoint", LoadedStrings(RequireMethod(bridge, "AddConfiguredLegacyCatapultPoints")));
+        Assert.Contains("FreePoint_Attribute", LoadedStrings(RequireMethod(bridge, "AddConfiguredLegacyCatapultPoints")));
+        Assert.Contains("description", LoadedStrings(enchantment));
+        Assert.Contains("description", LoadedStrings(RequireMethod(bridge, "BuildDisposableCatalogItem")));
+        Assert.Contains("description", LoadedStrings(RequireMethod(bridge, "BuildRelicCatalogItem")));
     }
 
     [Fact]

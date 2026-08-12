@@ -94,7 +94,43 @@ public sealed class CatalogActionGridWpfTests
         });
     }
 
-    private static CatalogPickerItem Item(string id, string name, int itemOrder) =>
+    [Fact]
+    public void CatalogTile_UsesOneSecondOriginalGameDetailCard()
+    {
+        RunSta(() =>
+        {
+            CatalogActionGridControl grid = new();
+            CatalogPickerItem item = Item("Relic_Detail", "详情遗物", 0, "游戏配置的原始说明。");
+            grid.SetItems(new[] { item });
+            Window window = Host(grid);
+            try
+            {
+                window.Show();
+                PumpDispatcher();
+                ItemsControl host = Assert.IsType<ItemsControl>(grid.FindName("ItemsHost"));
+                CatalogActionChoice choice = Assert.IsType<CatalogActionChoice>(Assert.Single(host.Items));
+                Border tile = FindVisualChild<Border>(
+                    host.ItemContainerGenerator.ContainerFromItem(choice),
+                    border => ReferenceEquals(border.DataContext, choice));
+                Assert.Equal(1000, ToolTipService.GetInitialShowDelay(tile));
+                ToolTip toolTip = Assert.IsType<ToolTip>(tile.ToolTip);
+                CatalogDetailToolTip card = Assert.IsType<CatalogDetailToolTip>(toolTip.Content);
+                toolTip.PlacementTarget = tile;
+                toolTip.IsOpen = true;
+                PumpDispatcher();
+                Assert.Same(item, toolTip.DataContext);
+                Assert.Equal("游戏配置的原始说明。", item.Description);
+                Assert.Same(item, card.DataContext);
+                toolTip.IsOpen = false;
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    private static CatalogPickerItem Item(string id, string name, int itemOrder, string description = "游戏未提供描述") =>
         new(
             id,
             name,
@@ -106,7 +142,8 @@ public sealed class CatalogActionGridWpfTests
                 ["groupKey"] = "relic",
                 ["groupName"] = "遗物",
                 ["groupOrder"] = 0,
-                ["itemOrder"] = itemOrder
+                ["itemOrder"] = itemOrder,
+                ["description"] = description
             },
             id);
 

@@ -7,7 +7,7 @@
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
-    <VersionPrefix>0.6.5</VersionPrefix>
+    <VersionPrefix>0.6.6</VersionPrefix>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>PoneGames QA</Authors>
     <RepositoryType>git</RepositoryType>
