@@ -996,6 +996,10 @@ internal sealed partial class MainForm : Window
         }
 
         _cheatForm.UpdateSession(_sessionTrusted, _hello, _status);
+        if (_launchOptions.DemoCheatWindow && _launchOptions.ScreenshotMode)
+        {
+            _ = _cheatForm.LoadDemoCatalogAsync();
+        }
         if (!_cheatForm.IsVisible)
         {
             _cheatForm.Show();

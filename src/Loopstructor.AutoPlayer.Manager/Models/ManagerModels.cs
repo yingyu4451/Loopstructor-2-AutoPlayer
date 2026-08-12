@@ -56,7 +56,7 @@ public sealed class ManagerLaunchOptions
                     if (dimensions.Length == 2
                         && int.TryParse(dimensions[0], out int width)
                         && int.TryParse(dimensions[1], out int height)
-                        && width is >= 1100 and <= 2560
+                        && width is >= 980 and <= 2560
                         && height is >= 680 and <= 1600)
                     {
                         result.WindowSize = new Size(width, height);

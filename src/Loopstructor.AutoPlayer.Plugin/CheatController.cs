@@ -70,6 +70,7 @@ internal sealed class CheatController : IDisposable
         {
             _sceneHandle = currentSceneHandle;
             _runtime.CancelGrantAllRelics("游戏场景已切换，一键获取所有遗物任务已取消。");
+            _runtime.CancelRemoveAllRelics("游戏场景已切换，删除所有遗物任务已取消。");
             ResetTransientFeatures();
             _log.LogInfo("作弊工具已在场景切换后关闭基地无敌、敌人信息显示、位置捕获与地图跳关。");
         }
@@ -79,10 +80,13 @@ internal sealed class CheatController : IDisposable
             if (_autoPlay.IsAutoPlayActive)
             {
                 _runtime.CancelGrantAllRelics("自动游玩已开始，一键获取所有遗物任务已取消。");
+                _runtime.CancelRemoveAllRelics("自动游玩已开始，删除所有遗物任务已取消。");
+                _runtime.SetFieldCatapultDeleteMode(false);
             }
             else
             {
                 _runtime.TickGrantAllRelics();
+                _runtime.TickRemoveAllRelics();
             }
 
             MapSkipPatch.Tick();
@@ -180,10 +184,13 @@ internal sealed class CheatController : IDisposable
             "cheat.grantvehicle" => _runtime.GrantVehicle(arguments),
             "cheat.removevehicle" => _runtime.RemoveVehicle(arguments),
             "cheat.grantdisposable" => _runtime.GrantDisposable(arguments),
+            "cheat.clearconsumables" => _runtime.ClearConsumables(),
             "cheat.grantcatapultpoint" => _runtime.GrantCatapultPoint(arguments),
             "cheat.removecatapultpoint" => _runtime.RemoveCatapultPoint(arguments),
+            "cheat.clearbackpackcatapultpoints" => _runtime.ClearBackpackCatapultPoints(),
             "cheat.removefieldcatapultpoint" => _runtime.RemoveFieldCatapultPoint(arguments),
             "cheat.clearfieldcatapultpoints" => _runtime.ClearFieldCatapultPoints(),
+            "cheat.setfieldcatapultdeletemode" => _runtime.SetFieldCatapultDeleteMode(arguments.Value<bool?>("enabled") == true),
             "cheat.setbasegodmode" => SetBaseGodMode(arguments),
             "cheat.endwave" => _runtime.EndWave(),
             "cheat.clearenemies" => _runtime.ClearEnemies(),
@@ -197,6 +204,7 @@ internal sealed class CheatController : IDisposable
             "cheat.grantrelic" => _runtime.GrantRelic(arguments),
             "cheat.grantallrelics" => _runtime.StartGrantAllRelics(),
             "cheat.removerelic" => _runtime.RemoveRelic(arguments),
+            "cheat.removeallrelics" => _runtime.StartRemoveAllRelics(),
             "cheat.spawnenemy" => _runtime.SpawnEnemy(arguments),
             "cheat.setspawnpointcapture" => _runtime.SetSpawnPointCapture(arguments),
             "cheat.removespawnpoint" => _runtime.RemoveSpawnPoint(arguments),
@@ -235,9 +243,11 @@ internal sealed class CheatController : IDisposable
         }
 
         Enabled = enabled;
+        VehicleEnchantmentDisplayPatch.SetEnabled(enabled);
         if (!enabled)
         {
             _runtime.CancelGrantAllRelics("作弊模式已关闭，一键获取所有遗物任务已取消。");
+            _runtime.CancelRemoveAllRelics("作弊模式已关闭，删除所有遗物任务已取消。");
             ResetTransientFeatures();
         }
 
@@ -248,6 +258,7 @@ internal sealed class CheatController : IDisposable
     private void DisableAndReset(string? logMessage)
     {
         _runtime.CancelGrantAllRelics("作弊控制已中断，一键获取所有遗物任务已取消。");
+        _runtime.CancelRemoveAllRelics("作弊控制已中断，删除所有遗物任务已取消。");
         ResetTransientFeatures();
         Enabled = false;
         _autoPlay.TrySetCheatMode(false, out _);
@@ -257,6 +268,7 @@ internal sealed class CheatController : IDisposable
     private void ResetTransientFeatures()
     {
         ResetStep("运行时作弊效果", _runtime.ResetTransientFeatures);
+        ResetStep("战车附魔图标布局", VehicleEnchantmentDisplayPatch.Reset);
         ResetStep("地图跳关", MapSkipPatch.Reset);
         ResetStep("敌人 ID 显示", () => _autoPlay.SetEnemyIdsVisible(false));
         ResetStep("敌人 Buff 显示", () => _autoPlay.SetEnemyBuffsVisible(false));
@@ -342,6 +354,7 @@ internal sealed class CheatController : IDisposable
             ["baseGodMode"] = _runtime.BaseGodModeRequested,
             ["mapSkipEnabled"] = MapSkipPatch.Enabled,
             ["spawnPointCapture"] = _runtime.SpawnPointCaptureData(),
+            ["fieldCatapultDeleteMode"] = _runtime.FieldCatapultDeleteMode,
             ["protocolVersion"] = Protocol.CheatCurrentVersion,
             ["availabilityReason"] = BuildAvailabilityReason(),
             ["capabilities"] = JArray.FromObject(_runtime.Capabilities),
@@ -360,6 +373,18 @@ internal sealed class CheatController : IDisposable
                 ["remainingCount"] = 0,
                 ["failedRelics"] = new JArray(),
                 ["message"] = "尚未启动一键获取所有遗物任务。"
+            },
+            ["removeAllRelics"] = new JObject
+            {
+                ["state"] = "idle",
+                ["totalCount"] = 0,
+                ["processedCount"] = 0,
+                ["removedTypes"] = 0,
+                ["removedInstances"] = 0,
+                ["failedCount"] = 0,
+                ["remainingCount"] = 0,
+                ["failedRelics"] = new JArray(),
+                ["message"] = "尚未启动删除所有遗物任务。"
             }
         };
         if (!IsAvailable) return state;

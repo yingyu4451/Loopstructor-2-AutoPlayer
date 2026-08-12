@@ -78,7 +78,7 @@ public sealed class CheatFormWpfLayoutTests
                 PumpDispatcher();
 
                 AssertTabFits(form, 0);
-                AssertTopAligned(form, "_enchantmentCatalog", "_enchantmentLevel", "_addEnchantmentButton");
+                AssertMinimumWidth(form, 420, "_enchantmentSelector");
                 AssertMinimumWidth(form, 160, "_grantAllRelicsButton");
 
                 AssertTabFits(form, 1);
@@ -242,9 +242,73 @@ public sealed class CheatFormWpfLayoutTests
 
                 Assert.False(Assert.IsType<Button>(form.FindName("_grantVehicleButton")).IsEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_grantAllRelicsButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_removeAllRelicsButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_clearConsumablesButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_clearBackpackCatapultsButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_clearFieldCatapultsButton")).IsEnabled);
+                Assert.False(Assert.IsType<CheckBox>(form.FindName("_fieldCatapultDeleteModeCheck")).IsEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearEnemiesButton")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_baseGodModeCheck")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_mapSkipCheck")).IsEnabled);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ResourceBulkDeletes_ExecuteImmediatelyOnce_AndFieldDeleteLivesOnlyOnResourcePage()
+    {
+        RunSta(() =>
+        {
+            List<(string Command, JObject? Payload)> calls = new();
+            CheatForm form = new((command, payload) =>
+            {
+                calls.Add((command, payload?.DeepClone() as JObject));
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.SelectDemoTab(0);
+                PumpDispatcher();
+
+                Assert.Null(form.FindName("_fieldCatapultGrid"));
+                Assert.Null(form.FindName("_removeFieldCatapultButton"));
+
+                Assert.IsType<Button>(form.FindName("_clearConsumablesButton"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.IsType<Button>(form.FindName("_clearBackpackCatapultsButton"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.IsType<Button>(form.FindName("_clearFieldCatapultsButton"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.IsType<Button>(form.FindName("_removeAllRelicsButton"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                CheckBox deleteMode = Assert.IsType<CheckBox>(form.FindName("_fieldCatapultDeleteModeCheck"));
+                deleteMode.IsChecked = true;
+                deleteMode.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                PumpDispatcher();
+
+                Assert.Single(calls, call => call.Command == CheatCommands.ClearConsumables);
+                Assert.Single(calls, call => call.Command == CheatCommands.ClearBackpackCatapultPoints);
+                Assert.Single(calls, call => call.Command == CheatCommands.ClearFieldCatapultPoints);
+                Assert.Single(calls, call => call.Command == CheatCommands.RemoveAllRelics);
+                JObject modePayload = Assert.Single(
+                    calls,
+                    call => call.Command == CheatCommands.SetFieldCatapultDeleteMode).Payload!;
+                Assert.True(modePayload.Value<bool>("enabled"));
+                Assert.True(deleteMode.IsChecked);
             }
             finally
             {

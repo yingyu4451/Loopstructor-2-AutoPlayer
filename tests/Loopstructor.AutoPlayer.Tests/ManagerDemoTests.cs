@@ -137,6 +137,19 @@ public sealed class ManagerDemoTests
     }
 
     [Fact]
+    public void Parse_WindowSize_AllowsCheatMinimumWidth()
+    {
+        ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[]
+        {
+            "--demo-cheat-window",
+            "--window-size",
+            "980x680"
+        });
+
+        Assert.Equal(new Size(980, 680), options.WindowSize);
+    }
+
+    [Fact]
     public void CheatDemo_ExposesAuthorizedEnabledSession()
     {
         BridgeHello hello = DemoData.CheatHello();

@@ -159,6 +159,10 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
         {
             _logger.LogWarning("怪物生成位置捕获未能接入游戏输入流水线；该功能将保持不可用。");
         }
+        if (baseContractAccepted && !VehicleEnchantmentDisplayPatch.Install(_harmony, _logger.LogInfo))
+        {
+            _logger.LogWarning("战车附魔图标布局增强不可用；游戏将保留原始图标数量限制。");
+        }
 
         _controlServer = new PipeControlServer(_controller, _cheatController, _activation);
         _statusPath = Path.Combine(_activation.ArtifactRoot, "status.json");
@@ -348,6 +352,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
             CleanupStep("释放作弊控制器", () => _cheatController?.Dispose());
             _cheatController = null;
             CleanupStep("移除怪物生成点输入补丁", SpawnPointCaptureInputPatch.Detach);
+            CleanupStep("恢复战车附魔图标布局", VehicleEnchantmentDisplayPatch.Reset);
             CleanupStep("重置地图跳关补丁", MapSkipPatch.Reset);
             if (!_activation.IsPlayerMode) CleanupStep("写入最终自动游玩状态", () => WriteStatus(force: true));
             _controller = null;

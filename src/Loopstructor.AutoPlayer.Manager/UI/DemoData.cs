@@ -31,7 +31,7 @@ internal static class DemoData
         ProtocolVersion = Protocol.CurrentVersion,
         GameProcessId = 18420,
         ProcessInstanceId = "cb866de72f7b45d4a2e35564bc19e515",
-        PluginVersion = "0.6.3",
+        PluginVersion = "0.6.4",
         GameVersion = "1.237",
         UnityVersion = "2022.3.62f3c1",
         BuildGuid = "649c0d22d9f344e3909fe5f620040de4",
@@ -162,6 +162,16 @@ internal static class DemoData
                 ["failedRelics"] = new JArray(),
                 ["message"] = "未开始"
             },
+            ["removeAllRelics"] = new JObject
+            {
+                ["state"] = "idle",
+                ["totalCount"] = 0,
+                ["processedCount"] = 0,
+                ["removedCount"] = 0,
+                ["failedCount"] = 0,
+                ["message"] = "未开始"
+            },
+            ["fieldCatapultDeleteMode"] = false,
             ["ownedRelics"] = new JArray(
                 new JObject
                 {
@@ -260,6 +270,26 @@ internal static class DemoData
             return Success("已补齐全部演示遗物。", state, status);
         }
 
+        if (string.Equals(command, CheatCommands.RemoveAllRelics, StringComparison.OrdinalIgnoreCase))
+        {
+            state["ownedRelics"] = new JArray();
+            state["removeAllRelics"] = new JObject
+            {
+                ["state"] = "completed",
+                ["totalCount"] = 3,
+                ["processedCount"] = 3,
+                ["removedCount"] = 3,
+                ["failedCount"] = 0,
+                ["message"] = "已删除全部演示遗物"
+            };
+            return Success("已删除全部演示遗物。", state, status);
+        }
+
+        if (string.Equals(command, CheatCommands.SetFieldCatapultDeleteMode, StringComparison.OrdinalIgnoreCase))
+        {
+            state["fieldCatapultDeleteMode"] = arguments?.Value<bool?>("enabled") == true;
+        }
+
         return Success(
             string.Equals(command, CheatCommands.QueryState, StringComparison.OrdinalIgnoreCase)
                 ? "演示作弊状态已读取。"
@@ -279,20 +309,20 @@ internal static class DemoData
 
     private static JObject CheatCatalog() => new()
     {
-        ["catalogVersion"] = 2,
+        ["catalogVersion"] = 4,
         ["locale"] = "zh",
         ["vehicles"] = new JArray(
-            CatalogItem("Link_ElectricFork_L1", "雷叉", "战车", 1),
-            CatalogItem("Link_ElectricFork_L2", "雷叉", "战车", 2),
-            CatalogItem("Link_ElectricFork_L3", "雷叉", "战车", 3),
-            CatalogItem("Shell_DoubleShell_L4", "双发重炮", "战车", 4),
-            CatalogItem("Penetrate_WindPiercer_L2", "风矢", "战车", 2)),
+            CatalogItem("Link_ElectricFork_L1", "雷叉", "战车", 1, "Link_ElectricFork", 10),
+            CatalogItem("Link_ElectricFork_L2", "雷叉", "战车", 2, "Link_ElectricFork", 10),
+            CatalogItem("Link_ElectricFork_L3", "雷叉", "战车", 3, "Link_ElectricFork", 10),
+            CatalogItem("Shell_DoubleShell_L4", "双发重炮", "战车", 4, "Shell_DoubleShell", 20),
+            CatalogItem("Penetrate_WindPiercer_L2", "风矢", "战车", 2, "Penetrate_WindPiercer", 30)),
         ["enchantments"] = new JArray(
-            CatalogItem("Poison", "中毒", "附魔"),
-            CatalogItem("Energy", "能量", "附魔"),
-            CatalogItem("Slow", "减速", "附魔"),
-            CatalogItem("Tornado", "龙卷风", "附魔"),
-            CatalogItem("Tornado_Domain", "龙卷风场域", "附魔")),
+            CatalogItem("Poison", "中毒", "附魔", null, "Poison", 10, 0),
+            CatalogItem("Energy", "能量", "附魔", null, "Energy", 20, 0),
+            CatalogItem("Slow", "减速", "附魔", null, "Slow", 30, 0),
+            CatalogItem("Tornado", "龙卷风", "附魔", null, "Tornado", 40, 0),
+            CatalogItem("Tornado_Domain", "龙卷风场域", "附魔", null, "Tornado", 40, 3)),
         ["disposables"] = new JArray(
             CatalogItem("基地守护", "基地守护", "消耗品"),
             CatalogItem("极度冷冻", "极度冷冻", "消耗品"),
@@ -313,8 +343,6 @@ internal static class DemoData
         ["limits"] = new JObject
         {
             ["maxGrantCount"] = 99,
-            ["maxEnchantmentLevel"] = 9,
-            ["maxEnchantmentsPerVehicle"] = 5,
             ["maxEnemyLevel"] = 200,
             ["maxSpawnCount"] = 100,
             ["maxSpawnRadius"] = 50,
@@ -360,14 +388,26 @@ internal static class DemoData
             })
     };
 
-    private static JObject CatalogItem(string id, string name, string category, int? level = null)
+    private static JObject CatalogItem(
+        string id,
+        string name,
+        string category,
+        int? level = null,
+        string? groupName = null,
+        int groupOrder = 0,
+        int itemOrder = 0)
     {
         JObject item = new()
         {
             ["id"] = id,
             ["name"] = name,
             ["fallbackName"] = id,
-            ["tags"] = new JArray(category, id, name)
+            ["enumName"] = id,
+            ["tags"] = new JArray(category, id, name),
+            ["groupKey"] = category + ":" + (groupName ?? category),
+            ["groupName"] = groupName ?? category,
+            ["groupOrder"] = groupOrder,
+            ["itemOrder"] = itemOrder
         };
         if (level.HasValue) item["level"] = level.Value;
         return item;

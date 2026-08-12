@@ -342,6 +342,10 @@ internal sealed class CatalogPickerItem
         Tags = tags;
         Payload = payload;
         LevelLabel = ResolveLevelLabel(payload, id);
+        GroupKey = ReadText(payload, "groupKey", id);
+        GroupName = ReadText(payload, "groupName", GroupKey);
+        GroupOrder = ReadInt(payload, "groupOrder", int.MaxValue);
+        ItemOrder = ReadInt(payload, "itemOrder", int.MaxValue);
     }
 
     public string Id { get; }
@@ -359,6 +363,14 @@ internal sealed class CatalogPickerItem
     public object? Payload { get; }
 
     public string LevelLabel { get; }
+
+    public string GroupKey { get; }
+
+    public string GroupName { get; }
+
+    public int GroupOrder { get; }
+
+    public int ItemOrder { get; }
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Name)
         ? Name
@@ -398,6 +410,8 @@ internal sealed class CatalogPickerItem
         yield return FallbackName;
         yield return EnumName;
         yield return LevelLabel;
+        yield return GroupKey;
+        yield return GroupName;
         foreach (string tag in Tags) yield return tag;
     }
 
@@ -445,4 +459,16 @@ internal sealed class CatalogPickerItem
         level = Decimal.ToInt32(numeric);
         return true;
     }
+
+    private static string ReadText(object? payload, string name, string fallback) => payload switch
+    {
+        JObject json => json.Value<string>(name) ?? fallback,
+        _ => fallback
+    };
+
+    private static int ReadInt(object? payload, string name, int fallback) => payload switch
+    {
+        JObject json => json.Value<int?>(name) ?? fallback,
+        _ => fallback
+    };
 }

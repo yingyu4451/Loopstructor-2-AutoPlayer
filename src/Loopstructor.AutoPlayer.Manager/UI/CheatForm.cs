@@ -36,10 +36,8 @@ internal sealed partial class CheatForm : Window
     private readonly HashSet<string> _activeCatalogIconKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _capturePollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly DispatcherTimer _grantAllRelicsPollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
-    private readonly ObservableCollection<CheatEnchantmentSelection> _enchantmentSelections = new();
     private readonly ObservableCollection<CheatVehicleRow> _vehicleRows = new();
     private readonly ObservableCollection<CheatEnemyRow> _enemyRows = new();
-    private readonly ObservableCollection<CheatFieldCatapultRow> _fieldCatapultRows = new();
     private readonly ObservableCollection<CheatSpawnPointRow> _spawnPointRows = new();
 
     private bool _trusted;
@@ -59,7 +57,7 @@ internal sealed partial class CheatForm : Window
     private long _captureEpoch;
     private string _spawnCaptureState = "idle";
     private string _grantAllRelicsState = "idle";
-    private int _maxEnchantmentsPerVehicle = 5;
+    private string _removeAllRelicsState = "idle";
     private int? _lastResolvedEnemyLevel;
     private string _lastResolvedLevelSource = string.Empty;
 
@@ -71,10 +69,8 @@ internal sealed partial class CheatForm : Window
         Title = $"Loopstructor 2.AutoPlayer 作弊工具 - v{ManagerProductInfo.Version}";
         Shell.Subtitle = "CHEAT CONTROL CONSOLE";
         _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v-   /   作弊协议 v{Protocol.CheatCurrentVersion}";
-        _enchantmentGrid.ItemsSource = _enchantmentSelections;
         _vehicleGrid.ItemsSource = _vehicleRows;
         _enemyGrid.ItemsSource = _enemyRows;
-        _fieldCatapultGrid.ItemsSource = _fieldCatapultRows;
         _spawnPointGrid.ItemsSource = _spawnPointRows;
 
         WireEvents();
@@ -142,21 +138,27 @@ internal sealed partial class CheatForm : Window
         if (index >= 0 && index < _tabs.Items.Count) _tabs.SelectedIndex = index;
     }
 
+    internal Task LoadDemoCatalogAsync() => RefreshCatalogAsync(announce: false);
+
     private void WireEvents()
     {
         _enableCheck.Click += async (_, _) => await EnableCheckChangedAsync();
         _catalogRefreshButton.Click += async (_, _) => await RefreshCatalogAsync();
         _spawnCatalogRefreshButton.Click += async (_, _) => await RefreshCatalogAsync();
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
-        _addEnchantmentButton.Click += (_, _) => AddOrUpdateEnchantment();
-        _removeEnchantmentButton.Click += (_, _) => RemoveSelectedEnchantment();
-        _clearEnchantmentsButton.Click += (_, _) => ClearEnchantments();
+        _enchantmentSelector.SelectionChanged += (_, _) => ApplyAvailability();
+        _clearEnchantmentsButton.Click += (_, _) => _enchantmentSelector.ClearSelections();
         _grantDisposableButton.Click += async (_, _) => await GrantDisposableAsync();
+        _clearConsumablesButton.Click += async (_, _) => await ClearConsumablesAsync();
         _grantRelicButton.Click += async (_, _) => await GrantRelicAsync();
         _grantAllRelicsButton.Click += async (_, _) => await GrantAllRelicsAsync();
+        _removeAllRelicsButton.Click += async (_, _) => await RemoveAllRelicsAsync();
         _removeRelicButton.Click += async (_, _) => await RemoveRelicAsync();
         _grantCatapultButton.Click += async (_, _) => await GrantCatapultPointAsync();
         _removeCatapultButton.Click += async (_, _) => await RemoveCatapultPointAsync();
+        _clearBackpackCatapultsButton.Click += async (_, _) => await ClearBackpackCatapultsAsync();
+        _clearFieldCatapultsButton.Click += async (_, _) => await ClearFieldCatapultsAsync();
+        _fieldCatapultDeleteModeCheck.Click += async (_, _) => await FieldCatapultDeleteModeChangedAsync();
         _baseGodModeCheck.Click += async (_, _) => await BaseGodModeChangedAsync();
         _mapSkipCheck.Click += async (_, _) => await MapSkipChangedAsync();
         _enemyIdOverlayCheck.Click += async (_, _) => await EnemyIdOverlayChangedAsync();
@@ -171,9 +173,6 @@ internal sealed partial class CheatForm : Window
             CheatCommands.ClearEnemies);
         _vehicleRefreshButton.Click += async (_, _) => { await RefreshVehiclesAsync(); };
         _enemyRefreshButton.Click += async (_, _) => { await RefreshEnemiesAsync(); };
-        _fieldCatapultRefreshButton.Click += async (_, _) => await RefreshFieldCatapultsAsync();
-        _removeFieldCatapultButton.Click += async (_, _) => await RemoveFieldCatapultAsync();
-        _clearFieldCatapultsButton.Click += async (_, _) => await ClearFieldCatapultsAsync();
         _removeVehicleButton.Click += async (_, _) => await RemoveVehicleAsync();
         _modifyVehicleButton.Click += async (_, _) => await ModifyVehicleAsync();
         _setVehicleEnchantmentButton.Click += async (_, _) => await SetVehicleEnchantmentAsync();
@@ -190,12 +189,11 @@ internal sealed partial class CheatForm : Window
             ApplyAvailability();
         };
         _spawnEnemyButton.Click += async (_, _) => await SpawnEnemyAsync();
-        _fieldCatapultGrid.SelectionChanged += (_, _) => ApplyAvailability();
         _spawnPointGrid.SelectionChanged += (_, _) => ApplyAvailability();
 
         foreach (CatalogPickerControl picker in new[]
                  {
-                     _vehicleCatalog, _enchantmentCatalog, _disposableCatalog, _relicCatalog,
+                     _vehicleCatalog, _disposableCatalog, _relicCatalog,
                      _ownedRelicCatalog, _catapultCatalog, _ownedCatapultCatalog, _enemyCatalog
                  })
         {
@@ -222,13 +220,13 @@ internal sealed partial class CheatForm : Window
     private void RegisterAvailabilityControls()
     {
         AddMutationControls(
-            _vehicleCount, _enchantmentLevel,
-            _addEnchantmentButton, _removeEnchantmentButton, _clearEnchantmentsButton,
+            _vehicleCount, _enchantmentSelector, _clearEnchantmentsButton,
             _grantVehicleButton, _disposableCount, _grantDisposableButton,
-            _grantRelicButton, _grantAllRelicsButton, _removeRelicButton,
+            _clearConsumablesButton,
+            _grantRelicButton, _grantAllRelicsButton, _removeAllRelicsButton, _removeRelicButton,
             _catapultCount, _grantCatapultButton, _removeCatapultButton,
+            _clearBackpackCatapultsButton, _clearFieldCatapultsButton, _fieldCatapultDeleteModeCheck,
             _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
-            _removeFieldCatapultButton, _clearFieldCatapultsButton,
             _vehicleAttributeValue, _modifyVehicleButton,
             _vehicleEnchantmentLevel, _setVehicleEnchantmentButton, _removeVehicleButton,
             _enemyAttributeValue, _modifyEnemyButton,
@@ -238,14 +236,14 @@ internal sealed partial class CheatForm : Window
         _catalogQueryControls.AddRange(new UIElement[]
         {
             _catalogRefreshButton, _spawnCatalogRefreshButton,
-            _vehicleCatalog, _enchantmentCatalog, _disposableCatalog,
+            _vehicleCatalog, _enchantmentSelector, _disposableCatalog,
             _relicCatalog, _ownedRelicCatalog,
             _catapultCatalog, _ownedCatapultCatalog, _enemyCatalog
         });
         _entityQueryControls.AddRange(new UIElement[]
         {
-            _vehicleRefreshButton, _enemyRefreshButton, _fieldCatapultRefreshButton,
-            _vehicleGrid, _enemyGrid, _fieldCatapultGrid,
+            _vehicleRefreshButton, _enemyRefreshButton,
+            _vehicleGrid, _enemyGrid,
             _vehicleAttribute, _vehicleEnchantmentCatalog, _enemyAttribute
         });
     }
@@ -279,8 +277,6 @@ internal sealed partial class CheatForm : Window
         _iconCache.Clear();
         _activeCatalogIconKeys.Clear();
     }
-
-    private void EnchantmentGrid_OnSelectionChanged(object sender, SelectionChangedEventArgs eventArgs) => ApplyAvailability();
 
     private void VehicleGrid_OnSelectionChanged(object sender, SelectionChangedEventArgs eventArgs)
     {
@@ -325,7 +321,7 @@ internal sealed partial class CheatForm : Window
 
         _activeCatalogIconKeys.Clear();
         PopulateCatalog(_vehicleCatalog, response.Data["vehicles"] as JArray);
-        PopulateCatalog(_enchantmentCatalog, response.Data["enchantments"] as JArray);
+        PopulateEnchantmentSelector(response.Data["enchantments"] as JArray);
         PopulateCatalog(_vehicleEnchantmentCatalog, response.Data["enchantments"] as JArray);
         PopulateCatalog(_disposableCatalog, response.Data["disposables"] as JArray);
         PopulateCatalog(_relicCatalog, response.Data["relics"] as JArray);
@@ -333,7 +329,7 @@ internal sealed partial class CheatForm : Window
         PopulateCatalog(_catapultCatalog, response.Data["catapultPoints"] as JArray);
         DisposeUnusedCatalogIcons();
         ApplyCatalogLimits(response.Data["limits"] as JObject);
-        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentCatalog.ItemCount} / 消耗品 {_disposableCatalog.ItemCount} / 遗物 {_relicCatalog.ItemCount} / 弹射点 {_catapultCatalog.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
+        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentSelector.ItemCount} / 消耗品 {_disposableCatalog.ItemCount} / 遗物 {_relicCatalog.ItemCount} / 弹射点 {_catapultCatalog.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
         await RefreshOwnedStateAsync();
     }
 
@@ -341,7 +337,7 @@ internal sealed partial class CheatForm : Window
     {
         if (!TryCatalogSelection(_vehicleCatalog, "请选择战车。", out CatalogPickerItem? vehicle)) return;
         JArray enchantments = new();
-        foreach (CheatEnchantmentSelection selection in _enchantmentSelections)
+        foreach (CheatEnchantmentSelection selection in _enchantmentSelector.Selections)
         {
             enchantments.Add(new JObject
             {
@@ -358,69 +354,6 @@ internal sealed partial class CheatForm : Window
                 ["count"] = Decimal.ToInt32(_vehicleCount.Value),
                 ["enchantments"] = enchantments
             });
-    }
-
-    private void AddOrUpdateEnchantment()
-    {
-        if (!TryCatalogSelection(_enchantmentCatalog, "请选择要添加的附魔。", out CatalogPickerItem? item)) return;
-        int level = Decimal.ToInt32(_enchantmentLevel.Value);
-        int existingIndex = -1;
-        for (int index = 0; index < _enchantmentSelections.Count; index++)
-        {
-            if (string.Equals(_enchantmentSelections[index].Id, item!.Id, StringComparison.Ordinal))
-            {
-                existingIndex = index;
-                break;
-            }
-        }
-
-        CheatEnchantmentSelection next = new(item!, level);
-        if (existingIndex >= 0)
-        {
-            _enchantmentSelections[existingIndex] = next;
-            _enchantmentGrid.SelectedItem = next;
-            _enchantmentGrid.ScrollIntoView(next);
-            UpdateEnchantmentSummary("已更新附魔等级");
-            return;
-        }
-
-        if (_enchantmentSelections.Count >= _maxEnchantmentsPerVehicle)
-        {
-            ShowLocalError($"一辆战车最多添加 {_maxEnchantmentsPerVehicle} 个附魔。");
-            return;
-        }
-
-        _enchantmentSelections.Add(next);
-        _enchantmentGrid.SelectedItem = next;
-        _enchantmentGrid.ScrollIntoView(next);
-        UpdateEnchantmentSummary("已添加附魔");
-    }
-
-    private void RemoveSelectedEnchantment()
-    {
-        if (_enchantmentGrid.SelectedItem is not CheatEnchantmentSelection selected) return;
-        int index = _enchantmentSelections.IndexOf(selected);
-        _enchantmentSelections.Remove(selected);
-        if (_enchantmentSelections.Count > 0)
-        {
-            _enchantmentGrid.SelectedIndex = Math.Min(index, _enchantmentSelections.Count - 1);
-        }
-        UpdateEnchantmentSummary();
-    }
-
-    private void ClearEnchantments()
-    {
-        _enchantmentSelections.Clear();
-        UpdateEnchantmentSummary();
-    }
-
-    private void UpdateEnchantmentSummary(string? action = null)
-    {
-        _enchantmentSummary.Text = string.IsNullOrWhiteSpace(action)
-            ? $"已选 {_enchantmentSelections.Count} / {_maxEnchantmentsPerVehicle}"
-            : $"{action} · {_enchantmentSelections.Count} / {_maxEnchantmentsPerVehicle}";
-        _enchantmentSummary.Foreground = MutedBrush;
-        ApplyAvailability();
     }
 
     private async Task GrantDisposableAsync()
@@ -447,6 +380,11 @@ internal sealed partial class CheatForm : Window
     private async Task GrantAllRelicsAsync()
     {
         await ExecuteCommandAsync(CheatCommands.GrantAllRelics, null);
+    }
+
+    private async Task RemoveAllRelicsAsync()
+    {
+        await ExecuteCommandAsync(CheatCommands.RemoveAllRelics, null);
     }
 
     private async Task RemoveRelicAsync()
@@ -496,38 +434,34 @@ internal sealed partial class CheatForm : Window
         await ExecuteCommandAsync(CheatCommands.QueryState, null, announce: false);
     }
 
-    private async Task RefreshFieldCatapultsAsync()
+    private async Task ClearConsumablesAsync()
     {
-        await ExecuteCommandAsync(CheatCommands.QueryState, null);
+        await ExecuteCommandAsync(CheatCommands.ClearConsumables, null);
     }
 
-    private async Task RemoveFieldCatapultAsync()
+    private async Task ClearBackpackCatapultsAsync()
     {
-        if (_fieldCatapultGrid.SelectedItem is not CheatFieldCatapultRow selected)
-        {
-            ShowLocalError("请选择要删除的场上弹射点。");
-            return;
-        }
-
-        ControlResponse? response = await ExecuteCommandAsync(
-            CheatCommands.RemoveFieldCatapultPoint,
-            new JObject { ["runtimeId"] = selected.RuntimeId });
-        if (response?.Success == true && _fieldCatapultRows.Contains(selected))
-        {
-            _fieldCatapultRows.Remove(selected);
-            UpdateFieldCatapultSummary();
-        }
+        ControlResponse? response = await ExecuteCommandAsync(CheatCommands.ClearBackpackCatapultPoints, null);
+        if (response?.Success == true) await RefreshOwnedStateAsync();
     }
 
     private async Task ClearFieldCatapultsAsync()
     {
-        if (_fieldCatapultRows.Count == 0) return;
-        ControlResponse? response = await ExecuteCommandAsync(CheatCommands.ClearFieldCatapultPoints, null);
-        if (response?.Success == true)
-        {
-            _fieldCatapultRows.Clear();
-            UpdateFieldCatapultSummary();
-        }
+        await ExecuteCommandAsync(CheatCommands.ClearFieldCatapultPoints, null);
+    }
+
+    private async Task FieldCatapultDeleteModeChangedAsync()
+    {
+        if (_synchronizing) return;
+        bool requested = _fieldCatapultDeleteModeCheck.IsChecked == true;
+        ControlResponse? response = await ExecuteCommandAsync(
+            CheatCommands.SetFieldCatapultDeleteMode,
+            new JObject { ["enabled"] = requested });
+        bool accepted = response?.Success == true
+            ? response.Data?.Value<bool?>("fieldCatapultDeleteMode") ?? requested
+            : !requested;
+        SetCheckedSilently(_fieldCatapultDeleteModeCheck, accepted);
+        UpdateBackgroundStatePolling();
     }
 
     private async Task BaseGodModeChangedAsync()
@@ -1024,7 +958,9 @@ internal sealed partial class CheatForm : Window
     {
         if (_grantAllRelicsPollInProgress
             || _busy
-            || !string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)) return;
+            || (!string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(_removeAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)
+                && _fieldCatapultDeleteModeCheck.IsChecked != true)) return;
 
         string pollSessionKey = _sessionKey;
         _grantAllRelicsPollInProgress = true;
@@ -1063,8 +999,21 @@ internal sealed partial class CheatForm : Window
 
     private void SetGrantAllRelicsPollingError(string message)
     {
-        _grantAllRelicsStatus.Text = "全部遗物：" + message;
-        _grantAllRelicsStatus.Foreground = RedBrush;
+        if (string.Equals(_removeAllRelicsState, "running", StringComparison.OrdinalIgnoreCase))
+        {
+            _removeAllRelicsStatus.Text = "删除遗物：" + message;
+            _removeAllRelicsStatus.Foreground = RedBrush;
+        }
+        else if (_fieldCatapultDeleteModeCheck.IsChecked == true)
+        {
+            _lastMessage = "读取场上弹射点删除模式失败：" + message;
+            _lastMessageIsError = true;
+        }
+        else
+        {
+            _grantAllRelicsStatus.Text = "全部遗物：" + message;
+            _grantAllRelicsStatus.Foreground = RedBrush;
+        }
     }
 
     private static JObject? ExtractSpawnPointCapture(JObject? data)
@@ -1236,6 +1185,8 @@ internal sealed partial class CheatForm : Window
             if (godMode.HasValue) _baseGodModeCheck.IsChecked = godMode.Value;
             bool? mapSkip = ReadBoolean(data["mapSkipEnabled"]) ?? ReadBoolean(data["mapSkipRequested"]);
             if (mapSkip.HasValue) _mapSkipCheck.IsChecked = mapSkip.Value;
+            bool? fieldDeleteMode = ReadBoolean(data["fieldCatapultDeleteMode"]);
+            if (fieldDeleteMode.HasValue) _fieldCatapultDeleteModeCheck.IsChecked = fieldDeleteMode.Value;
         }
         finally
         {
@@ -1245,11 +1196,52 @@ internal sealed partial class CheatForm : Window
         JObject? capture = ExtractSpawnPointCapture(data);
         if (capture != null) ApplySpawnPointCapture(capture);
         if (data["grantAllRelics"] is JObject grantAllRelics) ApplyGrantAllRelics(grantAllRelics);
+        if (data["removeAllRelics"] is JObject removeAllRelics) ApplyRemoveAllRelics(removeAllRelics);
         if (data["ownedRelics"] is JArray ownedRelics)
             PopulateOwnedCatalog(_ownedRelicCatalog, ownedRelics, "relicId", "遗物");
         if (data["ownedCatapultPoints"] is JArray ownedCatapultPoints)
             PopulateOwnedCatalog(_ownedCatapultCatalog, ownedCatapultPoints, "catapultPointId", "弹射点");
-        if (data["fieldCatapultPoints"] is JArray fieldCatapults) PopulateFieldCatapultGrid(fieldCatapults);
+        UpdateBackgroundStatePolling();
+    }
+
+    private void UpdateBackgroundStatePolling()
+    {
+        bool needed = string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(_removeAllRelicsState, "running", StringComparison.OrdinalIgnoreCase)
+                      || _fieldCatapultDeleteModeCheck.IsChecked == true;
+        if (needed) _grantAllRelicsPollTimer.Start();
+        else _grantAllRelicsPollTimer.Stop();
+    }
+
+    private void ApplyRemoveAllRelics(JObject job)
+    {
+        string state = (job.Value<string>("state") ?? "idle").Trim().ToLowerInvariant();
+        int total = Math.Max(0, job.Value<int?>("totalCount") ?? 0);
+        int processed = Math.Clamp(job.Value<int?>("processedCount") ?? 0, 0, Math.Max(total, 0));
+        int removed = Math.Max(0, job.Value<int?>("removedInstances")
+                                  ?? job.Value<int?>("removedCount")
+                                  ?? 0);
+        int failed = Math.Max(0, job.Value<int?>("failedCount") ?? 0);
+        string message = job.Value<string>("message") ?? string.Empty;
+        _removeAllRelicsState = state;
+        _removeAllRelicsStatus.Text = state switch
+        {
+            "running" => $"删除遗物：处理中 {processed} / {total} · 删除 {removed} · 失败 {failed}",
+            "completed" => $"删除遗物：已完成 {processed} / {total} · 删除 {removed}",
+            "partial" => $"删除遗物：部分完成 {processed} / {total} · 删除 {removed} · 失败 {failed}",
+            "cancelled" => "删除遗物：" + (string.IsNullOrWhiteSpace(message) ? "已取消" : message),
+            "failed" => "删除遗物：" + (string.IsNullOrWhiteSpace(message) ? "执行失败" : message),
+            _ => "删除遗物：未开始"
+        };
+        _removeAllRelicsStatus.Foreground = state switch
+        {
+            "running" or "cancelled" => AmberBrush,
+            "completed" => GreenBrush,
+            "partial" or "failed" => RedBrush,
+            _ => MutedBrush
+        };
+        UpdateBackgroundStatePolling();
+        ApplyAvailability();
     }
 
     private void ApplyGrantAllRelics(JObject job)
@@ -1280,35 +1272,31 @@ internal sealed partial class CheatForm : Window
             case "completed":
                 _grantAllRelicsStatus.Text = $"全部遗物：已完成 {processed} / {total} · 新增 {granted} · 已有 {skipped}";
                 _grantAllRelicsStatus.Foreground = GreenBrush;
-                _grantAllRelicsPollTimer.Stop();
                 break;
             case "partial":
                 _grantAllRelicsStatus.Text = $"全部遗物：部分完成 {processed} / {total} · 新增 {granted} · 已有 {skipped} · 失败 {failed}";
                 _grantAllRelicsStatus.Foreground = failed > 0 ? RedBrush : AmberBrush;
-                _grantAllRelicsPollTimer.Stop();
                 break;
             case "cancelled":
                 _grantAllRelicsStatus.Text = string.IsNullOrWhiteSpace(message)
                     ? $"全部遗物：已取消 · 已处理 {processed} / {total}"
                     : "全部遗物：" + message;
                 _grantAllRelicsStatus.Foreground = AmberBrush;
-                _grantAllRelicsPollTimer.Stop();
                 break;
             case "failed":
                 _grantAllRelicsStatus.Text = string.IsNullOrWhiteSpace(message)
                     ? $"全部遗物：执行失败 · 已处理 {processed} / {total}"
                     : "全部遗物：" + message;
                 _grantAllRelicsStatus.Foreground = RedBrush;
-                _grantAllRelicsPollTimer.Stop();
                 break;
             default:
                 _grantAllRelicsState = "idle";
                 _grantAllRelicsStatus.Text = "全部遗物：未开始";
                 _grantAllRelicsStatus.Foreground = MutedBrush;
-                _grantAllRelicsPollTimer.Stop();
                 break;
         }
 
+        UpdateBackgroundStatePolling();
         ApplyAvailability();
     }
 
@@ -1318,10 +1306,12 @@ internal sealed partial class CheatForm : Window
         bool available = _trusted && _status?.CheatAvailable == true;
         bool runConflict = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
         bool grantAllRelicsRunning = string.Equals(_grantAllRelicsState, "running", StringComparison.OrdinalIgnoreCase);
+        bool removeAllRelicsRunning = string.Equals(_removeAllRelicsState, "running", StringComparison.OrdinalIgnoreCase);
         bool canMutate = available
                          && _status?.CheatModeEnabled == true
-                         && !runConflict
-                         && !grantAllRelicsRunning
+                          && !runConflict
+                          && !grantAllRelicsRunning
+                          && !removeAllRelicsRunning
                          && !_writeOutcomeUnknown
                          && !_busy;
         bool canQueryCatalog = available && !_busy;
@@ -1334,25 +1324,16 @@ internal sealed partial class CheatForm : Window
         _enemyIdOverlayCheck.IsEnabled = canQueryEntities;
         _enemyBuffOverlayCheck.IsEnabled = canQueryEntities;
 
-        bool selectedAlready = _enchantmentCatalog.SelectedCatalogItem != null
-                               && _enchantmentSelections.Any(selection => string.Equals(
-                                   selection.Id,
-                                   _enchantmentCatalog.SelectedCatalogItem.Id,
-                                   StringComparison.Ordinal));
-        _addEnchantmentButton.IsEnabled = canMutate
-                                          && _enchantmentCatalog.SelectedCatalogItem != null
-                                          && (selectedAlready || _enchantmentSelections.Count < _maxEnchantmentsPerVehicle);
-        _removeEnchantmentButton.IsEnabled = canMutate && _enchantmentGrid.SelectedItem != null;
-        _clearEnchantmentsButton.IsEnabled = canMutate && _enchantmentSelections.Count > 0;
+        _clearEnchantmentsButton.IsEnabled = canMutate && _enchantmentSelector.Selections.Count > 0;
         _grantVehicleButton.IsEnabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
         _grantDisposableButton.IsEnabled = canMutate && _disposableCatalog.SelectedCatalogItem != null;
         _grantRelicButton.IsEnabled = canMutate && _relicCatalog.SelectedCatalogItem != null;
         _grantAllRelicsButton.IsEnabled = canMutate;
+        _removeAllRelicsButton.IsEnabled = canMutate;
         _removeRelicButton.IsEnabled = canMutate && _ownedRelicCatalog.SelectedCatalogItem != null;
         _grantCatapultButton.IsEnabled = canMutate && _catapultCatalog.SelectedCatalogItem != null;
         _removeCatapultButton.IsEnabled = canMutate && _ownedCatapultCatalog.SelectedCatalogItem != null;
-        _removeFieldCatapultButton.IsEnabled = canMutate && _fieldCatapultGrid.SelectedItem is CheatFieldCatapultRow;
-        _clearFieldCatapultsButton.IsEnabled = canMutate && _fieldCatapultRows.Count > 0;
+        _fieldCatapultDeleteModeCheck.IsEnabled = canMutate;
 
         bool captureArmed = string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase);
         _capturePointButton.IsEnabled = canMutate && !captureArmed;
@@ -1493,8 +1474,9 @@ internal sealed partial class CheatForm : Window
         _grantAllRelicsPollTimer.Stop();
         _spawnCaptureState = "idle";
         _grantAllRelicsState = "idle";
+        _removeAllRelicsState = "idle";
         _vehicleCatalog.ClearItems();
-        _enchantmentCatalog.ClearItems();
+        _enchantmentSelector.ClearItems();
         _vehicleEnchantmentCatalog.ClearItems();
         _disposableCatalog.ClearItems();
         _relicCatalog.ClearItems();
@@ -1502,19 +1484,14 @@ internal sealed partial class CheatForm : Window
         _enemyCatalog.ClearItems();
         _catapultCatalog.ClearItems();
         _ownedCatapultCatalog.ClearItems();
-        _enchantmentSelections.Clear();
         _vehicleRows.Clear();
         _enemyRows.Clear();
-        _fieldCatapultRows.Clear();
         _spawnPointRows.Clear();
         _iconCache.Clear();
         _activeCatalogIconKeys.Clear();
-        _maxEnchantmentsPerVehicle = 5;
         _catalogSummary.Text = "尚未读取资源目录";
-        _enchantmentSummary.Text = "已选 0 / 5";
         _vehicleSummary.Text = "尚未读取战车";
         _enemySummary.Text = "尚未读取敌人";
-        _fieldCatapultSummary.Text = "尚未读取场上弹射点";
         _spawnPointSummary.Text = "尚未添加生成位置";
         _vehicleEnchantmentCurrent.Text = "当前等级 -";
         _lastResolvedEnemyLevel = null;
@@ -1526,15 +1503,39 @@ internal sealed partial class CheatForm : Window
         _grantAllRelicsStatus.Text = "全部遗物：未开始";
         _grantAllRelicsStatus.Foreground = MutedBrush;
         _grantAllRelicsStatus.ToolTip = null;
+        _removeAllRelicsStatus.Text = "删除遗物：未开始";
+        _removeAllRelicsStatus.Foreground = MutedBrush;
         _spawnStatusLabel.Text = "生成状态：尚未执行";
         _spawnStatusLabel.Foreground = MutedBrush;
         SetCheckedSilently(_baseGodModeCheck, false);
         SetCheckedSilently(_mapSkipCheck, false);
         SetCheckedSilently(_enemyIdOverlayCheck, false);
         SetCheckedSilently(_enemyBuffOverlayCheck, false);
+        SetCheckedSilently(_fieldCatapultDeleteModeCheck, false);
     }
 
     private void PopulateCatalog(CatalogPickerControl picker, JArray? items)
+    {
+        List<CatalogPickerItem> catalogItems = CreateCatalogItems(items);
+        if (ReferenceEquals(picker, _vehicleCatalog) || ReferenceEquals(picker, _vehicleEnchantmentCatalog))
+        {
+            catalogItems = catalogItems
+                .OrderBy(item => item.GroupOrder)
+                .ThenBy(item => item.ItemOrder)
+                .ThenBy(item => item.EnumName, StringComparer.Ordinal)
+                .ToList();
+        }
+        picker.SetItems(catalogItems);
+        ApplyAvailability();
+    }
+
+    private void PopulateEnchantmentSelector(JArray? items)
+    {
+        _enchantmentSelector.SetItems(CreateCatalogItems(items));
+        ApplyAvailability();
+    }
+
+    private List<CatalogPickerItem> CreateCatalogItems(JArray? items)
     {
         List<CatalogPickerItem> catalogItems = new();
         foreach (JObject item in items?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
@@ -1563,8 +1564,7 @@ internal sealed partial class CheatForm : Window
                 enumName));
         }
 
-        picker.SetItems(catalogItems);
-        ApplyAvailability();
+        return catalogItems;
     }
 
     private void PopulateOwnedCatalog(
@@ -1749,17 +1749,10 @@ internal sealed partial class CheatForm : Window
         SetMaximum(_vehicleCount, limits.Value<int?>("maxGrantCount"));
         SetMaximum(_disposableCount, limits.Value<int?>("maxGrantCount"));
         SetMaximum(_catapultCount, limits.Value<int?>("maxGrantCount"));
-        SetMaximum(_enchantmentLevel, limits.Value<int?>("maxEnchantmentLevel"));
-        SetMaximum(_vehicleEnchantmentLevel, limits.Value<int?>("maxEnchantmentLevel"));
+        _vehicleEnchantmentLevel.Maximum = int.MaxValue;
         SetMaximum(_enemyLevel, limits.Value<int?>("maxEnemyLevel"));
         SetMaximum(_enemyCount, limits.Value<int?>("maxSpawnCount"));
         SetMaximum(_spawnRadius, limits.Value<int?>("maxSpawnRadius"));
-        _maxEnchantmentsPerVehicle = Math.Clamp(limits.Value<int?>("maxEnchantmentsPerVehicle") ?? 5, 0, 64);
-        while (_enchantmentSelections.Count > _maxEnchantmentsPerVehicle)
-        {
-            _enchantmentSelections.RemoveAt(_enchantmentSelections.Count - 1);
-        }
-        UpdateEnchantmentSummary();
         decimal coordinateMaximum = Math.Max(1m, Math.Abs(ToDecimal(limits["maxCoordinateMagnitude"], 10_000m)));
         foreach (CheatNumericInput input in new[] { _spawnX, _spawnY, _spawnZ })
         {
@@ -1872,45 +1865,6 @@ internal sealed partial class CheatForm : Window
             item.Value<string>("iconFile") ?? string.Empty,
             item.Value<string>("iconSha256") ?? string.Empty)
         ?? catalog?.Icon;
-
-    private void PopulateFieldCatapultGrid(JArray points)
-    {
-        string selectedRuntimeId = (_fieldCatapultGrid.SelectedItem as CheatFieldCatapultRow)?.RuntimeId ?? string.Empty;
-        _fieldCatapultRows.Clear();
-        foreach (JObject point in points.OfType<JObject>())
-        {
-            string runtimeId = point.Value<string>("runtimeId") ?? point.Value<string>("id") ?? string.Empty;
-            string typeId = point.Value<string>("disposableId")
-                            ?? point.Value<string>("typeId")
-                            ?? point.Value<string>("enumName")
-                            ?? string.Empty;
-            CatalogPickerItem? catalog = _catapultCatalog.FindItem(typeId);
-            string enumName = point.Value<string>("enumName") ?? catalog?.EnumName ?? typeId;
-            string name = point.Value<string>("name") ?? catalog?.DisplayName ?? enumName;
-            _fieldCatapultRows.Add(new CheatFieldCatapultRow(
-                runtimeId,
-                Display(enumName),
-                Display(name),
-                ResolveItemIcon(point, catalog),
-                FormatPosition(point["position"] as JObject ?? point),
-                point));
-        }
-
-        CheatFieldCatapultRow? selected = _fieldCatapultRows.FirstOrDefault(row =>
-            string.Equals(row.RuntimeId, selectedRuntimeId, StringComparison.Ordinal))
-            ?? _fieldCatapultRows.FirstOrDefault();
-        _fieldCatapultGrid.SelectedItem = selected;
-        if (selected != null) _fieldCatapultGrid.ScrollIntoView(selected);
-        UpdateFieldCatapultSummary();
-    }
-
-    private void UpdateFieldCatapultSummary()
-    {
-        _fieldCatapultSummary.Text = _fieldCatapultRows.Count == 0
-            ? "场上没有弹射点"
-            : $"场上共 {_fieldCatapultRows.Count} 个；可按运行时 ID 精确删除";
-        ApplyAvailability();
-    }
 
     private void EntitySelectionChanged(
         DataGrid grid,

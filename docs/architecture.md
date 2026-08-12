@@ -86,18 +86,21 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 | 命令 | 行为 |
 |---|---|
 | `cheat.setEnabled` | 在已授权会话中手动开启或关闭作弊模式 |
-| `cheat.queryCatalog` / `cheat.queryState` | 查询带简体中文名和图标引用的战车、附魔、消耗品、弹射点、遗物、普通敌人及作弊状态 |
+| `cheat.queryCatalog` / `cheat.queryState` | 查询目录格式 v4 的战车、附魔、消耗品、弹射点、遗物、普通敌人及作弊状态；项目带家族排序字段和简体中文名、枚举名、图标引用 |
 | `cheat.grantVehicle` | 获取战车，并可传入多组附魔和各自等级 |
 | `cheat.removeVehicle` | 按稳定运行时战车 ID 删除指定已有战车 |
 | `cheat.grantDisposable` | 获取指定消耗品 |
-| `cheat.grantCatapultPoint` | 获取普通弹射点或能量弹射点，并同步点位 UI 数据 |
+| `cheat.clearConsumables` / `cheat.clearBackpackCatapultPoints` | 按运行时行为分类后，分别清空非弹射点消耗品或背包中的普通、能量与特殊弹射点 |
+| `cheat.grantCatapultPoint` | 获取配置中直接创建普通、能量或特殊站点的可放置弹射点，并同步背包状态 |
 | `cheat.removeCatapultPoint` | 删除背包中的指定弹射点 |
-| `cheat.removeFieldCatapultPoint` / `cheat.clearFieldCatapultPoints` | 单删或清空场上弹射点，并通过游戏正式销毁链清理关联状态 |
+| `cheat.removeFieldCatapultPoint` / `cheat.clearFieldCatapultPoints` | 单删或清空场上弹射点，并通过游戏正式销毁链清理关联状态且阻止回收到背包 |
+| `cheat.setFieldCatapultDeleteMode` | 开启游戏内精确碰撞命中的左键场上弹射点删除；空白和 UI 点击不误删，Esc 退出 |
 | `cheat.setBaseGodMode` | 开启或关闭基地无敌 |
 | `cheat.endWave` | 结束当前允许结束的普通波次 |
 | `cheat.clearEnemies` | 清除当前已生成的敌人，不清空后续生成计划 |
 | `cheat.queryVehicles` / `cheat.modifyVehicle` | 查询运行时车辆 ID 与现有附魔，并用中文属性名选择、内部属性 ID 写入指定车辆属性 |
 | `cheat.setVehicleEnchantment` | 设置已有战车的一项附魔等级；等级为 `0` 时移除该附魔，同时保留其他附魔 |
+| `cheat.removeAllRelics` | 与一键补齐互斥地逐帧删除全部已持有遗物，并报告进度及失败项 |
 | `cheat.queryEnemies` / `cheat.modifyEnemy` | 查询运行时敌人 ID，并用中文属性名选择、内部属性 ID 写入指定敌人属性 |
 | `cheat.setEnemyIdOverlay` | 在游戏画面中显示或隐藏敌人 ID |
 | `cheat.grantRelic` | 获得指定遗物 |
@@ -110,9 +113,9 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 
 可信会话开启作弊能力后仍可执行 `start`。自动游玩运行或暂停期间，插件只放行启用/关闭作弊、目录与实体查询，以及敌人 ID/Buff 覆盖层；这些覆盖层不创建持久作弊标记，其余作弊写命令失效即关闭。基地无敌或地图跳关仍开启时拒绝开始自动游玩。获准的写命令进入游戏 API 前必须先在当前自动游玩配置创建持久作弊标记；无法确认标记已落盘时命令失效即关闭。写尝试会设置 `CheatUsed` 并把后续运行完整性标记为 `cheat-modified`；只有真正的自动化故障或不确定部分写入才设置 `NeedsProcessRestart`。请求 ID 用于同一写请求的幂等重取：重复 ID 但参数不同会被拒绝，已在主线程开始的请求会返回其实际完成结果。
 
-Manager 持续向插件提供控制租约。场景切换会重置基地无敌、敌人 ID 覆盖层、待捕获位置、已保存生成点和地图跳关；Manager 断连或心跳超时会进一步关闭作弊模式和全部瞬态功能。位置捕获通过 Harmony 接入 `DefaultInputHandler.Update` 的本帧输入快照完成点，在游戏 UI、物体和玩法交互读取该次输入前检查左 Alt、鼠标左键、UI 命中及地图边界；捕获成功后调用游戏自身的 `UseInputOnly()` 消费点击，并把带稳定 `pointId` 的位置追加到运行时列表。`OnGUI` 为列表中的每个点绘制编号十字与坐标。补丁未安装时定位功能拒绝开启，不回退到未排序的 BepInEx `Update`。
+Manager 持续向插件提供控制租约。场景切换会重置基地无敌、敌人 ID 覆盖层、待捕获位置、已保存生成点、场上弹射点点击删除和地图跳关；Manager 断连或心跳超时会进一步关闭作弊模式和全部瞬态功能。位置捕获与点击删除通过 Harmony 接入 `DefaultInputHandler.Update` 的本帧输入快照，在游戏 UI、物体和玩法交互读取该次输入前检查按键、UI 命中及对象碰撞；成功后调用游戏自身的 `UseInputOnly()` 消费点击。`OnGUI` 为生成点绘制编号十字，为点击删除目标绘制红色删除标记。补丁未安装时两种功能拒绝开启，不回退到未排序的 BepInEx `Update`。
 
-Manager 的作弊选择器在获得焦点后保持结果列表打开，目录项同时携带中文名、枚举名、稳定 ID 和图标，可按任一文本字段搜索；协议仍只发送确认选择后的稳定 ID。属性显示名优先从游戏的简体中文属性配置解析，配置缺项时使用与 `BattleMemoryEnum` 逐项精确对应的中文表兜底。已有战车附魔编辑先读取完整附魔列表，再通过游戏车辆管理器重建附魔并刷新车辆状态；等级 `0` 表示移除目标项，不清除其他附魔。
+Manager 的作弊选择器在获得焦点后保持结果列表打开，目录项同时携带中文名、枚举名、稳定 ID、家族排序和图标，可按任一文本字段搜索；协议仍只发送确认选择后的稳定 ID。战车按去掉 `_L#` 后的家族及等级排列，附魔按基础家族与 `Train/Railway/Domain` 变体排列。“获取战车”的常驻附魔网格以左键饱和递增至 `int.MaxValue`、右键递减至 `0` 并移除，不设置种类或层数产品上限。属性显示名优先从游戏的简体中文属性配置解析，配置缺项时使用与 `BattleMemoryEnum` 逐项精确对应的中文表兜底。已有战车附魔编辑先读取完整附魔列表，再通过游戏车辆管理器重建附魔并刷新车辆状态；等级 `0` 表示移除目标项，不清除其他附魔。作弊开启时 Harmony 只接管受限战车卡片的附魔图标布局，取消“更多”占位并紧凑换行；详情面板保持原尺寸，关闭作弊后恢复原布局。
 
 地图跳关补丁使用 `RoomMapUI.path` 最后一个节点作为当前进度层，与游戏原生 `UpdateCurrentLayer` 一样隐藏当前层及历史层，只临时开放进度之后的节点。它在没有活动波次、没有运行节点、没有待选子关卡且游戏未结束时，按游戏原有流程加载目标的最小前置路径、重新取得目标节点、调用节点点击并请求保存；陈旧阶段请求、跨阶段和失效节点都会拒绝。跳转前会保存原阶段和路径，后续校验或调用失败时执行补偿恢复，恢复失败则自动关闭地图跳关。批量刷怪先读取 `WaveProgressController.CurrentAILevel`，与正式 `WaveNest` 一样把该内部等级传给 `AgentCreator.CreateAgent`，因此继续经过 `AITable.InitTable`、`BasicAIDataSO.GetBasicParameters`、全局难度及无尽倍率；只有显式自定义时才用 UI 等级减一覆盖。每个生成点在 `spawnRadius` 内产生带最小间距的坐标，再逐个确认对象已进入敌方阵营、具备启用的敌方碰撞层、战斗系统和可受击状态；验证失败的对象会通过游戏回收接口清理。
 
@@ -187,7 +190,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.3-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.4-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

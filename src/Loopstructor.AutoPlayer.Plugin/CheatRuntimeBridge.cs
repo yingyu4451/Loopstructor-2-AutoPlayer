@@ -18,6 +18,7 @@ internal sealed class CheatRuntimeBridge
     private const float MaxCoordinateMagnitude = 10_000f;
     private const int MaxGrantCount = 20;
     private const int MaxGrantAllRelicsPerFrame = 1;
+    private const int MaxRemoveAllRelicsPerFrame = 1;
     private const int MaxSpawnCount = 10;
     private const int MaxSpawnPointCount = 12;
     private const int MaxTotalSpawnCount = 50;
@@ -25,8 +26,6 @@ internal sealed class CheatRuntimeBridge
     private const float MaxSpawnRadius = 50f;
     private const float MinimumSpawnSpacing = 1.5f;
     private const int SpawnPositionAttemptCount = 24;
-    private const int MaxEnchantmentsPerVehicleFallback = 8;
-    private const int MaxEnchantmentLevel = 100;
     private const int CatalogIconSize = 48;
     private const float EnemyOverlayRefreshInterval = 0.5f;
     private const float EnemyBuffIconSize = 30f;
@@ -270,6 +269,8 @@ internal sealed class CheatRuntimeBridge
     private readonly List<SavedSpawnPoint> _spawnPoints = new();
     private string _lastCapturedPointId = string.Empty;
     private GrantAllRelicsJob _grantAllRelicsJob = GrantAllRelicsJob.Idle();
+    private RelicRemovalJob _removeAllRelicsJob = RelicRemovalJob.Idle();
+    private bool _fieldCatapultDeleteMode;
 
     private Type? _vehicleManagerType;
     private Type? _vehicleControllerType;
@@ -341,6 +342,7 @@ internal sealed class CheatRuntimeBridge
     public bool EnemyIdsVisible { get; set; }
     public bool EnemyBuffsVisible { get; set; }
     public bool BaseGodModeRequested { get; private set; }
+    public bool FieldCatapultDeleteMode => _fieldCatapultDeleteMode;
     public IReadOnlyList<string> MissingMembers => _missingMembers;
     public IReadOnlyList<string> Capabilities => IsAvailable ? CheatCommands.All : Array.Empty<string>();
 
@@ -350,6 +352,8 @@ internal sealed class CheatRuntimeBridge
         _missingMembers.Clear();
         _catalogIcons.Clear();
         _grantAllRelicsJob = GrantAllRelicsJob.Idle();
+        _removeAllRelicsJob = RelicRemovalJob.Idle();
+        _fieldCatapultDeleteMode = false;
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
         _vehicleInterfaceType = Require("MetroTD.VehicleSystem.IVehicle");
@@ -423,7 +427,11 @@ internal sealed class CheatRuntimeBridge
         IsAvailable = _missingMembers.Count == 0;
         if (IsAvailable)
         {
-            SpawnPointCaptureInputPatch.Register(TickSpawnPointCapture);
+            SpawnPointCaptureInputPatch.Register(() =>
+            {
+                TickFieldCatapultDeleteInput();
+                TickSpawnPointCapture();
+            });
         }
     }
 
@@ -432,18 +440,20 @@ internal sealed class CheatRuntimeBridge
         EnsureAvailable();
         IReadOnlyList<object> vehicles = ConfiguredVehicleValues();
         IReadOnlyList<object> enchantments = ConfiguredEnchantmentValues();
-        IReadOnlyList<object> disposables = ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!);
+        IReadOnlyList<object> allDisposables = ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!);
+        IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
+        IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();
         IReadOnlyList<object> relics = ConfiguredRewardValues("AllSuperModuleRewards", "superModuleEnum", _superModuleType!);
         return new JObject
         {
-            ["catalogVersion"] = 3,
+            ["catalogVersion"] = 4,
             ["locale"] = "zh",
             ["vehicles"] = CatalogItems(vehicles, BuildVehicleCatalogItem),
             ["enchantments"] = CatalogItems(enchantments, BuildEnchantmentCatalogItem),
             ["disposables"] = CatalogItems(disposables, BuildDisposableCatalogItem),
             ["relics"] = CatalogItems(relics, BuildRelicCatalogItem),
             ["enemies"] = SafeEnemyCatalogItems(),
-            ["catapultPoints"] = CatapultPointCatalogItems(),
+            ["catapultPoints"] = CatalogItems(catapultPoints, BuildCatapultPointCatalogItem),
             ["limits"] = new JObject
             {
                 ["maxGrantCount"] = MaxGrantCount,
@@ -453,8 +463,6 @@ internal sealed class CheatRuntimeBridge
                 ["defaultSpawnRadius"] = DefaultSpawnRadius,
                 ["maxSpawnRadius"] = MaxSpawnRadius,
                 ["minimumSpawnSpacing"] = MinimumSpawnSpacing,
-                ["maxEnchantmentsPerVehicle"] = MaxEnchantmentsPerVehicleFallback,
-                ["maxEnchantmentLevel"] = MaxEnchantmentLevel,
                 ["maxEnemyLevel"] = 200,
                 ["maxCoordinateMagnitude"] = MaxCoordinateMagnitude
             }
@@ -470,7 +478,9 @@ internal sealed class CheatRuntimeBridge
             ["ownedRelics"] = new JArray(),
             ["ownedCatapultPoints"] = new JArray(),
             ["fieldCatapultPoints"] = new JArray(),
-            ["grantAllRelics"] = BuildGrantAllRelicsState()
+            ["grantAllRelics"] = BuildGrantAllRelicsState(),
+            ["removeAllRelics"] = BuildRemoveAllRelicsState(),
+            ["fieldCatapultDeleteMode"] = _fieldCatapultDeleteMode
         };
         List<string> errors = new();
 
@@ -529,13 +539,6 @@ internal sealed class CheatRuntimeBridge
         }
 
         JArray requestedEnchantments = enchantmentsToken as JArray ?? new JArray();
-        if (requestedEnchantments.Count > MaxEnchantmentsPerVehicleFallback)
-        {
-            return CheatExecutionResult.Fail(
-                $"每辆战车最多添加 {MaxEnchantmentsPerVehicleFallback} 种附魔。",
-                "TOO_MANY_ENCHANTMENTS");
-        }
-
         IList runtimeEnchantments = CreateRuntimeList(_fetterModuleDataType!);
         HashSet<long> selectedEnchantments = new();
         JArray appliedEnchantments = new();
@@ -552,12 +555,7 @@ internal sealed class CheatRuntimeBridge
                 return CheatExecutionResult.Fail("None 不是可添加的附魔。", "INVALID_ENCHANTMENT");
             }
 
-            int enchantmentLevel = BoundedInt(
-                enchantment,
-                "level",
-                1,
-                MaxEnchantmentLevel,
-                1);
+            int enchantmentLevel = PositiveInt(enchantment, "level", 1);
             object enchantmentEnum = ParseEnum(_fetterType!, enchantmentId, "附魔类型");
             if (!ContainsEnumValue(ConfiguredEnchantmentValues(), enchantmentEnum))
             {
@@ -689,6 +687,12 @@ internal sealed class CheatRuntimeBridge
         string disposableId = RequiredText(arguments, "disposableId", "必须选择消耗品类型。");
         int count = BoundedInt(arguments, "count", 1, MaxGrantCount, 1);
         object disposableEnum = ParseEnum(_disposableType!, disposableId, "消耗品类型");
+        if (IsCatapultPoint(disposableEnum))
+        {
+            return CheatExecutionResult.Fail(
+                "该道具会直接创建弹射点，请改用“获取弹射点”。",
+                "DISPOSABLE_IS_CATAPULT_POINT");
+        }
         if (!ContainsEnumValue(
                 ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!),
                 disposableEnum))
@@ -718,6 +722,73 @@ internal sealed class CheatRuntimeBridge
             : CheatExecutionResult.Fail("未能获取消耗品，可能已达到容量上限或当前场景未初始化。", "DISPOSABLE_GRANT_FAILED");
     }
 
+    public CheatExecutionResult ClearConsumables() => ClearBackpackItems(
+        value => !IsCatapultPoint(value),
+        "消耗品");
+
+    public CheatExecutionResult ClearBackpackCatapultPoints() => ClearBackpackItems(
+        IsCatapultPoint,
+        "背包弹射点");
+
+    private CheatExecutionResult ClearBackpackItems(Func<object, bool> predicate, string displayName)
+    {
+        EnsureAvailable();
+        object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
+        MethodInfo consume = FindMethod(manager.GetType(), "TryConsumeDisposable", _disposableType!)
+                             ?? throw new MissingMethodException(manager.GetType().FullName, "TryConsumeDisposable");
+        List<(object Value, int Count)> targets = SnapshotDisposableCounts()
+            .Where(item => predicate(item.Value))
+            .ToList();
+        int requested = targets.Sum(item => item.Count);
+        int removed = 0;
+        JArray failed = new();
+        foreach ((object value, int count) in targets)
+        {
+            int itemRemoved = 0;
+            while (itemRemoved < count && consume.Invoke(manager, new[] { value }) is true)
+            {
+                itemRemoved++;
+                removed++;
+            }
+            if (itemRemoved < count)
+            {
+                failed.Add(new JObject
+                {
+                    ["disposableId"] = value.ToString(),
+                    ["requested"] = count,
+                    ["removed"] = itemRemoved
+                });
+            }
+        }
+
+        if (string.Equals(displayName, "背包弹射点", StringComparison.Ordinal))
+        {
+            ClearLegacyPointLedger();
+        }
+
+        JObject data = new()
+        {
+            ["requested"] = requested,
+            ["removed"] = removed,
+            ["failed"] = failed,
+            ["ownedCatapultPoints"] = BuildOwnedCatapultPoints()
+        };
+        string message = $"已删除 {removed}/{requested} 个{displayName}。";
+        return failed.Count == 0
+            ? CheatExecutionResult.Changed(message, data)
+            : removed > 0
+                ? CheatExecutionResult.Partial(message + " 部分道具未能从背包移除。", data)
+                : CheatExecutionResult.Fail(message, "BACKPACK_CLEAR_FAILED");
+    }
+
+    private void ClearLegacyPointLedger()
+    {
+        object? pointDataUi = TryGetSingleton(_pointDataUiType!);
+        if (pointDataUi == null || GetMember(pointDataUi, "PointDatas") is not IList pointDatas) return;
+        pointDatas.Clear();
+        RefreshPointDataUi(pointDataUi, pointDatas);
+    }
+
     public CheatExecutionResult GrantCatapultPoint(JObject arguments)
     {
         EnsureAvailable();
@@ -739,20 +810,25 @@ internal sealed class CheatRuntimeBridge
         }
 
         object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
-        object pointDataUi = GetRequiredSingleton(_pointDataUiType!, "弹射点数据界面");
         MethodInfo? grantMethod = FindMethod(manager.GetType(), "TryGetDisposable", _disposableType!);
-        MethodInfo? addPointMethod = FindMethod(pointDataUi.GetType(), "AddPointData", typeof(bool));
-        if (grantMethod == null || addPointMethod == null)
+        if (grantMethod == null)
         {
             return CheatExecutionResult.Fail("当前游戏版本缺少弹射点获取入口。", "CATAPULT_POINT_API_MISSING");
         }
 
+        bool isLegacy = IsLegacyCatapultPointId(disposableId);
         bool isAttribute = string.Equals(disposableId, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase);
+        object? pointDataUi = isLegacy ? GetRequiredSingleton(_pointDataUiType!, "弹射点数据界面") : null;
+        MethodInfo? addPointMethod = pointDataUi == null ? null : FindMethod(pointDataUi.GetType(), "AddPointData", typeof(bool));
+        if (isLegacy && addPointMethod == null)
+        {
+            return CheatExecutionResult.Fail("当前游戏版本缺少普通弹射点背包账本入口。", "CATAPULT_POINT_API_MISSING");
+        }
         int granted = 0;
         for (int index = 0; index < count; index++)
         {
             if (grantMethod.Invoke(manager, new[] { disposableEnum }) is not bool success || !success) break;
-            addPointMethod.Invoke(pointDataUi, new object[] { isAttribute });
+            addPointMethod?.Invoke(pointDataUi, new object[] { isAttribute });
             granted++;
         }
 
@@ -761,9 +837,10 @@ internal sealed class CheatRuntimeBridge
             ["requested"] = count,
             ["granted"] = granted,
             ["disposableId"] = disposableId,
-            ["isAttribute"] = isAttribute
+            ["isAttribute"] = isAttribute,
+            ["ownedCatapultPoints"] = BuildOwnedCatapultPoints()
         };
-        string message = $"已获取 {granted}/{count} 个{(isAttribute ? "能量" : "普通")}弹射点。";
+        string message = $"已获取 {granted}/{count} 个弹射点 {disposableId}。";
         if (granted == count) return CheatExecutionResult.Changed(message, data);
         return granted > 0
             ? CheatExecutionResult.Partial(message + " 容量限制阻止了剩余获取。", data)
@@ -776,12 +853,18 @@ internal sealed class CheatRuntimeBridge
         string requestedId = arguments.Value<string>("catapultPointId")?.Trim()
                              ?? arguments.Value<string>("disposableId")?.Trim()
                              ?? string.Empty;
+        string requestedDisposableId = arguments.Value<string>("disposableId")?.Trim() ?? requestedId;
         if (string.IsNullOrWhiteSpace(requestedId))
         {
             throw new InvalidOperationException("必须选择要删除的已有弹射点。");
         }
 
         int requestedCount = BoundedInt(arguments, "count", 1, MaxGrantCount, 1);
+        if (IsCatapultPointId(requestedDisposableId) && !IsLegacyCatapultPointId(requestedDisposableId))
+        {
+            object specialEnum = ParseEnum(_disposableType!, requestedDisposableId, "弹射点类型");
+            return RemoveRuntimeBackpackCatapult(specialEnum, requestedCount, requestedId);
+        }
         object pointDataUi = GetRequiredSingleton(_pointDataUiType!, "弹射点数据界面");
         if (GetMember(pointDataUi, "PointDatas") is not IList pointDatas)
         {
@@ -842,6 +925,37 @@ internal sealed class CheatRuntimeBridge
             : CheatExecutionResult.Partial(message, data);
     }
 
+    private CheatExecutionResult RemoveRuntimeBackpackCatapult(object disposableEnum, int requestedCount, string pointId)
+    {
+        object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
+        MethodInfo consume = FindMethod(manager.GetType(), "TryConsumeDisposable", _disposableType!)
+                             ?? throw new MissingMethodException(manager.GetType().FullName, "TryConsumeDisposable");
+        int available = SnapshotDisposableCounts()
+            .Where(item => Equals(item.Value, disposableEnum))
+            .Sum(item => item.Count);
+        if (available <= 0)
+        {
+            return CheatExecutionResult.Fail("当前背包没有该特殊弹射点。", "CATAPULT_POINT_NOT_OWNED");
+        }
+
+        int target = Math.Min(requestedCount, available);
+        int removed = 0;
+        while (removed < target && consume.Invoke(manager, new[] { disposableEnum }) is true) removed++;
+        JObject data = new()
+        {
+            ["catapultPointId"] = pointId,
+            ["disposableId"] = disposableEnum.ToString(),
+            ["requested"] = requestedCount,
+            ["removed"] = removed,
+            ["ownedCatapultPoints"] = BuildOwnedCatapultPoints()
+        };
+        if (removed == 0) return CheatExecutionResult.Fail("特殊弹射点删除失败。", "CATAPULT_POINT_REMOVE_FAILED");
+        string message = $"已删除 {removed}/{requestedCount} 个背包特殊弹射点。";
+        return removed == requestedCount
+            ? CheatExecutionResult.Changed(message, data)
+            : CheatExecutionResult.Partial(message, data);
+    }
+
     public CheatExecutionResult RemoveFieldCatapultPoint(JObject arguments)
     {
         EnsureAvailable();
@@ -879,6 +993,20 @@ internal sealed class CheatRuntimeBridge
                 ["removed"] = removed,
                 ["fieldCatapultPoints"] = BuildFieldCatapultPoints()
             });
+    }
+
+    public CheatExecutionResult SetFieldCatapultDeleteMode(bool enabled)
+    {
+        EnsureAvailable();
+        if (enabled && !SpawnPointCaptureInputPatch.IsInstalled)
+        {
+            return CheatExecutionResult.Fail("场上弹射点点击删除未接入游戏输入流水线。", "INPUT_CAPTURE_UNAVAILABLE");
+        }
+        _fieldCatapultDeleteMode = enabled;
+        string message = enabled
+            ? "点击删除模式已开启：在游戏内左键点击场上弹射点即可直接删除，按 Esc 退出。"
+            : "点击删除模式已关闭。";
+        return CheatExecutionResult.Changed(message, new JObject { ["fieldCatapultDeleteMode"] = enabled });
     }
 
     public CheatExecutionResult GrantRelic(JObject arguments)
@@ -923,6 +1051,12 @@ internal sealed class CheatRuntimeBridge
     public CheatExecutionResult StartGrantAllRelics()
     {
         EnsureAvailable();
+        if (_removeAllRelicsJob.IsRunning)
+        {
+            return CheatExecutionResult.Fail(
+                "删除所有遗物任务正在进行，不能同时获取全部遗物。",
+                "RELIC_JOB_CONFLICT");
+        }
         if (_grantAllRelicsJob.IsRunning)
         {
             return CheatExecutionResult.Ok(
@@ -1028,6 +1162,76 @@ internal sealed class CheatRuntimeBridge
     {
         _grantAllRelicsJob.Cancel(message);
     }
+
+    public CheatExecutionResult StartRemoveAllRelics()
+    {
+        EnsureAvailable();
+        if (_grantAllRelicsJob.IsRunning)
+        {
+            return CheatExecutionResult.Fail("一键获取所有遗物正在进行，不能同时删除全部遗物。", "RELIC_JOB_CONFLICT");
+        }
+        if (_removeAllRelicsJob.IsRunning)
+        {
+            return CheatExecutionResult.Ok("删除所有遗物任务正在进行。", BuildRemoveAllRelicsResponse());
+        }
+
+        object manager = GetRequiredSingleton(_superModuleManagerType!, "SuperModuleManager");
+        MethodInfo? remove = FindMethod(manager.GetType(), "TryRemoveSuperModule", _superModuleType!);
+        if (remove == null)
+        {
+            return CheatExecutionResult.Fail("当前游戏版本缺少遗物安全删除入口。", "RELIC_REMOVE_API_MISSING");
+        }
+        List<object> pending = new();
+        if (GetMember(manager, "superModules") is IDictionary owned)
+        {
+            foreach (DictionaryEntry entry in owned)
+            {
+                if (entry.Key != null && GetDictionaryListCount(owned, entry.Key) > 0) pending.Add(entry.Key);
+            }
+        }
+        pending = DistinctEnumValues(pending).ToList();
+        _removeAllRelicsJob = RelicRemovalJob.Start(pending);
+        if (pending.Count == 0) _removeAllRelicsJob.Complete();
+        return pending.Count == 0
+            ? CheatExecutionResult.Ok(_removeAllRelicsJob.Message, BuildRemoveAllRelicsResponse())
+            : CheatExecutionResult.Changed(_removeAllRelicsJob.Message, BuildRemoveAllRelicsResponse());
+    }
+
+    public void TickRemoveAllRelics()
+    {
+        if (!_removeAllRelicsJob.IsRunning) return;
+        int budget = MaxRemoveAllRelicsPerFrame;
+        while (budget-- > 0 && _removeAllRelicsJob.TryTakeNext(out object? relic) && relic != null)
+        {
+            string id = relic.ToString() ?? string.Empty;
+            try
+            {
+                object manager = GetRequiredSingleton(_superModuleManagerType!, "SuperModuleManager");
+                int before = GetDictionaryListCount(GetMember(manager, "superModules"), relic);
+                MethodInfo remove = FindMethod(manager.GetType(), "TryRemoveSuperModule", _superModuleType!)
+                                    ?? throw new MissingMethodException(manager.GetType().FullName, "TryRemoveSuperModule");
+                bool changed = remove.Invoke(manager, new[] { relic }) is true;
+                int after = GetDictionaryListCount(GetMember(manager, "superModules"), relic);
+                if (changed && after < before) _removeAllRelicsJob.RecordRemoved(id, before - after);
+                else _removeAllRelicsJob.RecordFailed(id, "删除后持有数量没有减少。");
+            }
+            catch (Exception exception)
+            {
+                _removeAllRelicsJob.RecordFailed(id, Unwrap(exception).Message);
+            }
+        }
+        if (!_removeAllRelicsJob.HasRemaining) _removeAllRelicsJob.Complete();
+    }
+
+    public void CancelRemoveAllRelics(string message) => _removeAllRelicsJob.Cancel(message);
+
+    private JObject BuildRemoveAllRelicsResponse() => new()
+    {
+        ["removeAllRelics"] = BuildRemoveAllRelicsState(),
+        ["ownedRelics"] = BuildOwnedRelics()
+    };
+
+    private JObject BuildRemoveAllRelicsState() => _removeAllRelicsJob.ToData();
 
     private JObject BuildGrantAllRelicsResponse()
     {
@@ -1224,7 +1428,7 @@ internal sealed class CheatRuntimeBridge
         int vehicleId = arguments.Value<int?>("vehicleId")
                         ?? throw new InvalidOperationException("必须选择有效的战车 ID。");
         string enchantmentId = RequiredText(arguments, "enchantmentId", "必须选择附魔。");
-        int level = BoundedInt(arguments, "level", 0, MaxEnchantmentLevel, 1);
+        int level = NonNegativeInt(arguments, "level", 1);
         object enchantment = ParseEnum(_fetterType!, enchantmentId, "附魔");
         IReadOnlyList<object> configuredEnchantments = ConfiguredEnchantmentValues();
         if (!ContainsEnumValue(configuredEnchantments, enchantment))
@@ -1246,14 +1450,6 @@ internal sealed class CheatRuntimeBridge
         int beforeLevel = moduleIndex < 0 ? 0 : GetInt(updatedModules[moduleIndex], "level");
         if (moduleIndex < 0 && level > 0)
         {
-            int configuredCount = CountConfiguredEnchantments(updatedModules, configuredEnchantments);
-            if (configuredCount >= MaxEnchantmentsPerVehicleFallback)
-            {
-                return CheatExecutionResult.Fail(
-                    $"该战车已有 {configuredCount} 种附魔，已达到当前工具的安全上限。",
-                    "ENCHANTMENT_LIMIT_REACHED");
-            }
-
             object module = Activator.CreateInstance(_fetterModuleDataType!)
                             ?? throw new InvalidOperationException("无法创建附魔模块数据。");
             SetMemberValue(module, "fetterEnum", enchantment);
@@ -1659,6 +1855,68 @@ internal sealed class CheatRuntimeBridge
         }
     }
 
+    public void TickFieldCatapultDeleteInput()
+    {
+        if (!_fieldCatapultDeleteMode || !SpawnPointCaptureInputPatch.IsDispatching) return;
+        try
+        {
+            object? input = TryGetSingleton(_inputManagerType!);
+            if (input == null) return;
+            object escape = ParseEnum(_inputKeyType!, "Escape", "退出快捷键");
+            object? escapeState = FindMethod(input.GetType(), "GetKeyPressStateRO", _inputKeyType!)?.Invoke(input, new[] { escape });
+            if (escapeState != null && GetBool(escapeState, "wasPressedThisFrame"))
+            {
+                FindMethod(input.GetType(), "UseInputOnly")?.Invoke(input, null);
+                _fieldCatapultDeleteMode = false;
+                return;
+            }
+            object leftMouse = ParseEnum(_mouseKeyType!, "left", "鼠标按键");
+            object? mouseState = FindMethod(input.GetType(), "GetMousePressStateRO", _mouseKeyType!)?.Invoke(input, new[] { leftMouse });
+            if (mouseState == null || !GetBool(mouseState, "wasPressedThisFrame") || GetBool(input, "hasUsed")) return;
+            object? uiInteraction = GetStaticMember(_defaultUiInteractionType!, "Current");
+            if (uiInteraction != null && GetBool(uiInteraction, "isInUI")) return;
+            FindMethod(input.GetType(), "UseInputOnly")?.Invoke(input, null);
+            object? target = FindHoveredFieldCatapult(input);
+            if (target != null)
+            {
+                string runtimeId = FieldCatapultRuntimeId(target);
+                try
+                {
+                    DeleteFieldCatapult(target);
+                    Debug.Log($"[AutoPlayer] 作弊点击删除场上弹射点成功：runtimeId={runtimeId}");
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogError(
+                        $"[AutoPlayer] 作弊点击删除场上弹射点失败：runtimeId={runtimeId}；{Unwrap(exception).Message}");
+                    throw;
+                }
+            }
+        }
+        catch
+        {
+            _fieldCatapultDeleteMode = false;
+        }
+    }
+
+    private object? FindHoveredFieldCatapult(object input)
+    {
+        if (GetMember(input, "currentWorldMousePosition") is not Vector3 pointer) return null;
+        object? best = null;
+        float bestDistance = float.PositiveInfinity;
+        foreach (object candidate in SnapshotFieldCatapultPoints())
+        {
+            if (candidate is not Component component || component == null) continue;
+            Collider2D[] colliders = component.GetComponentsInChildren<Collider2D>(true);
+            if (!colliders.Any(collider => collider != null && collider.enabled && collider.OverlapPoint(pointer))) continue;
+            float distance = (component.transform.position - pointer).sqrMagnitude;
+            if (distance > bestDistance) continue;
+            bestDistance = distance;
+            best = candidate;
+        }
+        return best;
+    }
+
     public void InvalidateEnemyOverlayCache()
     {
         _enemyOverlaySnapshots.Clear();
@@ -1675,6 +1933,7 @@ internal sealed class CheatRuntimeBridge
 
         EnsureEnemyOverlayStyles();
         DrawSpawnPointMarkers(camera);
+        DrawFieldCatapultDeleteOverlay(camera);
 
         string tooltip = string.Empty;
         for (int index = 0; index < _enemyOverlaySnapshots.Count; index++)
@@ -1989,6 +2248,27 @@ internal sealed class CheatRuntimeBridge
         }
     }
 
+    private void DrawFieldCatapultDeleteOverlay(Camera camera)
+    {
+        if (!_fieldCatapultDeleteMode) return;
+        GUI.Label(new Rect(12f, 92f, 460f, 32f), "删除模式：左键删除弹射点，Esc 退出", _enemyIdStyle);
+        object? input = TryGetSingleton(_inputManagerType!);
+        object? hovered = input == null ? null : FindHoveredFieldCatapult(input);
+        if (hovered is not Component component || component == null) return;
+        Vector3 screen = camera.WorldToScreenPoint(component.transform.position);
+        if (screen.z <= 0f) return;
+        Rect marker = new(screen.x - 30f, Screen.height - screen.y - 30f, 60f, 60f);
+        Color previous = GUI.color;
+        GUI.color = new Color(1f, 0.12f, 0.08f, 0.96f);
+        const float border = 3f;
+        GUI.DrawTexture(new Rect(marker.x, marker.y, marker.width, border), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(marker.x, marker.yMax - border, marker.width, border), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(marker.x, marker.y, border, marker.height), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(marker.xMax - border, marker.y, border, marker.height), Texture2D.whiteTexture);
+        GUI.color = previous;
+        GUI.Label(marker, "×", _enemyIdStyle);
+    }
+
     private void DrawEnemyBuffIcons(
         IReadOnlyList<EnemyBuffIconSnapshot> buffs,
         float screenX,
@@ -2067,6 +2347,7 @@ internal sealed class CheatRuntimeBridge
         _spawnPointCapture = SpawnPointCapture.Idle();
         _spawnPoints.Clear();
         _lastCapturedPointId = string.Empty;
+        _fieldCatapultDeleteMode = false;
         if (_baseReceiver != null)
         {
             try
@@ -2509,38 +2790,81 @@ internal sealed class CheatRuntimeBridge
     private JArray BuildOwnedCatapultPoints()
     {
         JArray result = new();
+        Dictionary<string, int> legacyLedgerCounts = new(StringComparer.Ordinal);
         object? pointDataUi = TryGetSingleton(_pointDataUiType!);
-        if (pointDataUi == null || GetMember(pointDataUi, "PointDatas") is not IList pointDatas) return result;
-        for (int index = 0; index < pointDatas.Count; index++)
+        if (pointDataUi != null && GetMember(pointDataUi, "PointDatas") is IList pointDatas)
         {
-            object? row = pointDatas[index];
-            if (row == null) continue;
-            bool isAttribute = GetBool(row, "isAttribute");
-            string disposableId = isAttribute ? "FreePoint_Attribute" : "FreePoint";
-            object disposableEnum = ParseEnum(_disposableType!, disposableId, "弹射点类型");
-            JObject item = BuildCatalogItem(
-                disposableEnum,
-                TryGetDisposableData(disposableEnum, out object? data) ? data : null,
-                "name",
-                "icon",
-                "弹射点");
-            string key = GetMember(row, "key")?.ToString() ?? string.Empty;
-            item["catapultPointId"] = string.IsNullOrWhiteSpace(key) ? $"point-{index}" : key;
-            item["disposableId"] = disposableId;
-            item["isAttribute"] = isAttribute;
-            item["count"] = GetInt(row, "count");
-            JArray enchantments = new();
-            if (GetMember(row, "hasBuffFlag") is IEnumerable flags)
+            for (int index = 0; index < pointDatas.Count; index++)
             {
-                foreach (object? flag in flags)
+                object? row = pointDatas[index];
+                if (row == null) continue;
+                bool isAttribute = GetBool(row, "isAttribute");
+                string disposableId = isAttribute ? "FreePoint_Attribute" : "FreePoint";
+                object disposableEnum = ParseEnum(_disposableType!, disposableId, "弹射点类型");
+                JObject item = BuildCatalogItem(
+                    disposableEnum,
+                    TryGetDisposableData(disposableEnum, out object? data) ? data : null,
+                    "name",
+                    "icon",
+                    "弹射点");
+                string key = GetMember(row, "key")?.ToString() ?? string.Empty;
+                int count = GetInt(row, "count");
+                legacyLedgerCounts[disposableId] = legacyLedgerCounts.TryGetValue(disposableId, out int old) ? old + count : count;
+                item["catapultPointId"] = string.IsNullOrWhiteSpace(key) ? $"point-{index}" : key;
+                item["disposableId"] = disposableId;
+                item["isAttribute"] = isAttribute;
+                item["count"] = count;
+                JArray enchantments = new();
+                if (GetMember(row, "hasBuffFlag") is IEnumerable flags)
                 {
-                    if (flag != null) enchantments.Add(flag.ToString());
+                    foreach (object? flag in flags)
+                    {
+                        if (flag != null) enchantments.Add(flag.ToString());
+                    }
                 }
+                item["buffs"] = enchantments;
+                result.Add(item);
             }
-            item["buffs"] = enchantments;
+        }
+
+        foreach ((object value, int count) in SnapshotDisposableCounts())
+        {
+            if (!IsCatapultPoint(value)) continue;
+            string id = value.ToString() ?? string.Empty;
+            if (IsLegacyCatapultPointId(id) && legacyLedgerCounts.ContainsKey(id)) continue;
+            JObject item = BuildCatapultPointCatalogItem(value);
+            item["catapultPointId"] = "bag:" + id;
+            item["disposableId"] = id;
+            item["isAttribute"] = string.Equals(id, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase);
+            item["count"] = count;
+            item["buffs"] = new JArray();
             result.Add(item);
         }
 
+        return result;
+    }
+
+    private List<(object Value, int Count)> SnapshotDisposableCounts()
+    {
+        List<(object Value, int Count)> result = new();
+        object? manager = TryGetSingleton(_disposableManagerType!);
+        if (manager == null || GetMember(manager, "disposableObjects") is not IEnumerable source) return result;
+        MethodInfo? isStackable = FindMethod(manager.GetType(), "IsStackable", _disposableType!);
+        MethodInfo? getStackCount = FindMethod(manager.GetType(), "GetStackCount", _disposableType!);
+        HashSet<long> stackedSeen = new();
+        foreach (object? item in source)
+        {
+            if (item == null) continue;
+            object? value = GetMember(item, "disposableEnum");
+            if (value == null) continue;
+            long numeric = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            bool stacked = isStackable?.Invoke(manager, new[] { value }) is true;
+            if (stacked && !stackedSeen.Add(numeric)) continue;
+            int count = stacked
+                ? Convert.ToInt32(getStackCount?.Invoke(manager, new[] { value }) ?? 0, CultureInfo.InvariantCulture)
+                : 1;
+            if (count > 0) result.Add((value, count));
+        }
         return result;
     }
 
@@ -3029,8 +3353,13 @@ internal sealed class CheatRuntimeBridge
         Type type = target.GetType();
         PropertyInfo? property = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
         if (property != null) return property.GetValue(target, null);
-        FieldInfo? field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
-        return field?.GetValue(target);
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        for (Type? current = type; current != null; current = current.BaseType)
+        {
+            FieldInfo? field = current.GetField(name, flags);
+            if (field != null) return field.GetValue(target);
+        }
+        return null;
     }
 
     private static object? GetStaticMember(Type type, string name)
@@ -3174,13 +3503,23 @@ internal sealed class CheatRuntimeBridge
     private JObject BuildVehicleCatalogItem(object value)
     {
         object? data = InvokeInfoManager("GetVehicleDescription", _vehicleType!, value);
-        return BuildCatalogItem(value, data, "name", "sprite", "战车");
+        JObject item = BuildCatalogItem(value, data, "name", "sprite", "战车");
+        string enumName = value.ToString() ?? string.Empty;
+        string family = VehicleFamily(enumName, out int level);
+        ApplyGrouping(item, "vehicle:" + family, family, EnumGroupOrder(_vehicleType!, family), level);
+        item["level"] = level;
+        return item;
     }
 
     private JObject BuildEnchantmentCatalogItem(object value)
     {
         object? data = GetEnchantmentDetailData(value);
-        return BuildCatalogItem(value, data, "enchantmentWordTextName", "icon", "附魔");
+        JObject item = BuildCatalogItem(value, data, "enchantmentWordTextName", "icon", "附魔");
+        string enumName = value.ToString() ?? string.Empty;
+        string family = enumName.Split(new[] { '_' }, 2)[0];
+        int variantOrder = enumName.IndexOf('_') < 0 ? 0 : EnchantmentVariantOrder(enumName);
+        ApplyGrouping(item, "enchantment:" + family, family, EnumGroupOrder(_fetterType!, family), variantOrder);
+        return item;
     }
 
     private object? GetEnchantmentDetailData(object value)
@@ -3205,6 +3544,12 @@ internal sealed class CheatRuntimeBridge
     {
         TryGetDisposableData(value, out object? data);
         return BuildCatalogItem(value, data, "name", "icon", "消耗品");
+    }
+
+    private JObject BuildCatapultPointCatalogItem(object value)
+    {
+        TryGetDisposableData(value, out object? data);
+        return BuildCatalogItem(value, data, "name", "icon", "弹射点");
     }
 
     private JObject BuildRelicCatalogItem(object value)
@@ -3232,6 +3577,7 @@ internal sealed class CheatRuntimeBridge
         string id = value.ToString() ?? string.Empty;
         string name = ResolveChineseLocalizedString(GetMember(data, nameMember));
         CatalogIcon icon = ExportCatalogIcon(GetMember(data, iconMember) as Sprite);
+        long numeric = Convert.ToInt64(value, CultureInfo.InvariantCulture);
         return new JObject
         {
             ["id"] = id,
@@ -3242,7 +3588,11 @@ internal sealed class CheatRuntimeBridge
             ["iconFile"] = icon.RelativeFile,
             ["iconSha256"] = icon.Sha256,
             ["tags"] = new JArray(category, id),
-            ["value"] = Convert.ToInt64(value, CultureInfo.InvariantCulture)
+            ["value"] = numeric,
+            ["groupKey"] = category,
+            ["groupName"] = category,
+            ["groupOrder"] = 0,
+            ["itemOrder"] = numeric is < int.MinValue or > int.MaxValue ? int.MaxValue : (int)numeric
         };
     }
 
@@ -3273,22 +3623,85 @@ internal sealed class CheatRuntimeBridge
         return result;
     }
 
-    private JArray CatapultPointCatalogItems()
+    private bool IsCatapultPoint(object value)
     {
-        JArray result = new();
-        foreach (string id in new[] { "FreePoint", "FreePoint_Attribute" })
-        {
-            object value = ParseEnum(_disposableType!, id, "弹射点类型");
-            if (!TryGetDisposableData(value, out object? data)) continue;
-            result.Add(BuildCatalogItem(value, data, "name", "icon", "弹射点"));
-        }
-
-        return result;
+        string id = value.ToString() ?? string.Empty;
+        if (IsLegacyCatapultPointId(id)) return true;
+        object? disposableObject = TryGetDisposableTemplate(value);
+        object? interaction = GetMember(disposableObject, "interaction");
+        object? behaviour = GetMember(interaction, "disposableBehaviour");
+        return (behaviour?.GetType().Name ?? string.Empty).StartsWith("CreateFreeStation", StringComparison.Ordinal);
     }
 
-    private static bool IsCatapultPointId(string id) =>
+    private object? TryGetDisposableTemplate(object value)
+    {
+        object? manager = TryGetSingleton(_disposableManagerType!);
+        object? configuration = GetMember(manager, "m_disposableSo")
+                                ?? GetMember(manager, "disposableSo")
+                                ?? GetMember(manager, "DisposableSo");
+        if (GetMember(configuration, "disposableClassName") is not IDictionary templates) return null;
+        return templates.Contains(value) ? templates[value] : null;
+    }
+
+    private static bool IsLegacyCatapultPointId(string id) =>
         string.Equals(id, "FreePoint", StringComparison.OrdinalIgnoreCase)
         || string.Equals(id, "FreePoint_Attribute", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsCatapultPointId(string id)
+    {
+        try
+        {
+            object value = ParseEnum(_disposableType!, id, "弹射点类型");
+            return IsCatapultPoint(value);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string VehicleFamily(string enumName, out int level)
+    {
+        level = 0;
+        int marker = enumName.LastIndexOf("_L", StringComparison.Ordinal);
+        if (marker >= 0 && int.TryParse(enumName.Substring(marker + 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        {
+            level = parsed;
+            return enumName.Substring(0, marker);
+        }
+        return enumName;
+    }
+
+    private static int EnchantmentVariantOrder(string enumName)
+    {
+        if (enumName.EndsWith("_Train", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (enumName.EndsWith("_Railway", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (enumName.EndsWith("_Domain", StringComparison.OrdinalIgnoreCase)
+            || enumName.EndsWith("_Doamin", StringComparison.OrdinalIgnoreCase)) return 3;
+        return 4;
+    }
+
+    private static int EnumGroupOrder(Type? enumType, string family)
+    {
+        if (enumType == null) return int.MaxValue;
+        long best = long.MaxValue;
+        foreach (object value in Enum.GetValues(enumType))
+        {
+            string name = value.ToString() ?? string.Empty;
+            if (!string.Equals(name, family, StringComparison.Ordinal)
+                && !name.StartsWith(family + "_", StringComparison.Ordinal)) continue;
+            best = Math.Min(best, Convert.ToInt64(value, CultureInfo.InvariantCulture));
+        }
+        return best > int.MaxValue ? int.MaxValue : (int)best;
+    }
+
+    private static void ApplyGrouping(JObject item, string key, string name, int groupOrder, int itemOrder)
+    {
+        item["groupKey"] = key;
+        item["groupName"] = name;
+        item["groupOrder"] = groupOrder;
+        item["itemOrder"] = itemOrder;
+    }
 
     private bool IsSafeConfiguredEnemy(object aiId, out string reason)
     {
@@ -3853,6 +4266,26 @@ internal sealed class CheatRuntimeBridge
         return value;
     }
 
+    private static int PositiveInt(JObject arguments, string name, int fallback)
+    {
+        int value = arguments.Value<int?>(name) ?? fallback;
+        if (value < 1)
+        {
+            throw new InvalidOperationException(name + " 必须大于 0。");
+        }
+        return value;
+    }
+
+    private static int NonNegativeInt(JObject arguments, string name, int fallback)
+    {
+        int value = arguments.Value<int?>(name) ?? fallback;
+        if (value < 0)
+        {
+            throw new InvalidOperationException(name + " 不能小于 0。");
+        }
+        return value;
+    }
+
     private static float BoundedFloat(JObject arguments, string name, float minimum, float maximum, float fallback)
     {
         double value = arguments.Value<double?>(name) ?? fallback;
@@ -4062,6 +4495,89 @@ internal sealed class CheatRuntimeBridge
             ["failedCount"] = FailedCount,
             ["remainingCount"] = RemainingCount,
             ["failedRelics"] = new JArray(_failedRelics.Select(item => item.DeepClone())),
+            ["message"] = Message
+        };
+    }
+
+    private sealed class RelicRemovalJob
+    {
+        private readonly List<object> _pending;
+        private readonly List<JObject> _failed = new();
+        private int _nextIndex;
+
+        private RelicRemovalJob(string state, List<object>? pending, string message)
+        {
+            State = state;
+            _pending = pending ?? new List<object>();
+            Message = message;
+        }
+
+        public string State { get; private set; }
+        public string Message { get; private set; }
+        public int RemovedTypes { get; private set; }
+        public int RemovedInstances { get; private set; }
+        public int FailedCount { get; private set; }
+        public int TotalCount => _pending.Count;
+        public int ProcessedCount => Math.Min(TotalCount, RemovedTypes + FailedCount);
+        public int RemainingCount => Math.Max(0, TotalCount - _nextIndex);
+        public bool IsRunning => string.Equals(State, "running", StringComparison.Ordinal);
+        public bool HasRemaining => _nextIndex < _pending.Count;
+
+        public static RelicRemovalJob Idle() => new("idle", null, "尚未启动删除所有遗物任务。");
+        public static RelicRemovalJob Start(List<object> pending) =>
+            new("running", pending, pending.Count == 0 ? "当前没有遗物。" : $"正在逐帧删除 {pending.Count} 种遗物。");
+
+        public bool TryTakeNext(out object? relic)
+        {
+            if (!IsRunning || !HasRemaining)
+            {
+                relic = null;
+                return false;
+            }
+            relic = _pending[_nextIndex++];
+            return true;
+        }
+
+        public void RecordRemoved(string relicId, int instances)
+        {
+            RemovedTypes++;
+            RemovedInstances += instances;
+            Message = $"已删除遗物 {relicId}，移除 {instances} 个实例。";
+        }
+
+        public void RecordFailed(string relicId, string error)
+        {
+            FailedCount++;
+            _failed.Add(new JObject { ["relicId"] = relicId, ["error"] = error });
+            Message = $"删除遗物 {relicId} 失败：{error}";
+        }
+
+        public void Complete()
+        {
+            if (!IsRunning) return;
+            State = FailedCount == 0 ? "completed" : RemovedTypes > 0 ? "partial" : "failed";
+            Message = FailedCount == 0
+                ? $"删除所有遗物已完成：移除 {RemovedTypes} 种、{RemovedInstances} 个实例。"
+                : $"删除所有遗物部分完成：移除 {RemovedTypes} 种，失败 {FailedCount} 种。";
+        }
+
+        public void Cancel(string message)
+        {
+            if (!IsRunning) return;
+            State = "cancelled";
+            Message = string.IsNullOrWhiteSpace(message) ? "删除所有遗物任务已取消。" : message;
+        }
+
+        public JObject ToData() => new()
+        {
+            ["state"] = State,
+            ["totalCount"] = TotalCount,
+            ["processedCount"] = ProcessedCount,
+            ["removedTypes"] = RemovedTypes,
+            ["removedInstances"] = RemovedInstances,
+            ["failedCount"] = FailedCount,
+            ["remainingCount"] = RemainingCount,
+            ["failedRelics"] = new JArray(_failed.Select(item => item.DeepClone())),
             ["message"] = Message
         };
     }

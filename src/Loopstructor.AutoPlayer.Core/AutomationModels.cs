@@ -290,7 +290,7 @@ public sealed class LaunchTicket
 public static class Protocol
 {
     public const int CurrentVersion = 3;
-    public const int CheatCurrentVersion = 6;
+    public const int CheatCurrentVersion = 7;
     public const string EnabledEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_ENABLED";
     public const string TokenEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_TOKEN";
     public const string PipeEnvironmentVariable = "LOOPSTRUCTOR_AUTOPLAYER_PIPE";
@@ -368,10 +368,13 @@ public static class CheatCommands
     public const string GrantVehicle = "cheat.grantVehicle";
     public const string RemoveVehicle = "cheat.removeVehicle";
     public const string GrantDisposable = "cheat.grantDisposable";
+    public const string ClearConsumables = "cheat.clearConsumables";
     public const string GrantCatapultPoint = "cheat.grantCatapultPoint";
     public const string RemoveCatapultPoint = "cheat.removeCatapultPoint";
+    public const string ClearBackpackCatapultPoints = "cheat.clearBackpackCatapultPoints";
     public const string RemoveFieldCatapultPoint = "cheat.removeFieldCatapultPoint";
     public const string ClearFieldCatapultPoints = "cheat.clearFieldCatapultPoints";
+    public const string SetFieldCatapultDeleteMode = "cheat.setFieldCatapultDeleteMode";
     public const string SetBaseGodMode = "cheat.setBaseGodMode";
     public const string EndWave = "cheat.endWave";
     public const string ClearEnemies = "cheat.clearEnemies";
@@ -385,6 +388,7 @@ public static class CheatCommands
     public const string GrantRelic = "cheat.grantRelic";
     public const string GrantAllRelics = "cheat.grantAllRelics";
     public const string RemoveRelic = "cheat.removeRelic";
+    public const string RemoveAllRelics = "cheat.removeAllRelics";
     public const string SetSpawnPointCapture = "cheat.setSpawnPointCapture";
     public const string RemoveSpawnPoint = "cheat.removeSpawnPoint";
     public const string ClearSpawnPoints = "cheat.clearSpawnPoints";
@@ -399,10 +403,13 @@ public static class CheatCommands
         GrantVehicle,
         RemoveVehicle,
         GrantDisposable,
+        ClearConsumables,
         GrantCatapultPoint,
         RemoveCatapultPoint,
+        ClearBackpackCatapultPoints,
         RemoveFieldCatapultPoint,
         ClearFieldCatapultPoints,
+        SetFieldCatapultDeleteMode,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
@@ -416,6 +423,7 @@ public static class CheatCommands
         GrantRelic,
         GrantAllRelics,
         RemoveRelic,
+        RemoveAllRelics,
         SetSpawnPointCapture,
         RemoveSpawnPoint,
         ClearSpawnPoints,
@@ -428,10 +436,13 @@ public static class CheatCommands
         GrantVehicle,
         RemoveVehicle,
         GrantDisposable,
+        ClearConsumables,
         GrantCatapultPoint,
         RemoveCatapultPoint,
+        ClearBackpackCatapultPoints,
         RemoveFieldCatapultPoint,
         ClearFieldCatapultPoints,
+        SetFieldCatapultDeleteMode,
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
@@ -441,6 +452,7 @@ public static class CheatCommands
         GrantRelic,
         GrantAllRelics,
         RemoveRelic,
+        RemoveAllRelics,
         SpawnEnemy,
         SetMapSkipEnabled
     };

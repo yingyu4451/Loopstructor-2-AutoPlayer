@@ -47,7 +47,7 @@ public sealed class ProtocolTests
 
         Assert.Null(legacy.Arguments);
         Assert.False(JsonConvert.DeserializeObject<BridgeHello>("{}")!.CheatSessionAuthorized);
-        Assert.Equal(6, Protocol.CheatCurrentVersion);
+        Assert.Equal(7, Protocol.CheatCurrentVersion);
         Assert.Equal(4321, roundTrip.TargetGameProcessId);
         Assert.Equal(current.TargetProcessInstanceId, roundTrip.TargetProcessInstanceId);
         Assert.True(CheatCommands.IsCheatCommand(roundTrip.Command));
@@ -138,8 +138,8 @@ public sealed class ProtocolTests
     [Fact]
     public void CheatCommands_ExposeOnlyNamespacedFixedOperations()
     {
-        Assert.Equal(28, CheatCommands.All.Count);
-        Assert.Equal(18, CheatCommands.Mutations.Count);
+        Assert.Equal(32, CheatCommands.All.Count);
+        Assert.Equal(22, CheatCommands.Mutations.Count);
         Assert.Equal(7, CheatCommands.AutoPlayObservationCommands.Count);
         Assert.All(CheatCommands.All, command => Assert.StartsWith("cheat.", command, StringComparison.Ordinal));
         Assert.DoesNotContain(CheatCommands.All, command => command.Contains("reflect", StringComparison.OrdinalIgnoreCase));
@@ -155,6 +155,10 @@ public sealed class ProtocolTests
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveFieldCatapultPoint));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.ClearFieldCatapultPoints));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.ClearConsumables));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.ClearBackpackCatapultPoints));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.RemoveAllRelics));
+        Assert.True(CheatCommands.IsMutationCommand(CheatCommands.SetFieldCatapultDeleteMode));
         Assert.True(CheatCommands.IsMutationCommand(CheatCommands.GrantVehicle.ToUpperInvariant()));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.QueryEnemies));
         Assert.False(CheatCommands.IsMutationCommand(CheatCommands.SetEnabled));
