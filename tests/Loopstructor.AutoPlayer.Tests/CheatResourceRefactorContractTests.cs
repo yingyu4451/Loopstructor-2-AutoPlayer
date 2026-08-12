@@ -22,11 +22,27 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains("AllDisposableRewards", LoadedStrings(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "IsCatapultPoint"));
         Assert.Contains(Calls(vehicle), IsCall(BridgeType, "VehicleFamily"));
+        Assert.Contains(Calls(vehicle), IsCall(BridgeType, "EnumGroupOrder"));
+        Assert.DoesNotContain(Calls(vehicle), IsCall(BridgeType, "VehicleFamilyOrder"));
         Assert.Contains(Calls(enchantment), IsCall(BridgeType, "EnchantmentVariantOrder"));
         foreach (string field in new[] { "groupKey", "groupName", "groupOrder", "itemOrder" })
         {
             Assert.Contains(field, LoadedStrings(RequireMethod(bridge, "ApplyGrouping")));
         }
+    }
+
+    [Fact]
+    public void ConsumableGrant_UsesGameCapacityAndReturnsOwnedState()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        MethodDefinition grant = RequireMethod(bridge, "GrantDisposable");
+        MethodDefinition state = RequireMethod(bridge, "QueryOwnedState");
+
+        Assert.Contains(Calls(grant), IsCall(BridgeType, "ReadDisposableCapacity"));
+        Assert.Contains(Calls(grant), IsCall(BridgeType, "BuildOwnedConsumables"));
+        Assert.Contains("ownedConsumables", LoadedStrings(state));
+        Assert.Contains(5, LoadedInts(RequireMethod(bridge, "ReadDisposableCapacity")));
     }
 
     [Fact]

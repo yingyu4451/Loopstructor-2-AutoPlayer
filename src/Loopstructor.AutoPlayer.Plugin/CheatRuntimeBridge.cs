@@ -476,6 +476,7 @@ internal sealed class CheatRuntimeBridge
         {
             ["ownedVehicles"] = new JArray(),
             ["ownedRelics"] = new JArray(),
+            ["ownedConsumables"] = new JArray(),
             ["ownedCatapultPoints"] = new JArray(),
             ["fieldCatapultPoints"] = new JArray(),
             ["grantAllRelics"] = BuildGrantAllRelicsState(),
@@ -496,6 +497,7 @@ internal sealed class CheatRuntimeBridge
         }
 
         TryPopulateInventoryState(state, errors, "ownedRelics", "遗物", BuildOwnedRelics);
+        TryPopulateInventoryState(state, errors, "ownedConsumables", "消耗品", BuildOwnedConsumables);
         TryPopulateInventoryState(state, errors, "ownedCatapultPoints", "背包弹射点", BuildOwnedCatapultPoints);
         TryPopulateInventoryState(state, errors, "fieldCatapultPoints", "场上弹射点", BuildFieldCatapultPoints);
         if (errors.Count > 0) state["inventoryError"] = string.Join("；", errors.ToArray());
@@ -707,14 +709,32 @@ internal sealed class CheatRuntimeBridge
             return CheatExecutionResult.Fail("当前游戏版本缺少消耗品获取入口。", "DISPOSABLE_API_MISSING");
         }
 
+        MethodInfo? isStackableMethod = FindMethod(manager.GetType(), "IsStackable", _disposableType!);
+        MethodInfo? slotCountMethod = FindMethod(manager.GetType(), "GetNormalDisposableSlotCount");
+        bool stackable = isStackableMethod?.Invoke(manager, new[] { disposableEnum }) is true;
+        object? template = TryGetDisposableTemplate(disposableEnum);
+        bool autoUse = template != null && GetBool(template, "isAutoUse");
+        int beforeSlots = Convert.ToInt32(slotCountMethod?.Invoke(manager, null) ?? 0, CultureInfo.InvariantCulture);
+        int capacity = ReadDisposableCapacity(manager);
+        int allowed = stackable || autoUse ? count : Math.Min(count, Math.Max(0, capacity - beforeSlots));
+
         int granted = 0;
-        for (int index = 0; index < count; index++)
+        for (int index = 0; index < allowed; index++)
         {
             if (method.Invoke(manager, new[] { disposableEnum }) is not bool success || !success) break;
             granted++;
         }
 
-        JObject data = new() { ["requested"] = count, ["granted"] = granted, ["disposableId"] = disposableId };
+        JObject data = new()
+        {
+            ["requested"] = count,
+            ["allowed"] = allowed,
+            ["granted"] = granted,
+            ["disposableId"] = disposableId,
+            ["capacity"] = capacity,
+            ["occupiedSlotsBefore"] = beforeSlots,
+            ["ownedConsumables"] = BuildOwnedConsumables()
+        };
         string message = $"已获取 {granted}/{count} 个消耗品 {disposableId}。";
         if (granted == count) return CheatExecutionResult.Changed(message, data);
         return granted > 0
@@ -771,6 +791,9 @@ internal sealed class CheatRuntimeBridge
             ["requested"] = requested,
             ["removed"] = removed,
             ["failed"] = failed,
+            ["ownedConsumables"] = string.Equals(displayName, "消耗品", StringComparison.Ordinal)
+                ? BuildOwnedConsumables()
+                : new JArray(),
             ["ownedCatapultPoints"] = BuildOwnedCatapultPoints()
         };
         string message = $"已删除 {removed}/{requested} 个{displayName}。";
@@ -1034,7 +1057,14 @@ internal sealed class CheatRuntimeBridge
         }
 
         int before = GetDictionaryListCount(GetMember(manager, "superModules"), relicEnum);
-        method.Invoke(manager, new[] { relicEnum, (object)true });
+        if (before > 0)
+        {
+            return CheatExecutionResult.Ok(
+                "该遗物已经启用：" + relicId + "。",
+                new JObject { ["relicId"] = relicId, ["before"] = before, ["after"] = before });
+        }
+
+        method.Invoke(manager, new[] { relicEnum, (object)false });
         int after = GetDictionaryListCount(GetMember(manager, "superModules"), relicEnum);
         if (after <= before)
         {
@@ -2785,6 +2815,29 @@ internal sealed class CheatRuntimeBridge
         }
 
         return result;
+    }
+
+    private JArray BuildOwnedConsumables()
+    {
+        JArray result = new();
+        foreach ((object value, int count) in SnapshotDisposableCounts())
+        {
+            if (IsCatapultPoint(value)) continue;
+            JObject item = BuildDisposableCatalogItem(value);
+            item["disposableId"] = value.ToString() ?? string.Empty;
+            item["count"] = count;
+            result.Add(item);
+        }
+        return result;
+    }
+
+    private static int ReadDisposableCapacity(object manager)
+    {
+        object? handler = GetMember(manager, "m_intHandler");
+        int value = handler == null ? 0 : GetInt(handler, "Value");
+        object? parameter = handler == null ? null : GetMember(handler, "m_parameter");
+        if (value <= 0 && parameter != null) value = GetInt(parameter, "Value");
+        return value > 0 ? value : 5;
     }
 
     private JArray BuildOwnedCatapultPoints()

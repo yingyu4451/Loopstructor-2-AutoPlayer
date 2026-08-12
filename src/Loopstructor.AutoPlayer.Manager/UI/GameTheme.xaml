@@ -68,12 +68,12 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type controls:MechanicalShell}">
                     <Grid x:Name="ShellRoot" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
-                        <Border x:Name="OuterShadow" Margin="8" BorderBrush="#090705" BorderThickness="7" CornerRadius="5" />
-                        <Border x:Name="OuterBronzeFrame" Margin="13" BorderBrush="{StaticResource BronzeDarkBrush}" BorderThickness="7" CornerRadius="4" />
-                        <Border x:Name="OuterBrassFrame" Margin="19" BorderBrush="{StaticResource BrassBrush}" BorderThickness="2" CornerRadius="3" />
-                        <Border x:Name="InnerFrame" Margin="23" BorderBrush="#24160E" BorderThickness="4" CornerRadius="2" />
+                        <Border x:Name="OuterShadow" Margin="0" BorderBrush="#090705" BorderThickness="7" CornerRadius="0" />
+                        <Border x:Name="OuterBronzeFrame" Margin="6" BorderBrush="{StaticResource BronzeDarkBrush}" BorderThickness="7" CornerRadius="0" />
+                        <Border x:Name="OuterBrassFrame" Margin="12" BorderBrush="{StaticResource BrassBrush}" BorderThickness="2" CornerRadius="0" />
+                        <Border x:Name="InnerFrame" Margin="16" BorderBrush="#24160E" BorderThickness="4" CornerRadius="0" />
 
-                        <Grid x:Name="ContentHost" Margin="34,78,34,28">
+                        <Grid x:Name="ContentHost" Margin="27,78,27,18">
                             <Border Background="#B20A0907" BorderBrush="#8B5D3420" BorderThickness="1" CornerRadius="2" />
                             <ContentPresenter Margin="10" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
                         </Grid>
@@ -175,15 +175,6 @@
                             </Grid>
                         </Grid>
 
-                        <ItemsControl x:Name="BottomFasteners" Margin="24,0,0,18" HorizontalAlignment="Left" VerticalAlignment="Bottom" IsHitTestVisible="False">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <Ellipse Width="10" Height="10" Margin="0,0,5,0" Fill="#17110D" Stroke="#B27A3D" />
-                            <Ellipse Width="10" Height="10" Margin="0,0,5,0" Fill="#17110D" Stroke="#B27A3D" />
-                            <Ellipse Width="10" Height="10" Fill="#17110D" Stroke="#B27A3D" />
-                        </ItemsControl>
-                        <TextBlock x:Name="SubtitleText" Margin="0,0,28,13" HorizontalAlignment="Right" VerticalAlignment="Bottom" FontFamily="{StaticResource DataFont}" FontSize="11" Foreground="#9D7A50" Text="{TemplateBinding Subtitle}" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="Maximized">
@@ -197,10 +188,8 @@
                             <Setter TargetName="OuterBrassFrame" Property="CornerRadius" Value="0" />
                             <Setter TargetName="InnerFrame" Property="Margin" Value="13" />
                             <Setter TargetName="InnerFrame" Property="CornerRadius" Value="0" />
-                            <Setter TargetName="ContentHost" Property="Margin" Value="26,72,26,20" />
+                            <Setter TargetName="ContentHost" Property="Margin" Value="20,72,20,10" />
                             <Setter TargetName="TitleBar" Property="Margin" Value="0,-2,0,0" />
-                            <Setter TargetName="BottomFasteners" Property="Margin" Value="16,0,0,10" />
-                            <Setter TargetName="SubtitleText" Property="Margin" Value="0,0,20,8" />
                         </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

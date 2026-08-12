@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -11,6 +12,7 @@ namespace Loopstructor.AutoPlayer.Manager.UI;
 internal sealed partial class EnchantmentSelectorControl : UserControl
 {
     private readonly ObservableCollection<EnchantmentChoice> _items = new();
+    private readonly ObservableCollection<EnchantmentChoice> _selectedItems = new();
     private readonly ICollectionView _view;
 
     public EnchantmentSelectorControl()
@@ -30,6 +32,8 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         .ToArray();
 
     public int ItemCount => _items.Count;
+
+    public IEnumerable SelectedChoices => _selectedItems;
 
     public void SetItems(IEnumerable<CatalogPickerItem> items)
     {
@@ -61,7 +65,11 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e) => _view.Refresh();
+    private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        _view.Refresh();
+    }
 
     private bool Matches(object value) => value is EnchantmentChoice choice && choice.Item.Matches(SearchBox.Text);
 
@@ -85,6 +93,8 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
     private void RefreshSummary()
     {
         EnchantmentChoice[] selected = _items.Where(item => item.Level > 0).ToArray();
+        _selectedItems.Clear();
+        foreach (EnchantmentChoice item in selected) _selectedItems.Add(item);
         long layers = selected.Aggregate<EnchantmentChoice, long>(0, (total, item) => total + item.Level);
         SummaryText.Text = $"已选 {selected.Length} 种附魔 · 共 {layers} 层";
     }

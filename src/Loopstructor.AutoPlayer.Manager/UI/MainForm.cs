@@ -1239,12 +1239,8 @@ internal sealed partial class MainForm : Window
             "integrity",
             status.CheatUsed
                 ? playerMode
-                    ? status.CheatActionCount > 0
-                        ? $"当前存档已使用作弊 / {status.CheatActionCount} 项"
-                        : "当前存档存在作弊记录"
-                    : status.CheatActionCount > 0
-                        ? $"隔离 QA 档已使用作弊 / {status.CheatActionCount} 项"
-                        : "隔离 QA 档存在作弊记录"
+                    ? "当前存档存在作弊记录"
+                    : "隔离 QA 档存在作弊记录"
                 : playerMode ? "玩家模式 / 未使用作弊" : "隔离 QA / 未使用作弊");
         SetTelemetry("outcome", OutcomeName(status.Outcome));
         SetTelemetry("waves", $"{status.WavesCompleted} 完成 / {status.WavesStarted} 启动");
@@ -1273,7 +1269,7 @@ internal sealed partial class MainForm : Window
                 ? "必须彻底重启"
                 : status.CheatUsed ? "可自动游玩 / 已标记作弊" : "可随时控制"));
 
-        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CheatActionCount}|{status.CurrentMapStage}|{status.CurrentMapLayer}";
+        string signature = $"{status.RunState}|{status.Outcome}|{status.Stage}|{status.LastCommand}|{status.LastMessage}|{status.NeedsProcessRestart}|{status.CheatModeEnabled}|{status.CheatUsed}|{status.CurrentMapStage}|{status.CurrentMapLayer}";
         if (!string.Equals(signature, _lastStatusSignature, StringComparison.Ordinal))
         {
             _lastStatusSignature = signature;
@@ -1333,9 +1329,7 @@ internal sealed partial class MainForm : Window
             _restartWarningReported = false;
             _runState.Text = "作弊模式 / 已启用";
             _stageDetail.Text = status.CheatUsed
-                ? status.CheatActionCount > 0
-                    ? $"已经执行 {status.CheatActionCount} 项作弊操作；关闭持续效果后仍可开始自动游玩。"
-                    : "当前存档存在作弊记录；关闭持续效果后仍可开始自动游玩。"
+                ? "当前存档存在作弊记录；关闭持续效果后仍可开始自动游玩。"
                 : "作弊工具已就绪；怪物 ID 与 Buff 监视不会改动对局。";
             SetStageVisual(GoldBrush, WarningStageBackground);
             SetConnectionState("作弊模式", GoldBrush);

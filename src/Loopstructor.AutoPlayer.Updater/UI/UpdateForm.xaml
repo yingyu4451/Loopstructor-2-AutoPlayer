@@ -317,7 +317,7 @@
     </Window.Resources>
 
     <Border x:Name="WindowFrame"
-            Margin="8"
+            Margin="0"
             Background="{StaticResource CoalBrush}"
             BorderBrush="#1F130C"
             BorderThickness="3">
@@ -664,7 +664,6 @@
                     </Border>
                 </Border>
 
-                <Ellipse Grid.Row="1" Width="11" Height="11" Margin="13" HorizontalAlignment="Left" VerticalAlignment="Bottom" Fill="#1A120C" Stroke="#B47B3D" StrokeThickness="2" />
                 <Thumb x:Name="ResizeGrip"
                     Grid.Row="1"
                     Margin="0,0,10,10"

@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.4 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.5 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.4
+.\scripts\package.ps1 -Version 0.6.5
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.4-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.5-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -148,11 +148,13 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.4-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.5-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 
-`v0.6.4` 重构作弊工具资源与附魔流程：战车/附魔按家族排序，附魔用左键加层、右键减层且取消产品上限；消耗品与所有可放置弹射点按运行时行为互斥分类；新增删除全部消耗品、背包/场上弹射点、全部遗物及场上点击删除模式；游戏内战车卡片可紧凑换行显示全部附魔。作弊协议升级到 `v7`、目录格式升级到 `v4`。本版本以 `v0.6.3` 作为相邻增量更新基线。更新后需重新执行一次“安装 / 更新插件”并重启游戏。
+`v0.6.5` 更新作弊工具窗口与资源操作界面，并以 `v0.6.4` 作为相邻增量更新基线。
+
+`v0.6.4` 重构作弊工具资源与附魔流程：战车按枚举类型与等级顺序排列，附魔用左键加层、右键减层且取消产品上限；已选附魔在战车操作区单独汇总。消耗品和弹射点改为搜索图标后左键直接获取，并遵守游戏普通道具栏容量；遗物图标左键启用、右键关闭。新增删除全部消耗品、背包/场上弹射点、全部遗物及场上点击删除模式；游戏内战车卡片可紧凑换行显示全部附魔。所有搜索入口增加明确的放大镜提示，数值步进按钮的禁用态改为低亮机械色。作弊协议升级到 `v7`、目录格式升级到 `v4`。本版本以 `v0.6.3` 作为相邻增量更新基线。更新后需重新执行一次“安装 / 更新插件”并重启游戏。
 
 `v0.6.3` 改进轨道的四向包围、紧凑回路和弹射点吞吐率规划，并允许战斗中及波间持续重规划至没有正收益；作弊工具新增逐帧补齐全部遗物及进度、跳过和失败反馈，作弊协议升级到 `v6`。本版本以 `v0.6.2` 作为相邻增量更新基线。更新后需重新执行一次“安装 / 更新插件”并重启游戏。
 

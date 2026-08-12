@@ -16,6 +16,8 @@ internal sealed class CheatNumericInput : UserControl
     private decimal _increment = 1;
     private int _decimalPlaces;
     private bool _updatingText;
+    private readonly RepeatButton _upButton;
+    private readonly RepeatButton _downButton;
 
     public CheatNumericInput()
     {
@@ -40,6 +42,8 @@ internal sealed class CheatNumericInput : UserControl
         steppers.RowDefinitions.Add(new RowDefinition());
         RepeatButton up = CreateStepper(up: true);
         RepeatButton down = CreateStepper(up: false);
+        _upButton = up;
+        _downButton = down;
         up.Click += (_, _) => Step(1);
         down.Click += (_, _) => Step(-1);
         Grid.SetRow(up, 0);
@@ -129,7 +133,7 @@ internal sealed class CheatNumericInput : UserControl
             Fill = new SolidColorBrush(Color.FromRgb(240, 178, 61)),
             Data = Geometry.Parse(up ? "M 0 4 L 3.5 0 L 7 4 Z" : "M 0 0 L 3.5 4 L 7 0 Z")
         };
-        return new RepeatButton
+        RepeatButton button = new()
         {
             Content = arrow,
             Padding = new Thickness(0),
@@ -138,8 +142,20 @@ internal sealed class CheatNumericInput : UserControl
             Background = new SolidColorBrush(Color.FromRgb(58, 37, 23)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(112, 73, 43)),
             BorderThickness = new Thickness(1),
-            Focusable = false
+            Focusable = false,
+            Opacity = 1
         };
+        FrameworkElementFactory face = new(typeof(Border));
+        face.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        face.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        face.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        face.SetValue(Border.SnapsToDevicePixelsProperty, true);
+        FrameworkElementFactory presenter = new(typeof(ContentPresenter));
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        face.AppendChild(presenter);
+        button.Template = new ControlTemplate(typeof(RepeatButton)) { VisualTree = face };
+        return button;
     }
 
     private void TextBoxOnPreviewKeyDown(object sender, KeyEventArgs eventArgs)
@@ -178,10 +194,24 @@ internal sealed class CheatNumericInput : UserControl
         {
             _textBox.Text = _value.ToString("N" + _decimalPlaces, CultureInfo.CurrentCulture);
             _textBox.CaretIndex = _textBox.Text.Length;
+            if (_upButton != null) UpdateStepperVisual(_upButton, _value < _maximum);
+            if (_downButton != null) UpdateStepperVisual(_downButton, _value > _minimum);
         }
         finally
         {
             _updatingText = false;
         }
+    }
+
+    private static void UpdateStepperVisual(RepeatButton button, bool enabled)
+    {
+        button.IsEnabled = enabled;
+        button.Opacity = enabled ? 1 : 0.28;
+        button.Background = new SolidColorBrush(enabled
+            ? Color.FromRgb(58, 37, 23)
+            : Color.FromRgb(31, 26, 21));
+        button.BorderBrush = new SolidColorBrush(enabled
+            ? Color.FromRgb(112, 73, 43)
+            : Color.FromRgb(66, 55, 44));
     }
 }

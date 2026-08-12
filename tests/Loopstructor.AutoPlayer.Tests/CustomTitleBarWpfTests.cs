@@ -51,6 +51,7 @@ public sealed class CustomTitleBarWpfTests
                 MechanicalShell shell = Assert.IsType<MechanicalShell>(form.FindName("Shell"));
                 Assert.Equal("CHEAT TOOL", shell.BrandText);
                 Assert.NotNull(shell.LogoSource);
+                Assert.Null(form.FindName("BottomFasteners"));
 
                 MechanicalWindowButton[] buttons = VisualDescendants<MechanicalWindowButton>(shell).ToArray();
                 Assert.Equal(3, buttons.Length);

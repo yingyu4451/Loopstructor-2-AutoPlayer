@@ -247,6 +247,15 @@ public sealed class CheatFormWpfLayoutTests
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearBackpackCatapultsButton")).IsEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearFieldCatapultsButton")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_fieldCatapultDeleteModeCheck")).IsEnabled);
+                CatalogActionGridControl disposableActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_disposableActions"));
+                CatalogActionGridControl relicActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_relicActions"));
+                CatalogActionGridControl catapultActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_catapultActions"));
+                Assert.True(disposableActions.IsEnabled);
+                Assert.True(relicActions.IsEnabled);
+                Assert.True(catapultActions.IsEnabled);
+                Assert.False(disposableActions.IsActionEnabled);
+                Assert.False(relicActions.IsActionEnabled);
+                Assert.False(catapultActions.IsActionEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearEnemiesButton")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_baseGodModeCheck")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_mapSkipCheck")).IsEnabled);
@@ -413,7 +422,7 @@ public sealed class CheatFormWpfLayoutTests
     }
 
     [Fact]
-    public void RemoveOwnedCatapult_UsesSelectedRuntimePointDataId()
+    public void ResourceCatapultCard_RemovesSingleDeletePickerAndKeepsBulkScopes()
     {
         RunSta(() =>
         {
@@ -436,22 +445,11 @@ public sealed class CheatFormWpfLayoutTests
                 form.Show();
                 PumpDispatcher();
 
-                CatalogPickerControl owned = Assert.IsType<CatalogPickerControl>(
-                    form.FindName("_ownedCatapultCatalog"));
-                Assert.Equal(2, owned.ItemCount);
-                Assert.Equal("point-normal-poison", owned.SelectedId);
-
-                Button remove = Assert.IsType<Button>(form.FindName("_removeCatapultButton"));
-                Assert.True(remove.IsEnabled);
-                remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                PumpDispatcher();
-
-                JObject payload = Assert.Single(
-                    calls,
-                    call => call.Command == CheatCommands.RemoveCatapultPoint).Payload!;
-                Assert.Equal("point-normal-poison", payload.Value<string>("catapultPointId"));
-                Assert.Equal("FreePoint", payload.Value<string>("disposableId"));
-                Assert.Equal(1, payload.Value<int>("count"));
+                CatalogActionGridControl actions = Assert.IsType<CatalogActionGridControl>(form.FindName("_catapultActions"));
+                Assert.Equal(2, actions.ItemCount);
+                Assert.Null(form.FindName("_ownedCatapultCatalog"));
+                Assert.Null(form.FindName("_removeCatapultButton"));
+                Assert.DoesNotContain(calls, call => call.Command == CheatCommands.RemoveCatapultPoint);
             }
             finally
             {
@@ -552,9 +550,6 @@ public sealed class CheatFormWpfLayoutTests
             try
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
-
-                CatalogPickerControl relics = Assert.IsType<CatalogPickerControl>(form.FindName("_relicCatalog"));
-                Assert.Null(relics.SelectedCatalogItem);
 
                 Button grantAll = Assert.IsType<Button>(form.FindName("_grantAllRelicsButton"));
                 Assert.True(grantAll.IsEnabled);

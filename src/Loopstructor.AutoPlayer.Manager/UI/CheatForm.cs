@@ -67,7 +67,6 @@ internal sealed partial class CheatForm : Window
         InitializeComponent();
 
         Title = $"Loopstructor 2.AutoPlayer 作弊工具 - v{ManagerProductInfo.Version}";
-        Shell.Subtitle = "CHEAT CONTROL CONSOLE";
         _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v-   /   作弊协议 v{Protocol.CheatCurrentVersion}";
         _vehicleGrid.ItemsSource = _vehicleRows;
         _enemyGrid.ItemsSource = _enemyRows;
@@ -148,14 +147,24 @@ internal sealed partial class CheatForm : Window
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
         _enchantmentSelector.SelectionChanged += (_, _) => ApplyAvailability();
         _clearEnchantmentsButton.Click += (_, _) => _enchantmentSelector.ClearSelections();
-        _grantDisposableButton.Click += async (_, _) => await GrantDisposableAsync();
+        _disposableActions.ItemInvoked += async (_, eventArgs) =>
+        {
+            if (eventArgs.Button == System.Windows.Input.MouseButton.Left) await GrantDisposableAsync(eventArgs.Item);
+        };
         _clearConsumablesButton.Click += async (_, _) => await ClearConsumablesAsync();
-        _grantRelicButton.Click += async (_, _) => await GrantRelicAsync();
+        _relicActions.ItemInvoked += async (_, eventArgs) =>
+        {
+            if (eventArgs.Button == System.Windows.Input.MouseButton.Left && eventArgs.OwnedCount == 0)
+                await GrantRelicAsync(eventArgs.Item);
+            else if (eventArgs.Button == System.Windows.Input.MouseButton.Right && eventArgs.OwnedCount > 0)
+                await RemoveRelicAsync(eventArgs.Item);
+        };
         _grantAllRelicsButton.Click += async (_, _) => await GrantAllRelicsAsync();
         _removeAllRelicsButton.Click += async (_, _) => await RemoveAllRelicsAsync();
-        _removeRelicButton.Click += async (_, _) => await RemoveRelicAsync();
-        _grantCatapultButton.Click += async (_, _) => await GrantCatapultPointAsync();
-        _removeCatapultButton.Click += async (_, _) => await RemoveCatapultPointAsync();
+        _catapultActions.ItemInvoked += async (_, eventArgs) =>
+        {
+            if (eventArgs.Button == System.Windows.Input.MouseButton.Left) await GrantCatapultPointAsync(eventArgs.Item);
+        };
         _clearBackpackCatapultsButton.Click += async (_, _) => await ClearBackpackCatapultsAsync();
         _clearFieldCatapultsButton.Click += async (_, _) => await ClearFieldCatapultsAsync();
         _fieldCatapultDeleteModeCheck.Click += async (_, _) => await FieldCatapultDeleteModeChangedAsync();
@@ -193,8 +202,7 @@ internal sealed partial class CheatForm : Window
 
         foreach (CatalogPickerControl picker in new[]
                  {
-                     _vehicleCatalog, _disposableCatalog, _relicCatalog,
-                     _ownedRelicCatalog, _catapultCatalog, _ownedCatapultCatalog, _enemyCatalog
+                     _vehicleCatalog, _enemyCatalog
                  })
         {
             picker.SelectedItemChanged += (_, _) => ApplyAvailability();
@@ -221,10 +229,10 @@ internal sealed partial class CheatForm : Window
     {
         AddMutationControls(
             _vehicleCount, _enchantmentSelector, _clearEnchantmentsButton,
-            _grantVehicleButton, _disposableCount, _grantDisposableButton,
+            _grantVehicleButton, _disposableActions,
             _clearConsumablesButton,
-            _grantRelicButton, _grantAllRelicsButton, _removeAllRelicsButton, _removeRelicButton,
-            _catapultCount, _grantCatapultButton, _removeCatapultButton,
+            _relicActions, _grantAllRelicsButton, _removeAllRelicsButton,
+            _catapultActions,
             _clearBackpackCatapultsButton, _clearFieldCatapultsButton, _fieldCatapultDeleteModeCheck,
             _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
             _vehicleAttributeValue, _modifyVehicleButton,
@@ -236,9 +244,8 @@ internal sealed partial class CheatForm : Window
         _catalogQueryControls.AddRange(new UIElement[]
         {
             _catalogRefreshButton, _spawnCatalogRefreshButton,
-            _vehicleCatalog, _enchantmentSelector, _disposableCatalog,
-            _relicCatalog, _ownedRelicCatalog,
-            _catapultCatalog, _ownedCatapultCatalog, _enemyCatalog
+            _vehicleCatalog, _enchantmentSelector, _disposableActions,
+            _relicActions, _catapultActions, _enemyCatalog
         });
         _entityQueryControls.AddRange(new UIElement[]
         {
@@ -323,13 +330,13 @@ internal sealed partial class CheatForm : Window
         PopulateCatalog(_vehicleCatalog, response.Data["vehicles"] as JArray);
         PopulateEnchantmentSelector(response.Data["enchantments"] as JArray);
         PopulateCatalog(_vehicleEnchantmentCatalog, response.Data["enchantments"] as JArray);
-        PopulateCatalog(_disposableCatalog, response.Data["disposables"] as JArray);
-        PopulateCatalog(_relicCatalog, response.Data["relics"] as JArray);
+        _disposableActions.SetItems(CreateCatalogItems(response.Data["disposables"] as JArray));
+        _relicActions.SetItems(CreateCatalogItems(response.Data["relics"] as JArray));
         PopulateCatalog(_enemyCatalog, response.Data["enemies"] as JArray);
-        PopulateCatalog(_catapultCatalog, response.Data["catapultPoints"] as JArray);
+        _catapultActions.SetItems(CreateCatalogItems(response.Data["catapultPoints"] as JArray));
         DisposeUnusedCatalogIcons();
         ApplyCatalogLimits(response.Data["limits"] as JObject);
-        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentSelector.ItemCount} / 消耗品 {_disposableCatalog.ItemCount} / 遗物 {_relicCatalog.ItemCount} / 弹射点 {_catapultCatalog.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
+        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentSelector.ItemCount} / 消耗品 {_disposableActions.ItemCount} / 遗物 {_relicActions.ItemCount} / 弹射点 {_catapultActions.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
         await RefreshOwnedStateAsync();
     }
 
@@ -356,24 +363,23 @@ internal sealed partial class CheatForm : Window
             });
     }
 
-    private async Task GrantDisposableAsync()
+    private async Task GrantDisposableAsync(CatalogPickerItem item)
     {
-        if (!TryCatalogSelection(_disposableCatalog, "请选择消耗品。", out CatalogPickerItem? item)) return;
-        await ExecuteCommandAsync(
+        ControlResponse? response = await ExecuteCommandAsync(
             CheatCommands.GrantDisposable,
             new JObject
             {
-                ["disposableId"] = item!.Id,
-                ["count"] = Decimal.ToInt32(_disposableCount.Value)
+                ["disposableId"] = item.Id,
+                ["count"] = 1
             });
+        if (response?.Success == true) await RefreshOwnedStateAsync();
     }
 
-    private async Task GrantRelicAsync()
+    private async Task GrantRelicAsync(CatalogPickerItem item)
     {
-        if (!TryCatalogSelection(_relicCatalog, "请选择遗物。", out CatalogPickerItem? item)) return;
         ControlResponse? response = await ExecuteCommandAsync(
             CheatCommands.GrantRelic,
-            new JObject { ["relicId"] = item!.Id });
+            new JObject { ["relicId"] = item.Id });
         if (response?.Success == true) await RefreshOwnedStateAsync();
     }
 
@@ -387,44 +393,22 @@ internal sealed partial class CheatForm : Window
         await ExecuteCommandAsync(CheatCommands.RemoveAllRelics, null);
     }
 
-    private async Task RemoveRelicAsync()
+    private async Task RemoveRelicAsync(CatalogPickerItem item)
     {
-        if (!TryCatalogSelection(_ownedRelicCatalog, "请从实际持有列表选择要删除的遗物。", out CatalogPickerItem? item)) return;
-        JObject? owned = item!.Payload as JObject;
-        string relicId = owned?.Value<string>("relicId") ?? item.EnumName;
         ControlResponse? response = await ExecuteCommandAsync(
             CheatCommands.RemoveRelic,
-            new JObject { ["relicId"] = relicId });
+            new JObject { ["relicId"] = item.EnumName });
         if (response?.Success == true) await RefreshOwnedStateAsync();
     }
 
-    private async Task GrantCatapultPointAsync()
+    private async Task GrantCatapultPointAsync(CatalogPickerItem item)
     {
-        if (!TryCatalogSelection(_catapultCatalog, "请选择弹射点。", out CatalogPickerItem? item)) return;
         ControlResponse? response = await ExecuteCommandAsync(
             CheatCommands.GrantCatapultPoint,
             new JObject
             {
-                ["disposableId"] = item!.Id,
-                ["count"] = Decimal.ToInt32(_catapultCount.Value)
-            });
-        if (response?.Success == true) await RefreshOwnedStateAsync();
-    }
-
-    private async Task RemoveCatapultPointAsync()
-    {
-        if (!TryCatalogSelection(_ownedCatapultCatalog, "请从实际持有列表选择要删除的弹射点。", out CatalogPickerItem? item)) return;
-        JObject? owned = item!.Payload as JObject;
-        string disposableId = owned?.Value<string>("disposableId") ?? item.EnumName;
-        int availableCount = Math.Max(1, owned?.Value<int?>("count") ?? 1);
-        int requestedCount = Math.Min(Decimal.ToInt32(_catapultCount.Value), availableCount);
-        ControlResponse? response = await ExecuteCommandAsync(
-            CheatCommands.RemoveCatapultPoint,
-            new JObject
-            {
-                ["disposableId"] = disposableId,
-                ["catapultPointId"] = item.Id,
-                ["count"] = requestedCount
+                ["disposableId"] = item.Id,
+                ["count"] = 1
             });
         if (response?.Success == true) await RefreshOwnedStateAsync();
     }
@@ -1198,9 +1182,11 @@ internal sealed partial class CheatForm : Window
         if (data["grantAllRelics"] is JObject grantAllRelics) ApplyGrantAllRelics(grantAllRelics);
         if (data["removeAllRelics"] is JObject removeAllRelics) ApplyRemoveAllRelics(removeAllRelics);
         if (data["ownedRelics"] is JArray ownedRelics)
-            PopulateOwnedCatalog(_ownedRelicCatalog, ownedRelics, "relicId", "遗物");
+            _relicActions.SetOwnedCounts(BuildOwnedCounts(ownedRelics, "relicId"));
+        if (data["ownedConsumables"] is JArray ownedConsumables)
+            _disposableActions.SetOwnedCounts(BuildOwnedCounts(ownedConsumables, "disposableId"));
         if (data["ownedCatapultPoints"] is JArray ownedCatapultPoints)
-            PopulateOwnedCatalog(_ownedCatapultCatalog, ownedCatapultPoints, "catapultPointId", "弹射点");
+            _catapultActions.SetOwnedCounts(BuildOwnedCounts(ownedCatapultPoints, "disposableId"));
         UpdateBackgroundStatePolling();
     }
 
@@ -1321,18 +1307,16 @@ internal sealed partial class CheatForm : Window
         foreach (UIElement control in _mutationControls) control.IsEnabled = canMutate;
         foreach (UIElement control in _catalogQueryControls) control.IsEnabled = canQueryCatalog;
         foreach (UIElement control in _entityQueryControls) control.IsEnabled = canQueryEntities;
+        _disposableActions.IsActionEnabled = canMutate;
+        _relicActions.IsActionEnabled = canMutate;
+        _catapultActions.IsActionEnabled = canMutate;
         _enemyIdOverlayCheck.IsEnabled = canQueryEntities;
         _enemyBuffOverlayCheck.IsEnabled = canQueryEntities;
 
         _clearEnchantmentsButton.IsEnabled = canMutate && _enchantmentSelector.Selections.Count > 0;
         _grantVehicleButton.IsEnabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
-        _grantDisposableButton.IsEnabled = canMutate && _disposableCatalog.SelectedCatalogItem != null;
-        _grantRelicButton.IsEnabled = canMutate && _relicCatalog.SelectedCatalogItem != null;
         _grantAllRelicsButton.IsEnabled = canMutate;
         _removeAllRelicsButton.IsEnabled = canMutate;
-        _removeRelicButton.IsEnabled = canMutate && _ownedRelicCatalog.SelectedCatalogItem != null;
-        _grantCatapultButton.IsEnabled = canMutate && _catapultCatalog.SelectedCatalogItem != null;
-        _removeCatapultButton.IsEnabled = canMutate && _ownedCatapultCatalog.SelectedCatalogItem != null;
         _fieldCatapultDeleteModeCheck.IsEnabled = canMutate;
 
         bool captureArmed = string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase);
@@ -1403,9 +1387,7 @@ internal sealed partial class CheatForm : Window
         else if (_status?.CheatModeEnabled == true)
         {
             _statusTitle.Text = _status.CheatUsed
-                ? _status.CheatActionCount > 0
-                    ? $"作弊模式已启用 / 本进程已尝试 {_status.CheatActionCount} 次修改"
-                    : "作弊模式已启用 / 当前存档有历史作弊标记"
+                ? "作弊模式已启用 / 当前存档有作弊标记"
                 : "作弊模式已启用";
             rail = AmberBrush;
             panel = AmberPanelBrush;
@@ -1478,12 +1460,10 @@ internal sealed partial class CheatForm : Window
         _vehicleCatalog.ClearItems();
         _enchantmentSelector.ClearItems();
         _vehicleEnchantmentCatalog.ClearItems();
-        _disposableCatalog.ClearItems();
-        _relicCatalog.ClearItems();
-        _ownedRelicCatalog.ClearItems();
+        _disposableActions.ClearItems();
+        _relicActions.ClearItems();
         _enemyCatalog.ClearItems();
-        _catapultCatalog.ClearItems();
-        _ownedCatapultCatalog.ClearItems();
+        _catapultActions.ClearItems();
         _vehicleRows.Clear();
         _enemyRows.Clear();
         _spawnPointRows.Clear();
@@ -1521,6 +1501,7 @@ internal sealed partial class CheatForm : Window
         {
             catalogItems = catalogItems
                 .OrderBy(item => item.GroupOrder)
+                .ThenBy(item => item.GroupName, StringComparer.Ordinal)
                 .ThenBy(item => item.ItemOrder)
                 .ThenBy(item => item.EnumName, StringComparer.Ordinal)
                 .ToList();
@@ -1612,6 +1593,22 @@ internal sealed partial class CheatForm : Window
 
         picker.SetItems(catalogItems);
         ApplyAvailability();
+    }
+
+    private static IReadOnlyDictionary<string, int> BuildOwnedCounts(JArray items, string identityProperty)
+    {
+        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+        foreach (JObject item in items.OfType<JObject>())
+        {
+            string id = item.Value<string>(identityProperty)
+                        ?? item.Value<string>("enumName")
+                        ?? item.Value<string>("id")
+                        ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            int count = Math.Max(0, item.Value<int?>("count") ?? 0);
+            counts[id] = counts.TryGetValue(id, out int current) ? current + count : count;
+        }
+        return counts;
     }
 
     private BitmapSource? TryLoadCatalogIconBase64(string iconBase64)
@@ -1747,8 +1744,6 @@ internal sealed partial class CheatForm : Window
     {
         if (limits == null) return;
         SetMaximum(_vehicleCount, limits.Value<int?>("maxGrantCount"));
-        SetMaximum(_disposableCount, limits.Value<int?>("maxGrantCount"));
-        SetMaximum(_catapultCount, limits.Value<int?>("maxGrantCount"));
         _vehicleEnchantmentLevel.Maximum = int.MaxValue;
         SetMaximum(_enemyLevel, limits.Value<int?>("maxEnemyLevel"));
         SetMaximum(_enemyCount, limits.Value<int?>("maxSpawnCount"));

@@ -106,6 +106,7 @@ internal sealed partial class CatalogPickerControl : UserControl
     {
         if (_updatingText) return;
         string query = SearchBox.Text;
+        SearchHint.Visibility = string.IsNullOrEmpty(query) ? Visibility.Visible : Visibility.Collapsed;
         CatalogPickerItem[] matches = _allItems.Where(item => item.Matches(query)).ToArray();
         ReplaceVisibleItems(matches, string.Empty);
         SetSelectedId(string.Empty, updateText: false);
@@ -278,6 +279,7 @@ internal sealed partial class CatalogPickerControl : UserControl
             try
             {
                 SearchBox.Text = SelectedCatalogItem?.SelectionText ?? string.Empty;
+                SearchHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
             }
             finally
             {

@@ -1,9 +1,9 @@
-<UserControl x:Class="Loopstructor.AutoPlayer.Manager.UI.EnchantmentSelectorControl"
+<UserControl x:Class="Loopstructor.AutoPlayer.Manager.UI.CatalogActionGridControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
              x:ClassModifier="internal"
-             MinHeight="250">
+             MinHeight="166">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -13,12 +13,16 @@
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="44" />
-            <RowDefinition Height="8" />
+            <RowDefinition Height="42" />
+            <RowDefinition Height="7" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Border Background="{StaticResource ScreenBrush}" BorderBrush="{StaticResource BronzeBrush}" BorderThickness="1" CornerRadius="2">
+
+        <Border Background="{StaticResource ScreenBrush}"
+                BorderBrush="{StaticResource BronzeBrush}"
+                BorderThickness="1"
+                CornerRadius="2">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="38" />
@@ -29,7 +33,9 @@
                         <Path Data="M7,1 A6,6 0 1 0 7,13 A6,6 0 1 0 7,1 M11.3,11.3 L16,16"
                               Fill="Transparent"
                               Stroke="{StaticResource GoldBrush}"
-                              StrokeThickness="1.7" />
+                              StrokeThickness="1.7"
+                              StrokeStartLineCap="Square"
+                              StrokeEndLineCap="Square" />
                     </Viewbox>
                 </Border>
                 <Grid Grid.Column="1">
@@ -37,64 +43,56 @@
                              Padding="9,6"
                              BorderThickness="0"
                              Background="Transparent"
-                             AutomationProperties.Name="搜索附魔"
-                             TextChanged="SearchBox_OnTextChanged"
-                             ToolTip="可按中文名、枚举名、家族或等级搜索" />
+                             AutomationProperties.Name="搜索资源"
+                             TextChanged="SearchBox_OnTextChanged" />
                     <TextBlock x:Name="SearchHint"
                                Margin="10,0,0,0"
                                VerticalAlignment="Center"
                                Foreground="#8D806E"
                                IsHitTestVisible="False"
-                               Text="搜索附魔中文名、枚举名或家族…" />
+                               Text="搜索中文名或枚举名…" />
                 </Grid>
             </Grid>
         </Border>
+
         <Border Grid.Row="2"
-                MinHeight="190"
+                MinHeight="112"
                 Background="{StaticResource ScreenBrush}"
-                BorderBrush="{StaticResource BronzeBrush}"
+                BorderBrush="#4E3522"
                 BorderThickness="1">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="ItemsHost" Margin="8">
-                    <ItemsControl.GroupStyle>
-                        <GroupStyle>
-                            <GroupStyle.HeaderTemplate>
-                                <DataTemplate>
-                                    <DockPanel Margin="2,8,2,5">
-                                        <Border DockPanel.Dock="Left" Width="4" Margin="0,1,8,1" Background="{StaticResource GoldBrush}" />
-                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource GoldBrush}" Text="{Binding Name}" />
-                                    </DockPanel>
-                                </DataTemplate>
-                            </GroupStyle.HeaderTemplate>
-                            <GroupStyle.Panel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel IsItemsHost="True" />
-                                </ItemsPanelTemplate>
-                            </GroupStyle.Panel>
-                        </GroupStyle>
-                    </ItemsControl.GroupStyle>
+                <ItemsControl x:Name="ItemsHost" Margin="6">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel IsItemsHost="True" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type local:EnchantmentChoice}">
-                            <Border Width="132"
-                                    Height="76"
+                        <DataTemplate DataType="{x:Type local:CatalogActionChoice}">
+                            <Border Width="126"
+                                    Height="88"
                                     Margin="3"
                                     Padding="6"
-                                    Background="#211D19"
-                                    BorderBrush="#664525"
+                                    Background="#211B16"
+                                    BorderBrush="#654529"
                                     BorderThickness="1"
                                     CornerRadius="2"
                                     Focusable="True"
+                                    Cursor="Hand"
                                     AutomationProperties.Name="{Binding AutomationName}"
                                     PreviewMouseDown="Choice_OnPreviewMouseDown">
                                 <Border.Style>
                                     <Style TargetType="Border">
-                                        <Setter Property="Cursor" Value="Hand" />
                                         <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                <Setter Property="Background" Value="#3C321C" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                <Setter Property="Background" Value="#26351E" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
                                                 <Setter Property="BorderThickness" Value="2" />
                                             </DataTrigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#3B2B1D" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                            </Trigger>
                                             <Trigger Property="IsKeyboardFocused" Value="True">
                                                 <Setter Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
                                             </Trigger>
@@ -106,7 +104,7 @@
                                         <ColumnDefinition Width="46" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="40" Height="40" Background="#171513" BorderBrush="#5B3B24" BorderThickness="1">
+                                    <Border Width="40" Height="40" VerticalAlignment="Top" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
                                         <Grid>
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
                                             <Image Margin="2" Source="{Binding Item.Icon}" Stretch="Uniform" />
@@ -114,18 +112,19 @@
                                     </Border>
                                     <Border HorizontalAlignment="Right"
                                             VerticalAlignment="Top"
-                                            MinWidth="24"
+                                            MinWidth="22"
                                             Padding="4,1"
-                                            Background="#B82B20"
-                                            BorderBrush="#FFB84A"
+                                            Background="#7A2B20"
+                                            BorderBrush="#E48E46"
                                             BorderThickness="1"
-                                            CornerRadius="8"
-                                            Visibility="{Binding BadgeVisibility}">
-                                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="11" FontWeight="Bold" Foreground="White" Text="{Binding Level}" />
+                                            CornerRadius="7"
+                                            Visibility="{Binding CountVisibility}">
+                                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="#F5E8D4" Text="{Binding OwnedCount}" />
                                     </Border>
                                     <StackPanel Grid.Column="1">
                                         <TextBlock FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource DataFont}" FontSize="9" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,4,0,0" FontSize="10" Foreground="{StaticResource SignalGreenBrush}" Text="{Binding StateLabel}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -134,9 +133,11 @@
                 </ItemsControl>
             </ScrollViewer>
         </Border>
-        <DockPanel Grid.Row="3" Margin="0,7,0,0">
-            <TextBlock x:Name="SummaryText" Foreground="{StaticResource MutedTextBrush}" Text="已选 0 种附魔" />
-            <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource GoldBrush}" Text="左键增加层数，右键减少层数" />
-        </DockPanel>
+        <TextBlock x:Name="InteractionText"
+                   Grid.Row="3"
+                   Margin="1,6,0,0"
+                   Foreground="{StaticResource GoldBrush}"
+                   Text="左键执行"
+                   TextWrapping="Wrap" />
     </Grid>
 </UserControl>

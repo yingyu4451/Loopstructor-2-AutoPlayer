@@ -62,16 +62,35 @@
                                Stretch="Uniform" />
                     </Grid>
                 </Border>
-                <TextBox x:Name="SearchBox"
-                         Grid.Column="1"
-                         MinHeight="42"
-                         Padding="9,7"
-                         BorderThickness="0"
-                         Background="Transparent"
-                         TextChanged="SearchBox_OnTextChanged"
-                         GotKeyboardFocus="SearchBox_OnGotKeyboardFocus"
-                         PreviewMouseLeftButtonDown="SearchBox_OnPreviewMouseLeftButtonDown"
-                         PreviewKeyDown="SearchBox_OnPreviewKeyDown" />
+                <Grid Grid.Column="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="30" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <Path Data="M7,1 A6,6 0 1 0 7,13 A6,6 0 1 0 7,1 M11.3,11.3 L16,16"
+                              Fill="Transparent"
+                              Stroke="{StaticResource GoldBrush}"
+                              StrokeThickness="1.7" />
+                    </Viewbox>
+                    <Grid Grid.Column="1">
+                        <TextBox x:Name="SearchBox"
+                                 MinHeight="42"
+                                 Padding="2,7,9,7"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 TextChanged="SearchBox_OnTextChanged"
+                                 GotKeyboardFocus="SearchBox_OnGotKeyboardFocus"
+                                 PreviewMouseLeftButtonDown="SearchBox_OnPreviewMouseLeftButtonDown"
+                                 PreviewKeyDown="SearchBox_OnPreviewKeyDown" />
+                        <TextBlock x:Name="SearchHint"
+                                   Margin="3,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="#8D806E"
+                                   IsHitTestVisible="False"
+                                   Text="搜索或选择…" />
+                    </Grid>
+                </Grid>
                 <Button x:Name="DropButton"
                         Grid.Column="2"
                         MinWidth="38"

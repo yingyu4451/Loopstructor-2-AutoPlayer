@@ -37,22 +37,10 @@ internal sealed class MechanicalShell : ContentControl
         typeof(MechanicalShell),
         new PropertyMetadata(Brushes.Transparent));
 
-    public static readonly DependencyProperty SubtitleProperty = DependencyProperty.Register(
-        nameof(Subtitle),
-        typeof(string),
-        typeof(MechanicalShell),
-        new PropertyMetadata(string.Empty));
-
     public string Title
     {
         get => (string)GetValue(TitleProperty);
         set => SetValue(TitleProperty, value);
-    }
-
-    public string Subtitle
-    {
-        get => (string)GetValue(SubtitleProperty);
-        set => SetValue(SubtitleProperty, value);
     }
 
     public ImageSource? LogoSource
