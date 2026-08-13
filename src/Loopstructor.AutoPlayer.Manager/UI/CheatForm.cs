@@ -67,7 +67,6 @@ internal sealed partial class CheatForm : Window
         InitializeComponent();
 
         Title = $"Loopstructor 2.AutoPlayer 作弊工具 - v{ManagerProductInfo.Version}";
-        _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v-   /   作弊协议 v{Protocol.CheatCurrentVersion}";
         _vehicleGrid.ItemsSource = _vehicleRows;
         _enemyGrid.ItemsSource = _enemyRows;
         _spawnPointGrid.ItemsSource = _spawnPointRows;
@@ -123,8 +122,6 @@ internal sealed partial class CheatForm : Window
             ResetSpawnPointCapture("选点状态：作弊模式未启用");
         }
 
-        string pluginVersion = status?.PluginVersion ?? hello?.PluginVersion ?? string.Empty;
-        _versionLabel.Text = $"{ManagerProductInfo.DisplayText}   /   插件 v{Display(pluginVersion)}   /   作弊协议 v{hello?.CheatProtocolVersion ?? Protocol.CheatCurrentVersion}";
         ApplyAvailability();
     }
 
@@ -143,7 +140,6 @@ internal sealed partial class CheatForm : Window
     {
         _enableCheck.Click += async (_, _) => await EnableCheckChangedAsync();
         _catalogRefreshButton.Click += async (_, _) => await RefreshCatalogAsync();
-        _spawnCatalogRefreshButton.Click += async (_, _) => await RefreshCatalogAsync();
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
         _enchantmentSelector.SelectionChanged += (_, _) => ApplyAvailability();
         _clearEnchantmentsButton.Click += (_, _) => _enchantmentSelector.ClearSelections();
@@ -208,13 +204,8 @@ internal sealed partial class CheatForm : Window
         _spawnEnemyButton.Click += async (_, _) => await SpawnEnemyAsync();
         _spawnPointGrid.SelectionChanged += (_, _) => ApplyAvailability();
 
-        foreach (CatalogPickerControl picker in new[]
-                 {
-                     _vehicleCatalog, _enemyCatalog
-                 })
-        {
-            picker.SelectedItemChanged += (_, _) => ApplyAvailability();
-        }
+        _vehicleCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
+        _enemyCatalog.SelectedItemChanged += (_, _) => ApplyAvailability();
 
         _vehicleAttribute.SelectedItemChanged += (_, _) =>
         {
@@ -251,7 +242,7 @@ internal sealed partial class CheatForm : Window
             _removeSpawnPointButton, _clearSpawnPointsButton, _spawnEnemyButton);
         _catalogQueryControls.AddRange(new UIElement[]
         {
-            _catalogRefreshButton, _spawnCatalogRefreshButton,
+            _catalogRefreshButton,
             _vehicleCatalog, _enchantmentSelector, _disposableActions,
             _relicActions, _catapultActions, _enemyCatalog
         });
@@ -335,7 +326,7 @@ internal sealed partial class CheatForm : Window
         if (response?.Success != true || response.Data == null) return;
 
         _activeCatalogIconKeys.Clear();
-        PopulateCatalog(_vehicleCatalog, response.Data["vehicles"] as JArray);
+        PopulateVehicleCatalog(response.Data["vehicles"] as JArray);
         PopulateEnchantmentSelector(response.Data["enchantments"] as JArray);
         PopulateCatalog(_vehicleEnchantmentCatalog, response.Data["enchantments"] as JArray);
         _disposableActions.SetItems(CreateCatalogItems(response.Data["disposables"] as JArray));
@@ -344,13 +335,17 @@ internal sealed partial class CheatForm : Window
         _catapultActions.SetItems(CreateCatalogItems(response.Data["catapultPoints"] as JArray));
         DisposeUnusedCatalogIcons();
         ApplyCatalogLimits(response.Data["limits"] as JObject);
-        _catalogSummary.Text = $"战车 {_vehicleCatalog.ItemCount} / 附魔 {_enchantmentSelector.ItemCount} / 消耗品 {_disposableActions.ItemCount} / 遗物 {_relicActions.ItemCount} / 弹射点 {_catapultActions.ItemCount} / 怪物 {_enemyCatalog.ItemCount}";
         await RefreshOwnedStateAsync();
     }
 
     private async Task GrantVehicleAsync()
     {
-        if (!TryCatalogSelection(_vehicleCatalog, "请选择战车。", out CatalogPickerItem? vehicle)) return;
+        CatalogPickerItem? vehicle = _vehicleCatalog.SelectedCatalogItem;
+        if (vehicle == null)
+        {
+            ShowLocalError("请选择战车。");
+            return;
+        }
         JArray enchantments = new();
         foreach (CheatEnchantmentSelection selection in _enchantmentSelector.Selections)
         {
@@ -1477,7 +1472,6 @@ internal sealed partial class CheatForm : Window
         _spawnPointRows.Clear();
         _iconCache.Clear();
         _activeCatalogIconKeys.Clear();
-        _catalogSummary.Text = "尚未读取资源目录";
         _vehicleSummary.Text = "尚未读取战车";
         _enemySummary.Text = "尚未读取敌人";
         _spawnPointSummary.Text = "尚未添加生成位置";
@@ -1505,7 +1499,7 @@ internal sealed partial class CheatForm : Window
     private void PopulateCatalog(CatalogPickerControl picker, JArray? items)
     {
         List<CatalogPickerItem> catalogItems = CreateCatalogItems(items);
-        if (ReferenceEquals(picker, _vehicleCatalog) || ReferenceEquals(picker, _vehicleEnchantmentCatalog))
+        if (ReferenceEquals(picker, _vehicleEnchantmentCatalog))
         {
             catalogItems = catalogItems
                 .OrderBy(item => item.TypeOrder)
@@ -1515,6 +1509,18 @@ internal sealed partial class CheatForm : Window
                 .ToList();
         }
         picker.SetItems(catalogItems);
+        ApplyAvailability();
+    }
+
+    private void PopulateVehicleCatalog(JArray? items)
+    {
+        List<CatalogPickerItem> catalogItems = CreateCatalogItems(items)
+            .OrderBy(item => item.TypeOrder)
+            .ThenBy(item => item.FamilyOrder)
+            .ThenBy(item => item.ItemOrder)
+            .ThenBy(item => item.EnumName, StringComparer.Ordinal)
+            .ToList();
+        _vehicleCatalog.SetItems(catalogItems);
         ApplyAvailability();
     }
 

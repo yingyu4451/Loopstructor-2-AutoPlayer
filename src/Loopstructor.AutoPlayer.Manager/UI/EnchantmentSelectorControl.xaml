@@ -38,8 +38,7 @@
                              BorderThickness="0"
                              Background="Transparent"
                              AutomationProperties.Name="搜索附魔"
-                             TextChanged="SearchBox_OnTextChanged"
-                             ToolTip="可按中文名、枚举名、家族或等级搜索" />
+                             TextChanged="SearchBox_OnTextChanged" />
                     <TextBlock x:Name="SearchHint"
                                Margin="10,0,0,0"
                                VerticalAlignment="Center"

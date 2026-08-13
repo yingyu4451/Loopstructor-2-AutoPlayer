@@ -28,6 +28,8 @@ internal sealed partial class CatalogActionGridControl : UserControl
 
     public bool IsActionEnabled { get; set; } = true;
 
+    public CatalogActionDisplayMode DisplayMode { get; set; } = CatalogActionDisplayMode.Quantity;
+
     public string InteractionHint
     {
         get => InteractionText.Text;
@@ -43,7 +45,7 @@ internal sealed partial class CatalogActionGridControl : UserControl
                      .ThenBy(item => item.ItemOrder)
                      .ThenBy(item => item.EnumName, StringComparer.Ordinal))
         {
-            _items.Add(new CatalogActionChoice(item, counts.TryGetValue(item.Id, out int count) ? count : 0));
+            _items.Add(new CatalogActionChoice(item, counts.TryGetValue(item.Id, out int count) ? count : 0, DisplayMode));
         }
         _view.Refresh();
     }
@@ -106,10 +108,11 @@ internal sealed class CatalogActionChoice : INotifyPropertyChanged
 {
     private int _ownedCount;
 
-    public CatalogActionChoice(CatalogPickerItem item, int ownedCount)
+    public CatalogActionChoice(CatalogPickerItem item, int ownedCount, CatalogActionDisplayMode displayMode)
     {
         Item = item;
         _ownedCount = Math.Max(0, ownedCount);
+        DisplayMode = displayMode;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -127,18 +130,26 @@ internal sealed class CatalogActionChoice : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsActive));
             OnPropertyChanged(nameof(CountVisibility));
-            OnPropertyChanged(nameof(StateLabel));
+            OnPropertyChanged(nameof(BadgeText));
             OnPropertyChanged(nameof(AutomationName));
         }
     }
 
     public bool IsActive => OwnedCount > 0;
+    public CatalogActionDisplayMode DisplayMode { get; }
+    public bool IsBinary => DisplayMode == CatalogActionDisplayMode.Binary;
     public Visibility CountVisibility => IsActive ? Visibility.Visible : Visibility.Collapsed;
-    public string StateLabel => IsActive ? $"已持有 {OwnedCount}" : string.Empty;
+    public string BadgeText => IsBinary ? "✓" : OwnedCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string AutomationName => $"{Item.DisplayName}，{Item.EnumName}，持有 {OwnedCount}";
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+internal enum CatalogActionDisplayMode
+{
+    Quantity,
+    Binary
 }
 
 internal sealed class CatalogActionInvokedEventArgs : EventArgs

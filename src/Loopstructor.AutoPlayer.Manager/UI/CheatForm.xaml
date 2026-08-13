@@ -307,20 +307,24 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel>
+                    <StackPanel VerticalAlignment="Center">
                         <TextBlock FontSize="15"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource GoldBrush}"
                                    Text="作弊运行控制" />
-                        <TextBlock x:Name="_versionLabel"
-                                   Margin="0,4,16,0"
-                                   Style="{StaticResource CheatStatusStyle}"
-                                   Text="Manager 版本 / 作弊协议" />
                     </StackPanel>
+                    <Button x:Name="_catalogRefreshButton"
+                            Grid.Column="1"
+                            MinWidth="112"
+                            Margin="16,0,0,0"
+                            VerticalAlignment="Center"
+                            Content="刷新目录"
+                            AutomationProperties.Name="刷新全部作弊目录" />
                     <CheckBox x:Name="_enableCheck"
-                              Grid.Column="1"
-                              Margin="16,0,0,0"
+                              Grid.Column="2"
+                              Margin="18,0,0,0"
                               VerticalAlignment="Center"
                               FontSize="15"
                               FontWeight="Bold"
@@ -362,10 +366,6 @@
                 <TabItem Header="战车">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="4,12,8,8">
-                            <DockPanel Margin="0,0,0,12" LastChildFill="True">
-                                <Button x:Name="_catalogRefreshButton" DockPanel.Dock="Left" Margin="0,0,12,0" Content="刷新目录" />
-                                <TextBlock x:Name="_catalogSummary" Style="{StaticResource CheatStatusStyle}" Text="尚未读取资源目录" />
-                            </DockPanel>
                             <Border Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="获取指定战车" />
@@ -376,8 +376,8 @@
                                             <ColumnDefinition Width="3*" MinWidth="420" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="战车（类型 / 名称 / 等级）" />
-                                            <local:CatalogPickerControl x:Name="_vehicleCatalog" />
+                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="战车（先选类型，再选系列等级）" />
+                                            <local:VehicleQuickSelectorControl x:Name="_vehicleCatalog" Height="310" />
                                             <Grid Margin="0,14,0,0">
                                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /></Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -386,7 +386,7 @@
                                                 <Button x:Name="_grantVehicleButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource PrimaryButtonStyle}" Content="获取战车" />
                                             </Grid>
                                             <TextBlock Margin="0,14,0,5" Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
-                                            <Border Height="166" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                                            <Border Height="104" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
                                                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                                     <ItemsControl ItemsSource="{Binding ElementName=_enchantmentSelector, Path=SelectedChoices}" ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}" />
                                                 </ScrollViewer>
@@ -399,7 +399,7 @@
                                                 <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="附魔（悬停 1 秒查看游戏说明）" />
                                                 <Button x:Name="_clearEnchantmentsButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,4" Content="清空所选" />
                                             </DockPanel>
-                                            <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Height="386" />
+                                            <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Height="470" />
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
@@ -443,7 +443,7 @@
                             <Border Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="遗物" />
-                                    <local:CatalogActionGridControl x:Name="_relicActions" Height="360" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
+                                    <local:CatalogActionGridControl x:Name="_relicActions" Height="360" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
                                     <Grid Margin="0,14,0,0">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Button x:Name="_grantAllRelicsButton" MinWidth="132" AutomationProperties.Name="一键补齐全部遗物" Style="{StaticResource GoldButtonStyle}" Content="补齐全部" ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
@@ -694,10 +694,7 @@
                 <TabItem Header="生成">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="4,12,8,8">
-                            <DockPanel Margin="0,0,0,12">
-                                <Button x:Name="_spawnCatalogRefreshButton" DockPanel.Dock="Left" Margin="0,0,12,0" Content="刷新怪物目录" />
-                                <TextBlock Style="{StaticResource CheatStatusStyle}" Text="怪物会在中心点附近按生成半径分散出现" />
-                            </DockPanel>
+                            <TextBlock Margin="2,0,0,12" Style="{StaticResource CheatStatusStyle}" Text="怪物会在中心点附近按生成半径分散出现" />
                             <Border Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="在指定世界坐标生成怪物" />

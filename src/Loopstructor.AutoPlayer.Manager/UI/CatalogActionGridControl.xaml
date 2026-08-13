@@ -71,13 +71,10 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:CatalogActionChoice}">
-                            <Border Width="126"
-                                    Height="88"
+                            <Border Width="136"
+                                    Height="76"
                                     Margin="3"
-                                    Padding="6"
-                                    Background="#211B16"
-                                    BorderBrush="#654529"
-                                    BorderThickness="1"
+                                    Padding="4"
                                     CornerRadius="2"
                                     Focusable="True"
                                     Cursor="Hand"
@@ -92,6 +89,9 @@
                                 </Border.ToolTip>
                                 <Border.Style>
                                     <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#211B16" />
+                                        <Setter Property="BorderBrush" Value="#654529" />
+                                        <Setter Property="BorderThickness" Value="1" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsActive}" Value="True">
                                                 <Setter Property="Background" Value="#26351E" />
@@ -110,10 +110,10 @@
                                 </Border.Style>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="46" />
+                                        <ColumnDefinition Width="52" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="40" Height="40" VerticalAlignment="Center" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
+                                    <Border Width="46" Height="46" VerticalAlignment="Center" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
                                         <Grid>
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
                                             <Image Margin="2" Source="{Binding Item.Icon}" Stretch="Uniform" />
@@ -123,17 +123,26 @@
                                             VerticalAlignment="Top"
                                             MinWidth="22"
                                             Padding="4,1"
-                                            Background="#7A2B20"
-                                            BorderBrush="#E48E46"
-                                            BorderThickness="1"
                                             CornerRadius="7"
                                             Visibility="{Binding CountVisibility}">
-                                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="#F5E8D4" Text="{Binding OwnedCount}" />
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#7A2B20" />
+                                                <Setter Property="BorderBrush" Value="#E48E46" />
+                                                <Setter Property="BorderThickness" Value="1" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsBinary}" Value="True">
+                                                        <Setter Property="Background" Value="#315F28" />
+                                                        <Setter Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontSize="10" FontWeight="Bold" Foreground="#F5E8D4" Text="{Binding BadgeText}" />
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource DataFont}" FontSize="9" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Margin="0,4,0,0" FontSize="10" Foreground="{StaticResource SignalGreenBrush}" Text="{Binding StateLabel}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,4,0,0" FontFamily="{StaticResource DataFont}" FontSize="10" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Grid>
                             </Border>

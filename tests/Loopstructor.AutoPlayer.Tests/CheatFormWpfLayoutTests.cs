@@ -82,6 +82,10 @@ public sealed class CheatFormWpfLayoutTests
                 Assert.Equal(new[] { "战车", "道具", "遗物", "战斗", "对象属性", "生成" }, navigationTabs.Select(tab => tab.Header));
                 Assert.Equal(6, navigationTabs.Length);
                 Assert.All(navigationTabs, tab => Assert.Equal(navigationTabs[0].ActualWidth, tab.ActualWidth, precision: 2));
+                Assert.IsType<Button>(form.FindName("_catalogRefreshButton"));
+                Assert.Null(form.FindName("_versionLabel"));
+                Assert.Null(form.FindName("_catalogSummary"));
+                Assert.Null(form.FindName("_spawnCatalogRefreshButton"));
 
                 AssertTabFits(form, 0);
                 AssertMinimumWidth(form, 420, "_enchantmentSelector");
@@ -104,6 +108,95 @@ public sealed class CheatFormWpfLayoutTests
                 AssertTabFits(form, 5);
                 AssertTopAligned(form, "_enemyCatalog", "_enemyLevel", "_followCurrentLevelCheck", "_enemyCount");
                 AssertTopAligned(form, "_spawnX", "_spawnY", "_spawnZ", "_spawnRadius", "_capturePointButton", "_cancelCaptureButton", "_addSpawnPointButton");
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void GlobalCatalogRefresh_IsSingleAndRemainsVisibleAcrossTabs()
+    {
+        RunSta(() =>
+        {
+            List<string> calls = new();
+            CheatForm form = new((command, payload) =>
+            {
+                calls.Add(command);
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                PumpDispatcher();
+                calls.Clear();
+
+                Button refresh = Assert.IsType<Button>(form.FindName("_catalogRefreshButton"));
+                TabControl tabs = Assert.IsType<TabControl>(form.FindName("_tabs"));
+                for (int index = 0; index < tabs.Items.Count; index++)
+                {
+                    tabs.SelectedIndex = index;
+                    PumpDispatcher();
+                    Assert.True(refresh.IsVisible);
+                }
+
+                refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpDispatcher();
+                Assert.Single(calls, command => command == CheatCommands.QueryCatalog);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void VehicleQuickSelection_SendsExactLevelIdAndQuantity()
+    {
+        RunSta(() =>
+        {
+            List<(string Command, JObject? Payload)> calls = new();
+            CheatForm form = new((command, payload) =>
+            {
+                calls.Add((command, payload?.DeepClone() as JObject));
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+            })
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.LoadDemoCatalogAsync().GetAwaiter().GetResult();
+                PumpDispatcher();
+                calls.Clear();
+
+                VehicleQuickSelectorControl selector = Assert.IsType<VehicleQuickSelectorControl>(form.FindName("_vehicleCatalog"));
+                SelectVehicle(selector, "Link_ElectricFork_L3");
+                CheatNumericInput count = Assert.IsType<CheatNumericInput>(form.FindName("_vehicleCount"));
+                count.Value = 3;
+                Assert.IsType<Button>(form.FindName("_grantVehicleButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpDispatcher();
+
+                JObject payload = Assert.Single(calls, call => call.Command == CheatCommands.GrantVehicle).Payload!;
+                Assert.Equal("Link_ElectricFork_L3", payload.Value<string>("vehicleId"));
+                Assert.Equal(3, payload.Value<int>("count"));
             }
             finally
             {
@@ -242,7 +335,7 @@ public sealed class CheatFormWpfLayoutTests
 
                 Assert.True(Assert.IsType<CheckBox>(form.FindName("_enableCheck")).IsEnabled);
                 Assert.True(Assert.IsType<Button>(form.FindName("_catalogRefreshButton")).IsEnabled);
-                Assert.True(Assert.IsType<CatalogPickerControl>(form.FindName("_vehicleCatalog")).IsEnabled);
+                Assert.True(Assert.IsType<VehicleQuickSelectorControl>(form.FindName("_vehicleCatalog")).IsEnabled);
                 Assert.True(Assert.IsType<CatalogPickerControl>(form.FindName("_enemyCatalog")).IsEnabled);
                 Assert.True(Assert.IsType<Button>(form.FindName("_vehicleRefreshButton")).IsEnabled);
                 Assert.True(Assert.IsType<Button>(form.FindName("_enemyRefreshButton")).IsEnabled);
@@ -645,6 +738,28 @@ public sealed class CheatFormWpfLayoutTests
                 element.ActualWidth >= minimumWidth,
                 $"{name} 的可见宽度只有 {element.ActualWidth:0.##}，可能裁切文字。");
         }
+    }
+
+    private static void SelectVehicle(VehicleQuickSelectorControl selector, string id)
+    {
+        CatalogPickerItem item = selector.FindItem(id)!;
+        System.Collections.IEnumerable types = (System.Collections.IEnumerable)typeof(VehicleQuickSelectorControl)
+            .GetField("_types", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(selector)!;
+        VehicleTypeChoice type = types.Cast<VehicleTypeChoice>().Single(choice => choice.Key == item.TypeKey);
+        typeof(VehicleQuickSelectorControl)
+            .GetMethod("TypeButton_OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(selector, new object[] { new Button { DataContext = type }, new RoutedEventArgs() });
+
+        System.Collections.IEnumerable series = (System.Collections.IEnumerable)typeof(VehicleQuickSelectorControl)
+            .GetField("_series", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(selector)!;
+        VehicleLevelChoice level = series.Cast<VehicleSeriesChoice>()
+            .SelectMany(choice => choice.Levels)
+            .Single(choice => choice.Item.Id == id);
+        typeof(VehicleQuickSelectorControl)
+            .GetMethod("LevelButton_OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(selector, new object[] { new Button { DataContext = level }, new RoutedEventArgs() });
     }
 
     private static void RunSta(Action action)

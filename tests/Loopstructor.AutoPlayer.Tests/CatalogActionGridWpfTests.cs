@@ -14,6 +14,25 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class CatalogActionGridWpfTests
 {
     [Fact]
+    public void BinaryMode_UsesCheckmarkWithoutDuplicatingOwnedText()
+    {
+        RunSta(() =>
+        {
+            CatalogActionGridControl grid = new() { DisplayMode = CatalogActionDisplayMode.Binary };
+            Assert.Null(grid.ToolTip);
+            Assert.Null(Assert.IsType<TextBox>(grid.FindName("SearchBox")).ToolTip);
+            grid.SetItems(new[] { Item("Relic_A", "遗物甲", 0) });
+            grid.SetOwnedCounts(new Dictionary<string, int> { ["Relic_A"] = 1 });
+
+            CatalogActionChoice choice = Items(grid).Single();
+            Assert.True(choice.IsActive);
+            Assert.True(choice.IsBinary);
+            Assert.Equal("✓", choice.BadgeText);
+            Assert.DoesNotContain("已持有", choice.AutomationName, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public void IconGrid_ShowsSearchCue_AndReportsOwnedCountWithMouseAction()
     {
         RunSta(() =>
@@ -155,6 +174,9 @@ public sealed class CatalogActionGridWpfTests
         WindowStyle = WindowStyle.None,
         ShowInTaskbar = false
     };
+
+    private static IReadOnlyList<CatalogActionChoice> Items(CatalogActionGridControl grid) =>
+        Assert.IsType<ItemsControl>(grid.FindName("ItemsHost")).Items.Cast<CatalogActionChoice>().ToArray();
 
     private static void RaiseMouse(Border tile, MouseButton button) =>
         tile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, button)
