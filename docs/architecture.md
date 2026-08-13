@@ -145,9 +145,9 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 
 路线阶段只从 `canPlayerSelect = true` 的节点中选择，空候选不能退化为 `readyIndex = 0`。`selectMapNode` 返回成功后还必须观察到已提交的 `chooseNode` 或 `pendingSubLevelNode`；没有状态变化的成功响应仍按失败处理，避免每个 Tick 重复选择同一节点。
 
-普通事件剧情只通过 `EventUI_Normal` 的真实 `SkipButton` 跳过；每章首个 `WaveFunctionUI` 轨神事件继续使用原有直选流程。关闭跳过时，文字动画完成后保留 1.25 秒观察时间；开启后可在打字阶段读取按钮，但读取与点击仍分帧执行。右侧 `targetRaycast` 道具必须重新查询当前候选，只接受 `conditionPass=true` 且带稳定 Transform `instanceId/path` 的目标；动力点、普通点及其自动发放道具始终排除。
+普通事件剧情只通过 `EventUI_Normal` 的真实 `SkipButton` 跳过；每章首个 `WaveFunctionUI` 轨神事件继续使用原有直选流程。关闭跳过时，文字动画完成后保留 0.75 秒观察时间；开启后可在打字阶段读取按钮，但读取与点击仍分帧执行。右侧 `targetRaycast` 道具必须重新查询当前候选，只接受 `conditionPass=true` 且带稳定 Transform `instanceId/path` 的目标；动力点、普通点及其自动发放道具始终排除。
 
-防线维护先依据车列真实容量决定是否必须新建闭环，避免固定车头占位后仍把战斗车积压在背包。没有容量堵塞时，已有轨插点以站点触发率 `N/T` 评估：只有 `(N+1)/T' > N/T` 才提交。特殊弹射点只走游戏正式的 `startStationMove` / `confirmStationMoveGrid` 两阶段入口，确认前重新核对交互身份，移动后验证轨道集合、站点数、合法闭环和实际回转周期。普通点从左下角道具库存进入正式格子预览。所有轨道、插点、放点和移动写入均只发送一次；结果未知时只读对账，不能由暂停、停止或超时触发重发。
+防线维护先依据车列真实容量决定是否必须新建闭环，避免固定车头占位后仍把战斗车积压在背包。没有容量堵塞时，已有轨插点以站点触发率 `N/T` 评估：只有 `(N+1)/T' > N/T` 才提交。特殊弹射点只走游戏正式的 `startStationMove` / `confirmStationMoveGrid` 两阶段入口，确认前重新核对交互身份，移动后验证轨道集合、站点数、合法闭环和实际回转周期。普通点从左下角道具库存进入正式格子预览。所有轨道、插点、放点和移动写入均只发送一次；结果未知时只读对账，不能由暂停、停止或超时触发重发。若插点已经完整对账为合法闭环、但实测收益没有达到预测值，则以当前合法布局为新基线继续规划，不设置进程重启门禁。
 
 插件按固定间隔执行一次决策，并具备以下停止条件：
 
@@ -190,7 +190,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.8-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.9-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

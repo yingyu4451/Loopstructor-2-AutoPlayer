@@ -54,6 +54,7 @@ public sealed class RailInsertionPreviewScore
 public sealed class RailInsertionVerification
 {
     public bool Verified { get; set; }
+    public bool Beneficial { get; set; }
     public bool Pending { get; set; }
     public string Detail { get; set; } = string.Empty;
     public double ObservedLoopCycleSeconds { get; set; }
@@ -768,15 +769,17 @@ public sealed class RailExpansionPlanner
             currentCount,
             observedCycle,
             selected.PredictedLayout);
-        if (!RailLayoutStrategyPlanner.IsStrictDefenseImprovement(baselineLayout, currentLayout))
-        {
-            return Failure("新增站点后的四向覆盖与真实站点触发率均未改善。");
-        }
+        bool beneficial = RailLayoutStrategyPlanner.IsStrictDefenseImprovement(
+            baselineLayout,
+            currentLayout);
 
         return new RailInsertionVerification
         {
             Verified = true,
-            Detail = "已验证指定站点加入原轨道，且轨道仍为合法玩家闭环。",
+            Beneficial = beneficial,
+            Detail = beneficial
+                ? "已验证指定站点加入原轨道，且轨道仍为合法玩家闭环。"
+                : "已验证指定站点加入原轨道且结构合法，但实测布局收益未达到预期。",
             ObservedLoopCycleSeconds = observedCycle
         };
     }

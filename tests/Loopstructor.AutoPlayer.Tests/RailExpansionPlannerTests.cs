@@ -89,6 +89,7 @@ public sealed class RailExpansionPlannerTests
         RailInsertionVerification verified = _planner.VerifyInsertion(baseline, current, selected);
 
         Assert.True(verified.Verified);
+        Assert.True(verified.Beneficial);
         Assert.Equal(6.8d, verified.ObservedLoopCycleSeconds, 6);
 
         JObject wrongPoint = Result(new
@@ -96,6 +97,29 @@ public sealed class RailExpansionPlannerTests
             rails = new[] { Rail(701, 71, 4, 6.8d, 801, new[] { 11, 12, 13, 999 }) }
         });
         Assert.False(_planner.VerifyInsertion(baseline, wrongPoint, selected).Verified);
+    }
+
+    [Fact]
+    public void VerifyInsertion_LegalCommittedStructureWithoutExpectedBenefit_IsVerifiedForRetry()
+    {
+        RailInsertionPreviewScore selected = Score(71, baseline: 0.5d, predicted: 0.6d);
+        selected.Candidate.RailInstanceId = 701;
+        selected.Candidate.StationCount = 3;
+        selected.Candidate.StationLinePointInstanceId = 301;
+        JObject baseline = Result(new
+        {
+            rails = new[] { Rail(701, 71, 3, 6d, 801, new[] { 11, 12, 13 }) }
+        });
+        JObject current = Result(new
+        {
+            rails = new[] { Rail(701, 71, 4, 10d, 801, new[] { 11, 12, 13, 301 }) }
+        });
+
+        RailInsertionVerification verification = _planner.VerifyInsertion(baseline, current, selected);
+
+        Assert.True(verification.Verified);
+        Assert.False(verification.Beneficial);
+        Assert.Contains("结构合法", verification.Detail, StringComparison.Ordinal);
     }
 
     [Fact]

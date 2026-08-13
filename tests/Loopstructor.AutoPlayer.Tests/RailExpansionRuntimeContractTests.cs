@@ -99,6 +99,13 @@ public sealed class RailExpansionRuntimeContractTests
                     call.Name == "VerifyInsertion");
         Assert.Contains(
             Calls(maintain),
+            call => call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.RailInsertionVerification" &&
+                    call.Name == "get_Beneficial");
+        Assert.Contains(
+            LoadedStrings(maintain),
+            value => value.Contains("结构写入已完整对账，不要求重启", StringComparison.Ordinal));
+        Assert.Contains(
+            Calls(maintain),
             call => call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.RailExpansionPlanner" &&
                     call.Name == "VerifyMove");
         Assert.True(

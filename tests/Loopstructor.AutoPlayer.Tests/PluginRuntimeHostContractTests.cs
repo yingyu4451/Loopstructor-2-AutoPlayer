@@ -157,7 +157,7 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(handler), value => value == "queryUiInteractables");
         Assert.Contains(
             LoadedStrings(handler),
-            value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
+            value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -286,7 +286,7 @@ public sealed class PluginRuntimeHostContractTests
             bridge,
             "InvokeLightweightWaveFunctionSelection");
 
-        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
         Assert.Contains(
             LoadedStrings(rewardWait),
             value => value.Contains("出现动画仍在播放", StringComparison.Ordinal));
@@ -305,13 +305,13 @@ public sealed class PluginRuntimeHostContractTests
             LoadedStrings(rewardWait),
             value => value.Contains("奖励物品已完整出现", StringComparison.Ordinal));
         Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "BuildRewardObjectsFingerprint"));
-        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("1.25 秒录像观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
-            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
+            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 0.75f) < 0.001f);
         Assert.Contains(eventWait.Body.Instructions, instruction =>
-            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
+            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 0.75f) < 0.001f);
         Instruction[] tickInstructions = RequireMethod(controller, "TickInGame").Body.Instructions.ToArray();
         int rewardObservation = FindCall(tickInstructions, ControllerType, "TryWaitForRewardOptions");
         int contextualDecision = FindCall(tickInstructions, ControllerType, "DecideObservedReward");

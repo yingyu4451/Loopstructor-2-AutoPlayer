@@ -111,10 +111,10 @@ internal sealed class AutoPlayController
     private const float NormalEventAppearanceGraceSeconds = 1f;
     private const float EventOptionGenerationDelaySeconds = 3.25f;
     private const float RepairPanelAnimationSeconds = 1.5f;
-    private const float RecordingObservationDelaySeconds = 1.25f;
+    private const float RecordingObservationDelaySeconds = 0.75f;
     private const float RewardObjectAppearanceGraceSeconds = 1.25f;
     private const float RewardObjectAppearancePollSeconds = 0.1f;
-    private const float MergeSettlementObservationSeconds = 1.25f;
+    private const float MergeSettlementObservationSeconds = 0.75f;
     private const float MergeSettlementAppearanceTimeoutSeconds = 10f;
     private const float MergePassTimeoutSeconds = 30f;
     private const float RewardVehicleContextFrameDelaySeconds = 0.02f;
@@ -2265,7 +2265,7 @@ internal sealed class AutoPlayController
                 "observation",
                 _options.SkipStory
                     ? "已识别新版普通事件剧情面板；跳过剧情已开启，将在真实跳过按钮可用后立即操作。"
-                    : "已识别新版普通事件剧情面板；开波重试已停止，等待每段文字动画结束后保留 1.25 秒录像时间。");
+                    : "已识别新版普通事件剧情面板；开波重试已停止，等待每段文字动画结束后保留 0.75 秒观察时间。");
             MarkProgress();
         }
 
@@ -2341,10 +2341,10 @@ internal sealed class AutoPlayController
             _nextTickAt = Math.Max(_nextTickAt, _normalEventActionReadyAt);
             SetStage(
                 AutomationStage.ManagingEvent,
-                "普通事件" + storyProgress + "已完整显示，保留 1.25 秒录像观察时间后再继续。");
+                "普通事件" + storyProgress + "已完整显示，保留 0.75 秒观察时间后再继续。");
             AddTimeline(
                 "observation",
-                "普通事件" + storyProgress + "动画已结束；将在 1.25 秒录像观察时间结束后操作。");
+                "普通事件" + storyProgress + "动画已结束；将在 0.75 秒观察时间结束后操作。");
             MarkProgress();
             return true;
         }
@@ -2354,7 +2354,7 @@ internal sealed class AutoPlayController
             _nextTickAt = Math.Max(_nextTickAt, _normalEventActionReadyAt);
             SetStage(
                 AutomationStage.ManagingEvent,
-                "普通事件" + storyProgress + "保持显示，正在等待 1.25 秒录像观察时间结束。");
+                "普通事件" + storyProgress + "保持显示，正在等待 0.75 秒观察时间结束。");
             return true;
         }
 
@@ -3693,7 +3693,10 @@ internal sealed class AutoPlayController
                     _defenseStructuralMutationGuard.Reset();
                     _pendingActionKey = string.Empty;
                     ContinueDefenseRailOptimization(
-                        $"扩轨完成；实测回转周期 {insertionVerification.ObservedLoopCycleSeconds:0.###} 秒。");
+                        insertionVerification.Beneficial
+                            ? $"扩轨完成；实测回转周期 {insertionVerification.ObservedLoopCycleSeconds:0.###} 秒。"
+                            : insertionVerification.Detail +
+                              " 结构写入已完整对账，不要求重启；将从当前布局继续寻找下一项优化。");
                     return true;
                 }
 
@@ -4996,14 +4999,14 @@ internal sealed class AutoPlayController
             if (_mergeSettlementObservedAt < 0f)
             {
                 _mergeSettlementObservedAt = now;
-                AddTimeline("merge-settlement", "已观察到游戏原生合成结算，保留画面 1.25 秒供录像查看。");
+                AddTimeline("merge-settlement", "已观察到游戏原生合成结算，保留画面 0.75 秒供观察。");
             }
 
             float confirmationAt = _mergeSettlementObservedAt + MergeSettlementObservationSeconds;
             if (now < confirmationAt)
             {
                 _nextTickAt = Math.Max(_nextTickAt, confirmationAt);
-                SetStage(AutomationStage.PreparingDefense, "合成结算已经稳定，正在保留 1.25 秒录像观察时间。");
+                SetStage(AutomationStage.PreparingDefense, "合成结算已经稳定，正在保留 0.75 秒观察时间。");
                 return;
             }
 
@@ -7504,7 +7507,7 @@ internal sealed class AutoPlayController
             {
                 _rewardObjectsReadyAt = -1f;
                 _nextTickAt = Math.Max(_nextTickAt, now + RewardObjectAppearancePollSeconds);
-                SetStage(AutomationStage.ManagingRewards, "奖励物品的出现动画仍在播放；动画结束后才开始 1.25 秒录像观察时间。");
+                SetStage(AutomationStage.ManagingRewards, "奖励物品的出现动画仍在播放；动画结束后才开始 0.75 秒观察时间。");
                 return true;
             }
 
@@ -7512,8 +7515,8 @@ internal sealed class AutoPlayController
             {
                 _rewardObjectsReadyAt = now + RecordingObservationDelaySeconds;
                 _nextTickAt = Math.Max(_nextTickAt, _rewardObjectsReadyAt);
-                SetStage(AutomationStage.ManagingRewards, "奖励物品出现动画已结束，保留 1.25 秒录像观察时间后再收取。");
-                AddTimeline("observation", "奖励物品出现动画已结束；将在 1.25 秒录像观察时间结束后收取。");
+                SetStage(AutomationStage.ManagingRewards, "奖励物品出现动画已结束，保留 0.75 秒观察时间后再收取。");
+                AddTimeline("observation", "奖励物品出现动画已结束；将在 0.75 秒观察时间结束后收取。");
                 MarkProgress();
                 return true;
             }
@@ -7521,7 +7524,7 @@ internal sealed class AutoPlayController
             if (now < _rewardObjectsReadyAt)
             {
                 _nextTickAt = Math.Max(_nextTickAt, _rewardObjectsReadyAt);
-                SetStage(AutomationStage.ManagingRewards, "奖励物品保持显示，正在等待动画结束后的 1.25 秒录像观察时间。");
+                SetStage(AutomationStage.ManagingRewards, "奖励物品保持显示，正在等待动画结束后的 0.75 秒观察时间。");
                 return true;
             }
 
@@ -7569,8 +7572,8 @@ internal sealed class AutoPlayController
         if (observation.Status == RewardOptionObservationStatus.RecordingStarted)
         {
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
-            SetStage(AutomationStage.ManagingRewards, "奖励选项已完整出现，保留 1.25 秒录像观察时间后再选择。");
-            AddTimeline("observation", "奖励选项已稳定显示；将在 1.25 秒录像观察时间结束后选择。");
+            SetStage(AutomationStage.ManagingRewards, "奖励选项已完整出现，保留 0.75 秒观察时间后再选择。");
+            AddTimeline("observation", "奖励选项已稳定显示；将在 0.75 秒观察时间结束后选择。");
             MarkProgress();
             return true;
         }
@@ -7578,7 +7581,7 @@ internal sealed class AutoPlayController
         if (observation.Status == RewardOptionObservationStatus.Recording)
         {
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
-            SetStage(AutomationStage.ManagingRewards, "奖励选项保持显示，正在等待 1.25 秒录像观察时间结束。");
+            SetStage(AutomationStage.ManagingRewards, "奖励选项保持显示，正在等待 0.75 秒观察时间结束。");
             return true;
         }
 
@@ -7607,8 +7610,8 @@ internal sealed class AutoPlayController
             _eventOptionsFingerprint = fingerprint;
             _eventOptionSelectionReadyAt = Time.realtimeSinceStartup + RecordingObservationDelaySeconds;
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
-            SetStage(AutomationStage.ManagingEvent, panelName + "已完整出现，保留 1.25 秒录像观察时间后再选择。");
-            AddTimeline("observation", panelName + "已稳定显示；将在 1.25 秒录像观察时间结束后选择。");
+            SetStage(AutomationStage.ManagingEvent, panelName + "已完整出现，保留 0.75 秒观察时间后再选择。");
+            AddTimeline("observation", panelName + "已稳定显示；将在 0.75 秒观察时间结束后选择。");
             MarkProgress();
             return true;
         }
@@ -7616,7 +7619,7 @@ internal sealed class AutoPlayController
         if (Time.realtimeSinceStartup < _eventOptionSelectionReadyAt)
         {
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
-            SetStage(AutomationStage.ManagingEvent, panelName + "保持显示，正在等待 1.25 秒录像观察时间结束。");
+            SetStage(AutomationStage.ManagingEvent, panelName + "保持显示，正在等待 0.75 秒观察时间结束。");
             return true;
         }
 

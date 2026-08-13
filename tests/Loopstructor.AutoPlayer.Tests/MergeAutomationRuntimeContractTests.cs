@@ -50,7 +50,7 @@ public sealed class MergeAutomationRuntimeContractTests
     }
 
     [Fact]
-    public void Settlement_IsObservedForOnePointFiveSecondsAndMaintenanceStopsAfterEightPasses()
+    public void Settlement_IsObservedForThreeQuartersOfASecondAndMaintenanceStopsAfterEightPasses()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
@@ -60,7 +60,7 @@ public sealed class MergeAutomationRuntimeContractTests
 
         FieldDefinition observationSeconds = RequireField(controller, "MergeSettlementObservationSeconds");
         Assert.True(observationSeconds.HasConstant);
-        Assert.Equal(1.25f, Convert.ToSingle(observationSeconds.Constant));
+        Assert.Equal(0.75f, Convert.ToSingle(observationSeconds.Constant));
 
         Instruction[] observationInstructions = observeSettlement.Body.Instructions.ToArray();
         int firstObservationWrite = FindFieldInstruction(
@@ -72,12 +72,12 @@ public sealed class MergeAutomationRuntimeContractTests
             Code.Ldfld,
             "_mergeSettlementObservedAt",
             firstObservationWrite + 1);
-        int delayLoad = FindFloatLoad(observationInstructions, 1.25f, observedTimestampRead + 1);
+        int delayLoad = FindFloatLoad(observationInstructions, 0.75f, observedTimestampRead + 1);
         Assert.True(
             firstObservationWrite >= 0 &&
             firstObservationWrite < observedTimestampRead &&
             observedTimestampRead < delayLoad,
-            "The 1.25 second delay must be calculated from the first observed settlement timestamp.");
+            "The 0.75 second delay must be calculated from the first observed settlement timestamp.");
         Assert.Contains(Calls(observeSettlement), IsCall("System.Math", "Max"));
 
         FieldDefinition maxPasses = RequireField(controller, "MaxMergePassesPerMaintenance");
