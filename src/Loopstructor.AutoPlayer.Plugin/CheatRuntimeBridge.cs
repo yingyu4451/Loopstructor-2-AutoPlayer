@@ -308,9 +308,6 @@ internal sealed class CheatRuntimeBridge
     private Type? _agentRegisterType;
     private Type? _superModuleManagerType;
     private Type? _superModuleType;
-    private Type? _rewardManagerType;
-    private Type? _potionRewardType;
-    private Type? _superModuleRewardType;
     private Type? _superModuleDataType;
     private Type? _battleMemoryType;
     private Type? _battleAttributeCfgType;
@@ -390,9 +387,6 @@ internal sealed class CheatRuntimeBridge
         _agentRegisterType = Require("MetroTD.AISystem.AgentRegisterType");
         _superModuleManagerType = Require("MetroTD.SuperModuleSystem.SuperModuleManager");
         _superModuleType = Require("MetroTD.SuperModuleSystem.SuperModuleEnum");
-        _rewardManagerType = Require("MetroTD.RewardSystem.RewardManager");
-        _potionRewardType = Require("MetroTD.RewardSystem.PotionReward");
-        _superModuleRewardType = Require("MetroTD.RewardSystem.SuperModuleReward");
         _superModuleDataType = Require("MetroTD.SuperModuleSystem.SuperModuleData");
         _battleMemoryType = Require("MetroTD.BattleSystem.BattleMemoryEnum");
         _battleAttributeCfgType = Require("MetroTD.BattleSystem.BattleAttributeCfg");
@@ -440,11 +434,10 @@ internal sealed class CheatRuntimeBridge
         EnsureAvailable();
         IReadOnlyList<object> vehicles = ConfiguredVehicleValues();
         IReadOnlyList<object> enchantments = ConfiguredEnchantmentValues();
-        IReadOnlyList<object> allDisposables = ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!);
-        IReadOnlyList<object> catalogDisposables = AddConfiguredLegacyCatapultPoints(allDisposables);
-        IReadOnlyList<object> catapultPoints = catalogDisposables.Where(IsCatapultPoint).ToList();
+        IReadOnlyList<object> allDisposables = AllEnumValues(_disposableType!);
+        IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
         IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();
-        IReadOnlyList<object> relics = ConfiguredRewardValues("AllSuperModuleRewards", "superModuleEnum", _superModuleType!);
+        IReadOnlyList<object> relics = AllEnumValues(_superModuleType!);
         return new JObject
         {
             ["catalogVersion"] = 5,
@@ -696,13 +689,6 @@ internal sealed class CheatRuntimeBridge
                 "该道具会直接创建弹射点，请改用“获取弹射点”。",
                 "DISPOSABLE_IS_CATAPULT_POINT");
         }
-        if (!ContainsEnumValue(
-                ConfiguredRewardValues("AllDisposableRewards", "disposableEnum", _disposableType!),
-                disposableEnum))
-        {
-            return CheatExecutionResult.Fail("当前奖励配置中没有该消耗品：" + disposableId + "。", "DISPOSABLE_NOT_CONFIGURED");
-        }
-
         object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
         MethodInfo? method = FindMethod(manager.GetType(), "TryGetDisposable", _disposableType!);
         if (method == null)
@@ -821,18 +807,11 @@ internal sealed class CheatRuntimeBridge
         if (!IsCatapultPointId(disposableId))
         {
             return CheatExecutionResult.Fail(
-                "弹射点只支持 FreePoint 或 FreePoint_Attribute。",
+                "该枚举不是可直接放置的弹射点道具。",
                 "INVALID_CATAPULT_POINT");
         }
 
         object disposableEnum = ParseEnum(_disposableType!, disposableId, "弹射点类型");
-        if (!TryGetDisposableData(disposableEnum, out _))
-        {
-            return CheatExecutionResult.Fail(
-                "当前游戏配置中没有该弹射点：" + disposableId + "。",
-                "CATAPULT_POINT_NOT_CONFIGURED");
-        }
-
         object manager = GetRequiredSingleton(_disposableManagerType!, "DisposableManager");
         MethodInfo? grantMethod = FindMethod(manager.GetType(), "TryGetDisposable", _disposableType!);
         if (grantMethod == null)
@@ -1043,13 +1022,6 @@ internal sealed class CheatRuntimeBridge
         }
 
         object relicEnum = ParseEnum(_superModuleType!, relicId, "遗物类型");
-        if (!ContainsEnumValue(
-                ConfiguredRewardValues("AllSuperModuleRewards", "superModuleEnum", _superModuleType!),
-                relicEnum))
-        {
-            return CheatExecutionResult.Fail("当前奖励配置中没有该遗物：" + relicId + "。", "RELIC_NOT_CONFIGURED");
-        }
-
         object manager = GetRequiredSingleton(_superModuleManagerType!, "SuperModuleManager");
         MethodInfo? method = FindMethod(manager.GetType(), "GetSuperModule", _superModuleType!, typeof(bool));
         if (method == null)
@@ -1095,10 +1067,7 @@ internal sealed class CheatRuntimeBridge
                 BuildGrantAllRelicsResponse());
         }
 
-        IReadOnlyList<object> configured = ConfiguredRewardValues(
-            "AllSuperModuleRewards",
-            "superModuleEnum",
-            _superModuleType!);
+        IReadOnlyList<object> configured = AllEnumValues(_superModuleType!);
         if (configured.Count == 0)
         {
             return CheatExecutionResult.Fail(
@@ -3166,8 +3135,6 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_disposableObjectType, "disposableEnum");
         RequireSingletonAccessor(_infoManagerType);
         RequireMethodContract(_infoManagerType, "GetVehicleDescription", _vehicleType);
-        RequireMethodContract(_infoManagerType, "GetDisposableData", _disposableType);
-        RequireMethodContract(_infoManagerType, "GetSuperModuleData", _superModuleType);
         RequireMember(_razorDescriptionType, "name");
         RequireMember(_razorDescriptionType, "sprite");
         RequireMember(_disposableDataType, "name");
@@ -3180,12 +3147,6 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_superModuleManagerType, "superModules");
         RequireMethodContract(_superModuleManagerType, "GetSuperModule", _superModuleType, typeof(bool));
         RequireMethodContract(_superModuleManagerType, "TryRemoveSuperModule", _superModuleType);
-        RequireSingletonAccessor(_rewardManagerType);
-        RequireMember(_rewardManagerType, "AllDisposableRewards");
-        RequireMember(_rewardManagerType, "AllSuperModuleRewards");
-        RequireMethodContract(_rewardManagerType, "UpdateAllRewards");
-        RequireMember(_potionRewardType, "disposableEnum");
-        RequireMember(_superModuleRewardType, "superModuleEnum");
 
         RequireSingletonAccessor(_gameControllerType);
         RequireMember(_gameControllerType, "MainBase");
@@ -3502,33 +3463,11 @@ internal sealed class CheatRuntimeBridge
         throw new InvalidOperationException("官方作弊面板的" + displayName + "目录尚未加载。");
     }
 
-    private IReadOnlyList<object> ConfiguredRewardValues(string collectionName, string enumMember, Type enumType)
-    {
-        object manager = GetRequiredSingleton(_rewardManagerType!, "RewardManager");
-        object? source = GetMember(manager, collectionName);
-        if (source == null)
-        {
-            FindMethod(manager.GetType(), "UpdateAllRewards")?.Invoke(manager, null);
-            source = GetMember(manager, collectionName);
-        }
-
-        if (source is not IEnumerable rewards)
-        {
-            throw new InvalidOperationException("奖励目录尚未初始化：" + collectionName + "。");
-        }
-
-        List<object> result = new();
-        foreach (object? reward in rewards)
-        {
-            if (reward == null) continue;
-            if (reward is UnityEngine.Object unityObject && unityObject == null) continue;
-            object? value = GetMember(reward, enumMember);
-            if (value == null || value.GetType() != enumType || string.Equals(value.ToString(), "None", StringComparison.Ordinal)) continue;
-            result.Add(value);
-        }
-
-        return DistinctEnumValues(result);
-    }
+    private static IReadOnlyList<object> AllEnumValues(Type enumType) =>
+        DistinctEnumValues(
+            Enum.GetValues(enumType)
+                .Cast<object>()
+                .Where(value => !string.Equals(value.ToString(), "None", StringComparison.OrdinalIgnoreCase)));
 
     private static IReadOnlyList<object> DistinctEnumValues(IEnumerable<object> values)
     {
@@ -3607,7 +3546,9 @@ internal sealed class CheatRuntimeBridge
 
     private JObject BuildDisposableCatalogItem(object value)
     {
-        TryGetDisposableData(value, out object? data);
+        object? data = TryGetDisposableData(value, out object? configuredData)
+            ? configuredData
+            : null;
         JObject item = BuildCatalogItem(value, data, "name", "icon", "消耗品");
         item["description"] = ResolveCatalogDescription(data, "description");
         return item;
@@ -3615,7 +3556,9 @@ internal sealed class CheatRuntimeBridge
 
     private JObject BuildCatapultPointCatalogItem(object value)
     {
-        TryGetDisposableData(value, out object? data);
+        object? data = TryGetDisposableData(value, out object? configuredData)
+            ? configuredData
+            : null;
         JObject item = BuildCatalogItem(value, data, "name", "icon", "弹射点");
         item["description"] = ResolveCatalogDescription(data, "description");
         return item;
@@ -3623,7 +3566,7 @@ internal sealed class CheatRuntimeBridge
 
     private JObject BuildRelicCatalogItem(object value)
     {
-        object? data = InvokeInfoManager("GetSuperModuleData", _superModuleType!, value);
+        TryGetSuperModuleData(value, out object? data);
         JObject item = BuildCatalogItem(value, data, "name", "icon", "遗物");
         item["description"] = ResolveCatalogDescription(data, "description");
         return item;
@@ -3677,8 +3620,32 @@ internal sealed class CheatRuntimeBridge
 
     private bool TryGetDisposableData(object disposableEnum, out object? data)
     {
-        data = InvokeInfoManager("GetDisposableData", _disposableType!, disposableEnum);
-        return data != null && (!(data is UnityEngine.Object unityObject) || unityObject != null);
+        object? manager = TryGetSingleton(_disposableManagerType!);
+        object? configuration = GetMember(manager, "m_disposableSo")
+                                ?? GetMember(manager, "disposableSo")
+                                ?? GetMember(manager, "DisposableSo");
+        return TryGetDictionaryValue(configuration, "disposableData", disposableEnum, out data);
+    }
+
+    private bool TryGetSuperModuleData(object relicEnum, out object? data)
+    {
+        object? manager = TryGetSingleton(_superModuleManagerType!);
+        object? configuration = GetMember(manager, "m_superModuleSo")
+                                ?? GetMember(manager, "superModuleSo")
+                                ?? GetMember(manager, "SuperModuleSo");
+        return TryGetDictionaryValue(configuration, "superModuleDatas", relicEnum, out data);
+    }
+
+    private static bool TryGetDictionaryValue(
+        object? owner,
+        string memberName,
+        object key,
+        out object? value)
+    {
+        value = null;
+        if (GetMember(owner, memberName) is not IDictionary dictionary || !dictionary.Contains(key)) return false;
+        value = dictionary[key];
+        return value != null && (!(value is UnityEngine.Object unityObject) || unityObject != null);
     }
 
     private JArray SafeEnemyCatalogItems()
@@ -3698,25 +3665,9 @@ internal sealed class CheatRuntimeBridge
     {
         string id = value.ToString() ?? string.Empty;
         if (IsLegacyCatapultPointId(id)) return true;
-        object? disposableObject = TryGetDisposableTemplate(value);
-        object? interaction = GetMember(disposableObject, "interaction");
-        object? behaviour = GetMember(interaction, "disposableBehaviour");
-        return (behaviour?.GetType().Name ?? string.Empty).StartsWith("CreateFreeStation", StringComparison.Ordinal);
-    }
-
-    private IReadOnlyList<object> AddConfiguredLegacyCatapultPoints(IReadOnlyList<object> values)
-    {
-        List<object> result = new(values);
-        foreach (string id in new[] { "FreePoint", "FreePoint_Attribute" })
-        {
-            object value;
-            try { value = ParseEnum(_disposableType!, id, "弹射点类型"); }
-            catch { continue; }
-            if (!TryGetDisposableData(value, out _) || result.Any(existing => Equals(existing, value))) continue;
-            result.Add(value);
-        }
-
-        return DistinctEnumValues(result);
+        return id.EndsWith("弹射点", StringComparison.Ordinal)
+               || id.EndsWith("站点", StringComparison.Ordinal)
+               || id.EndsWith("始发站", StringComparison.Ordinal);
     }
 
     private object? TryGetDisposableTemplate(object value)

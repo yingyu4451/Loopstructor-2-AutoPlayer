@@ -10,7 +10,7 @@ public sealed class CheatResourceRefactorContractTests
     private const string DisplayPatchType = "Loopstructor.AutoPlayer.Plugin.VehicleEnchantmentDisplayPatch";
 
     [Fact]
-    public void CatalogV5_GroupsVehiclesAndEnchantments_AndPartitionsOneDisposablePool()
+    public void CatalogV5_UsesCompleteEnums_AndPartitionsDisposableTypesWithoutRewardPools()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -19,9 +19,10 @@ public sealed class CheatResourceRefactorContractTests
         MethodDefinition enchantment = RequireMethod(bridge, "BuildEnchantmentCatalogItem");
 
         Assert.Contains(5, LoadedInts(catalog));
-        Assert.Contains("AllDisposableRewards", LoadedStrings(catalog));
+        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnumValues"));
+        Assert.DoesNotContain("AllDisposableRewards", LoadedStrings(catalog));
+        Assert.DoesNotContain("AllSuperModuleRewards", LoadedStrings(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "IsCatapultPoint"));
-        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AddConfiguredLegacyCatapultPoints"));
         Assert.Contains(Calls(vehicle), IsCall(BridgeType, "VehicleFamily"));
         Assert.Contains(Calls(vehicle), IsCall(BridgeType, "VehicleTypeOrder"));
         Assert.DoesNotContain(Calls(vehicle), IsCall(BridgeType, "VehicleFamilyOrder"));
@@ -35,11 +36,31 @@ public sealed class CheatResourceRefactorContractTests
             Assert.Contains(field, LoadedStrings(vehicle));
         }
 
-        Assert.Contains("FreePoint", LoadedStrings(RequireMethod(bridge, "AddConfiguredLegacyCatapultPoints")));
-        Assert.Contains("FreePoint_Attribute", LoadedStrings(RequireMethod(bridge, "AddConfiguredLegacyCatapultPoints")));
+        MethodDefinition pointClassifier = RequireMethod(bridge, "IsCatapultPoint");
+        Assert.Contains("弹射点", LoadedStrings(pointClassifier));
+        Assert.Contains("站点", LoadedStrings(pointClassifier));
+        Assert.Contains("始发站", LoadedStrings(pointClassifier));
         Assert.Contains("description", LoadedStrings(enchantment));
         Assert.Contains("description", LoadedStrings(RequireMethod(bridge, "BuildDisposableCatalogItem")));
         Assert.Contains("description", LoadedStrings(RequireMethod(bridge, "BuildRelicCatalogItem")));
+    }
+
+    [Fact]
+    public void CatalogCoverage_DoesNotRequireSoEntries_AndGrantPathsAcceptCompleteEnums()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        MethodDefinition allValues = RequireMethod(bridge, "AllEnumValues");
+        MethodDefinition grantDisposable = RequireMethod(bridge, "GrantDisposable");
+        MethodDefinition grantPoint = RequireMethod(bridge, "GrantCatapultPoint");
+        MethodDefinition grantRelic = RequireMethod(bridge, "GrantRelic");
+
+        Assert.Contains(Calls(allValues), call => call.DeclaringType.FullName == "System.Enum" && call.Name == "GetValues");
+        Assert.DoesNotContain(Calls(grantDisposable), IsCall(BridgeType, "TryGetDisposableData"));
+        Assert.DoesNotContain(Calls(grantPoint), IsCall(BridgeType, "TryGetDisposableData"));
+        Assert.DoesNotContain(Calls(grantRelic), IsCall(BridgeType, "TryGetSuperModuleData"));
+        Assert.DoesNotContain(LoadedStrings(grantDisposable), value => value.Contains("奖励配置", StringComparison.Ordinal));
+        Assert.DoesNotContain(LoadedStrings(grantRelic), value => value.Contains("奖励配置", StringComparison.Ordinal));
     }
 
     [Fact]

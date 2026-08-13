@@ -39,25 +39,20 @@ public sealed class GrantAllRelicsRuntimeContractTests
     }
 
     [Fact]
-    public void RuntimeJob_UsesConfiguredDistinctPool_SkipsOwnedAndVerifiesEveryGrant()
+    public void RuntimeJob_UsesCompleteEnumPool_SkipsOwnedAndVerifiesEveryGrant()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
         MethodDefinition start = RequireMethod(bridge, "StartGrantAllRelics");
         MethodDefinition tick = RequireMethod(bridge, "TickGrantAllRelics");
-        MethodDefinition configuredValues = RequireMethod(bridge, "ConfiguredRewardValues");
+        MethodDefinition configuredValues = RequireMethod(bridge, "AllEnumValues");
         MethodDefinition distinctValues = RequireMethod(bridge, "DistinctEnumValues");
 
-        Assert.Contains(Calls(start), IsCall(BridgeType, "ConfiguredRewardValues"));
-        Assert.Contains(LoadedStrings(start), value => value == "AllSuperModuleRewards");
-        Assert.Contains(LoadedStrings(start), value => value == "superModuleEnum");
+        Assert.Contains(Calls(start), IsCall(BridgeType, "AllEnumValues"));
         Assert.Contains(
             Calls(start),
             call => call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Plugin.CheatExecutionResult"
                     && call.Name == "Changed");
-        Assert.Contains(
-            LoadedStrings(configuredValues),
-            value => value.Equals("None", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
             Calls(configuredValues),
             IsCall(BridgeType, "DistinctEnumValues"));
