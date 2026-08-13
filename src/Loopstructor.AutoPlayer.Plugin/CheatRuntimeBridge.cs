@@ -275,7 +275,6 @@ internal sealed class CheatRuntimeBridge
     private Type? _vehicleManagerType;
     private Type? _vehicleControllerType;
     private Type? _vehicleInterfaceType;
-    private Type? _cheatVehiclePanelCfgType;
     private Type? _fetterInfoCfgType;
     private Type? _fetterDetailDataType;
     private Type? _fetterModuleDataType;
@@ -354,7 +353,6 @@ internal sealed class CheatRuntimeBridge
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
         _vehicleInterfaceType = Require("MetroTD.VehicleSystem.IVehicle");
-        _cheatVehiclePanelCfgType = Require("MetroTD.CheatSystem.UI.CheatVehiclePanelCfg");
         _fetterInfoCfgType = Require("MetroTD.VehicleSystem.SO_FetterInfoCfg");
         _fetterDetailDataType = Require("MetroTD.VehicleSystem.FetterDetailData");
         _fetterModuleDataType = Require("MetroTD.BuffSystem.FetterModuleData");
@@ -432,8 +430,8 @@ internal sealed class CheatRuntimeBridge
     public JObject QueryCatalog()
     {
         EnsureAvailable();
-        IReadOnlyList<object> vehicles = ConfiguredVehicleValues();
-        IReadOnlyList<object> enchantments = ConfiguredEnchantmentValues();
+        IReadOnlyList<object> vehicles = AllVehicleValues();
+        IReadOnlyList<object> enchantments = AllEnchantmentValues();
         IReadOnlyList<object> allDisposables = AllEnumValues(_disposableType!);
         IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
         IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();
@@ -521,9 +519,9 @@ internal sealed class CheatRuntimeBridge
         string vehicleId = RequiredText(arguments, "vehicleId", "必须选择战车类型。");
         int count = BoundedInt(arguments, "count", 1, MaxGrantCount, 1);
         object vehicleEnum = ParseEnum(_vehicleType!, vehicleId, "战车类型");
-        if (!ContainsEnumValue(ConfiguredVehicleValues(), vehicleEnum))
+        if (!ContainsEnumValue(AllVehicleValues(), vehicleEnum))
         {
-            return CheatExecutionResult.Fail("当前游戏配置中没有可生成的战车：" + vehicleId + "。", "VEHICLE_NOT_CONFIGURED");
+            return CheatExecutionResult.Fail("当前游戏枚举中没有可生成的战车：" + vehicleId + "。", "VEHICLE_NOT_CONFIGURED");
         }
 
         JToken? enchantmentsToken = arguments["enchantments"];
@@ -553,10 +551,10 @@ internal sealed class CheatRuntimeBridge
 
             int enchantmentLevel = PositiveInt(enchantment, "level", 1);
             object enchantmentEnum = ParseEnum(_fetterType!, enchantmentId, "附魔类型");
-            if (!ContainsEnumValue(ConfiguredEnchantmentValues(), enchantmentEnum))
+            if (!ContainsEnumValue(AllEnchantmentValues(), enchantmentEnum))
             {
                 return CheatExecutionResult.Fail(
-                    "当前游戏作弊配置中没有可用附魔：" + enchantmentId + "。",
+                    "当前游戏枚举中没有可用附魔：" + enchantmentId + "。",
                     "ENCHANTMENT_NOT_CONFIGURED");
             }
 
@@ -1430,11 +1428,11 @@ internal sealed class CheatRuntimeBridge
         string enchantmentId = RequiredText(arguments, "enchantmentId", "必须选择附魔。");
         int level = NonNegativeInt(arguments, "level", 1);
         object enchantment = ParseEnum(_fetterType!, enchantmentId, "附魔");
-        IReadOnlyList<object> configuredEnchantments = ConfiguredEnchantmentValues();
-        if (!ContainsEnumValue(configuredEnchantments, enchantment))
+        IReadOnlyList<object> availableEnchantments = AllEnchantmentValues();
+        if (!ContainsEnumValue(availableEnchantments, enchantment))
         {
             return CheatExecutionResult.Fail(
-                "当前游戏配置中没有可编辑的附魔：" + enchantmentId + "。",
+                "当前游戏枚举中没有可编辑的附魔：" + enchantmentId + "。",
                 "ENCHANTMENT_NOT_CONFIGURED");
         }
 
@@ -2385,12 +2383,12 @@ internal sealed class CheatRuntimeBridge
 
     private JArray BuildVehicleEnchantments(object vehicle)
     {
-        IReadOnlyList<object> configuredEnchantments = ConfiguredEnchantmentValues();
+        IReadOnlyList<object> availableEnchantments = AllEnchantmentValues();
         JArray result = new();
         foreach (object? module in GetVehicleEvolutionData(vehicle))
         {
             object? enchantment = GetMember(module, "fetterEnum");
-            if (enchantment == null || !ContainsEnumValue(configuredEnchantments, enchantment)) continue;
+            if (enchantment == null || !ContainsEnumValue(availableEnchantments, enchantment)) continue;
             JObject item = new()
             {
                 ["id"] = enchantment.ToString() ?? string.Empty,
@@ -3113,8 +3111,6 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_vehicleControllerType, "ID");
         RequireMember(_vehicleControllerType, "vehicleType");
         RequireMember(_vehicleControllerType, "level");
-        RequireMember(_cheatVehiclePanelCfgType, "vehicleTypes");
-        RequireMember(_cheatVehiclePanelCfgType, "fetterEnums");
         RequireSingletonAccessor(_fetterInfoCfgType);
         RequireMethodContract(
             _fetterInfoCfgType,
@@ -3431,37 +3427,14 @@ internal sealed class CheatRuntimeBridge
         }
     }
 
-    private IReadOnlyList<object> ConfiguredVehicleValues()
+    private IReadOnlyList<object> AllVehicleValues()
     {
-        return ConfiguredCheatValues("vehicleTypes", _vehicleType!, "战车")
+        return AllEnumValues(_vehicleType!)
             .Where(value => !string.Equals(value.ToString(), "Train_Head", StringComparison.Ordinal))
             .ToArray();
     }
 
-    private IReadOnlyList<object> ConfiguredEnchantmentValues()
-    {
-        return ConfiguredCheatValues("fetterEnums", _fetterType!, "附魔");
-    }
-
-    private IReadOnlyList<object> ConfiguredCheatValues(string memberName, Type enumType, string displayName)
-    {
-        UnityEngine.Object[] configurations = Resources.FindObjectsOfTypeAll(_cheatVehiclePanelCfgType!);
-        foreach (UnityEngine.Object configuration in configurations)
-        {
-            if (configuration == null || GetMember(configuration, memberName) is not IEnumerable values) continue;
-            List<object> result = new();
-            foreach (object? value in values)
-            {
-                if (value == null || value.GetType() != enumType) continue;
-                if (string.Equals(value.ToString(), "None", StringComparison.OrdinalIgnoreCase)) continue;
-                result.Add(value);
-            }
-
-            if (result.Count > 0) return DistinctEnumValues(result);
-        }
-
-        throw new InvalidOperationException("官方作弊面板的" + displayName + "目录尚未加载。");
-    }
+    private IReadOnlyList<object> AllEnchantmentValues() => AllEnumValues(_fetterType!);
 
     private static IReadOnlyList<object> AllEnumValues(Type enumType) =>
         DistinctEnumValues(

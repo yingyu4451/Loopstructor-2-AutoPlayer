@@ -17,9 +17,16 @@ public sealed class CheatResourceRefactorContractTests
         MethodDefinition catalog = RequireMethod(bridge, "QueryCatalog");
         MethodDefinition vehicle = RequireMethod(bridge, "BuildVehicleCatalogItem");
         MethodDefinition enchantment = RequireMethod(bridge, "BuildEnchantmentCatalogItem");
+        MethodDefinition vehicleValues = RequireMethod(bridge, "AllVehicleValues");
+        MethodDefinition enchantmentValues = RequireMethod(bridge, "AllEnchantmentValues");
 
         Assert.Contains(5, LoadedInts(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllVehicleValues"));
+        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnchantmentValues"));
+        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.DoesNotContain(bridge.Methods, method => method.Name == "ConfiguredCheatValues");
         Assert.DoesNotContain("AllDisposableRewards", LoadedStrings(catalog));
         Assert.DoesNotContain("AllSuperModuleRewards", LoadedStrings(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "IsCatapultPoint"));
@@ -54,8 +61,13 @@ public sealed class CheatResourceRefactorContractTests
         MethodDefinition grantDisposable = RequireMethod(bridge, "GrantDisposable");
         MethodDefinition grantPoint = RequireMethod(bridge, "GrantCatapultPoint");
         MethodDefinition grantRelic = RequireMethod(bridge, "GrantRelic");
+        MethodDefinition grantVehicle = RequireMethod(bridge, "GrantVehicle");
+        MethodDefinition editEnchantment = RequireMethod(bridge, "SetVehicleEnchantment");
 
         Assert.Contains(Calls(allValues), call => call.DeclaringType.FullName == "System.Enum" && call.Name == "GetValues");
+        Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllVehicleValues"));
+        Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllEnchantmentValues"));
+        Assert.Contains(Calls(editEnchantment), IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.DoesNotContain(Calls(grantDisposable), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantPoint), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantRelic), IsCall(BridgeType, "TryGetSuperModuleData"));

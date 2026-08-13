@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.9 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.10 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.9
+.\scripts\package.ps1 -Version 0.6.10
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.9-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.10-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -63,7 +63,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 通过安全握手的游戏进程都可以随时打开独立的“作弊工具”窗口，再手动开启或关闭作弊模式；不需要启动前选择单独的作弊调试会话。作弊工具与 Manager 是两个独立任务栏窗口，最小化 Manager 不会同时最小化作弊工具，操作作弊工具也不会把 Manager 抢到前台。自动游玩期间可继续查询对象并显示怪物 ID 与 Buff，其他作弊写操作会锁定；基地无敌或地图跳关仍开启时不能开始自动游玩。玩家模式会直接修改当前玩家存档，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
 
-战车、附魔、消耗品、弹射点、遗物和怪物目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断；配置缺少显示资料时才回退到内部 ID 和占位图。战车按去除 `_L1/_L2/...` 后的系列相邻排列并按等级递增，附魔按基础家族及 `Train/Railway/Domain` 变体相邻排列。插件不会为了读取中文名而切换游戏的全局语言。
+战车、附魔、消耗品、弹射点和遗物目录直接遍历当前游戏程序集中的完整枚举，怪物目录另行保留安全生成筛选；各目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断，配置缺少显示资料时才回退到内部 ID 和占位图。战车按去除 `_L1/_L2/...` 后的系列相邻排列并按等级递增，附魔按基础家族及 `Train/Railway/Domain` 变体相邻排列。插件不会为了读取中文名而切换游戏的全局语言。
 
 作弊工具提供以下能力：
 
@@ -148,9 +148,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.9-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.10-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.10` 将战车与附魔目录改为直接遍历当前游戏程序集的完整 `VehicleType` 和 `FetterEnum`，不再受官方作弊面板列表漏配影响；获取战车、添加附魔和编辑已有附魔使用同一完整枚举校验。显示资料缺失时保留枚举项并回退到枚举名。本版本以 `v0.6.9` 作为相邻增量更新基线。
 
 `v0.6.9` 将动画完整显示后的额外观察时间缩短为 0.75 秒。轨道插点已经形成合法闭环但收益核验未达到预期时，不再把可对账状态误判为必须重启；插件会解除本次结构事务、重新读取当前轨道并继续寻找下一项优化。本版本以 `v0.6.8` 作为相邻增量更新基线。
 

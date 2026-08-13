@@ -86,7 +86,7 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 | 命令 | 行为 |
 |---|---|
 | `cheat.setEnabled` | 在已授权会话中手动开启或关闭作弊模式 |
-| `cheat.queryCatalog` / `cheat.queryState` | 查询目录格式 v5 的战车、附魔、消耗品、弹射点、遗物、普通敌人及作弊状态；项目带类型/家族/等级排序字段、简体中文名、枚举名、图标引用和游戏原始说明 |
+| `cheat.queryCatalog` / `cheat.queryState` | 查询目录格式 v5 的战车、附魔、消耗品、弹射点、遗物、普通敌人及作弊状态；战车、附魔、道具和遗物来自当前游戏程序集的完整枚举，项目带类型/家族/等级排序字段、简体中文名、枚举名、图标引用和游戏原始说明 |
 | `cheat.grantVehicle` | 获取战车，并可传入多组附魔和各自等级 |
 | `cheat.removeVehicle` | 按稳定运行时战车 ID 删除指定已有战车 |
 | `cheat.grantDisposable` | 获取指定消耗品 |
@@ -190,7 +190,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.9-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.10-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
