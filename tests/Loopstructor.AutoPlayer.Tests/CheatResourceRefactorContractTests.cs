@@ -10,7 +10,7 @@ public sealed class CheatResourceRefactorContractTests
     private const string DisplayPatchType = "Loopstructor.AutoPlayer.Plugin.VehicleEnchantmentDisplayPatch";
 
     [Fact]
-    public void CatalogV5_UsesCompleteEnums_AndPartitionsDisposableTypesWithoutRewardPools()
+    public void CatalogV5_UsesRandomModeFixedVehicleAndFetterPools_AndPartitionsOtherCompleteEnums()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -21,11 +21,15 @@ public sealed class CheatResourceRefactorContractTests
         MethodDefinition enchantmentValues = RequireMethod(bridge, "AllEnchantmentValues");
 
         Assert.Contains(5, LoadedInts(catalog));
-        Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnumValues"));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnchantmentValues"));
-        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "AllEnumValues"));
-        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "RandomModeFixedPoolValues"));
+        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "RandomModeFixedPoolValues"));
+        MethodDefinition fixedPools = RequireMethod(bridge, "RandomModeFixedPoolValues");
+        Assert.Contains("GetRandomModeVehiclePool", LoadedStrings(vehicleValues));
+        Assert.Contains("GetRandomModeBasicFetterPool", LoadedStrings(enchantmentValues));
+        Assert.Contains(Calls(fixedPools), call => call.Name == "Invoke");
+        Assert.Contains("随机模式固定", LoadedStrings(fixedPools));
         Assert.DoesNotContain(bridge.Methods, method => method.Name == "ConfiguredCheatValues");
         Assert.DoesNotContain("AllDisposableRewards", LoadedStrings(catalog));
         Assert.DoesNotContain("AllSuperModuleRewards", LoadedStrings(catalog));
@@ -53,7 +57,7 @@ public sealed class CheatResourceRefactorContractTests
     }
 
     [Fact]
-    public void CatalogCoverage_DoesNotRequireSoEntries_AndGrantPathsAcceptCompleteEnums()
+    public void CatalogCoverage_UsesRandomModeFixedPoolsForVehicleAndEnchantments_WhileOtherResourcesStayEnumComplete()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -68,6 +72,8 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.Contains(Calls(editEnchantment), IsCall(BridgeType, "AllEnchantmentValues"));
+        Assert.DoesNotContain(Calls(RequireMethod(bridge, "AllVehicleValues")), IsCall(BridgeType, "AllEnumValues"));
+        Assert.DoesNotContain(Calls(RequireMethod(bridge, "AllEnchantmentValues")), IsCall(BridgeType, "AllEnumValues"));
         Assert.DoesNotContain(Calls(grantDisposable), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantPoint), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantRelic), IsCall(BridgeType, "TryGetSuperModuleData"));

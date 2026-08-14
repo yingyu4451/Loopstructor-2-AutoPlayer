@@ -280,6 +280,7 @@ internal sealed class CheatRuntimeBridge
     private Type? _fetterModuleDataType;
     private Type? _vehicleType;
     private Type? _fetterType;
+    private Type? _randomModeContentPatchServiceType;
     private Type? _disposableManagerType;
     private Type? _disposableDataType;
     private Type? _disposableObjectType;
@@ -358,6 +359,8 @@ internal sealed class CheatRuntimeBridge
         _fetterModuleDataType = Require("MetroTD.BuffSystem.FetterModuleData");
         _vehicleType = Require("MetroTD.VehicleSystem.VehicleType");
         _fetterType = Require("FetterEnum");
+        _randomModeContentPatchServiceType = Require(
+            "MetroTD.AchievementSystem.RandomModeContentPatch.RandomModeAchievementContentPatchService");
         _disposableManagerType = Require("MetroTD.DisposableSystem.DisposableManager");
         _disposableDataType = Require("MetroTD.DisposableSystem.DisposableData");
         _disposableObjectType = Require("MetroTD.DisposableSystem.DisposableObject");
@@ -3123,6 +3126,8 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_fetterModuleDataType, "fetterEnum");
         RequireMember(_fetterModuleDataType, "level");
         RequireMember(_fetterModuleDataType, "count");
+        RequireMethodContract(_randomModeContentPatchServiceType, "GetRandomModeVehiclePool");
+        RequireMethodContract(_randomModeContentPatchServiceType, "GetRandomModeBasicFetterPool");
 
         RequireSingletonAccessor(_disposableManagerType);
         RequireMethodContract(_disposableManagerType, "TryGetDisposable", _disposableType);
@@ -3429,12 +3434,40 @@ internal sealed class CheatRuntimeBridge
 
     private IReadOnlyList<object> AllVehicleValues()
     {
-        return AllEnumValues(_vehicleType!)
+        return RandomModeFixedPoolValues("GetRandomModeVehiclePool", _vehicleType!, "战车")
             .Where(value => !string.Equals(value.ToString(), "Train_Head", StringComparison.Ordinal))
             .ToArray();
     }
 
-    private IReadOnlyList<object> AllEnchantmentValues() => AllEnumValues(_fetterType!);
+    private IReadOnlyList<object> AllEnchantmentValues() =>
+        RandomModeFixedPoolValues("GetRandomModeBasicFetterPool", _fetterType!, "附魔");
+
+    private IReadOnlyList<object> RandomModeFixedPoolValues(
+        string methodName,
+        Type enumType,
+        string displayName)
+    {
+        Type serviceType = _randomModeContentPatchServiceType
+                           ?? throw new InvalidOperationException("当前游戏版本缺少随机模式固定池服务。");
+        MethodInfo method = FindMethod(serviceType, methodName)
+                            ?? throw new MissingMethodException(serviceType.FullName, methodName);
+        object? pool = method.Invoke(null, null);
+        if (pool is not IEnumerable values)
+        {
+            throw new InvalidOperationException($"随机模式固定{displayName}池尚未初始化。");
+        }
+
+        IReadOnlyList<object> result = DistinctEnumValues(
+            values.Cast<object>()
+                .Where(value => value.GetType() == enumType)
+                .Where(value => !string.Equals(value.ToString(), "None", StringComparison.OrdinalIgnoreCase)));
+        if (result.Count == 0)
+        {
+            throw new InvalidOperationException($"随机模式固定{displayName}池为空。");
+        }
+
+        return result;
+    }
 
     private static IReadOnlyList<object> AllEnumValues(Type enumType) =>
         DistinctEnumValues(
