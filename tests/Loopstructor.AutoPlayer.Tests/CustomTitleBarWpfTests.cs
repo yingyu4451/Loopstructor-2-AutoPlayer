@@ -121,6 +121,13 @@ public sealed class CustomTitleBarWpfTests
                 Assert.Equal("最大化", AutomationProperties.GetName(maximize));
                 Assert.Equal(minimize.ActualWidth, minimize.ActualHeight, precision: 3);
                 Assert.Equal(maximize.ActualWidth, maximize.ActualHeight, precision: 3);
+
+                Button action = Assert.IsType<Button>(form.FindName("ActionButton"));
+                action.IsEnabled = false;
+                action.ApplyTemplate();
+                Border face = Assert.IsType<Border>(action.Template.FindName("ButtonFace", action));
+                SolidColorBrush disabledBackground = Assert.IsType<SolidColorBrush>(face.Background);
+                Assert.Equal(Color.FromRgb(31, 26, 21), disabledBackground.Color);
             }
             finally
             {

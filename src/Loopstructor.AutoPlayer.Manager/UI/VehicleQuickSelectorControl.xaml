@@ -12,7 +12,9 @@
                 <ResourceDictionary Source="/Loopstructor.AutoPlayer.Manager;component/UI/GameTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <Style x:Key="VehicleTypeButtonStyle" TargetType="Button">
+            <Style x:Key="VehicleTypeButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource {x:Type Button}}">
                 <Setter Property="MinWidth" Value="68" />
                 <Setter Property="MinHeight" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -35,7 +37,9 @@
                 </Style.Triggers>
             </Style>
 
-            <Style x:Key="VehicleLevelButtonStyle" TargetType="Button">
+            <Style x:Key="VehicleLevelButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource {x:Type Button}}">
                 <Setter Property="MinWidth" Value="39" />
                 <Setter Property="MinHeight" Value="31" />
                 <Setter Property="Height" Value="31" />

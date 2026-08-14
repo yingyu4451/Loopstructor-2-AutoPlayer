@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Manager.UI;
 using Newtonsoft.Json.Linq;
@@ -77,6 +78,51 @@ public sealed class VehicleQuickSelectorWpfTests
         });
     }
 
+    [Fact]
+    public void DisabledTypeAndLevelButtons_KeepDarkMechanicalFace()
+    {
+        RunSta(() =>
+        {
+            VehicleQuickSelectorControl selector = new();
+            selector.SetItems(new[]
+            {
+                Vehicle("Shell_Alpha_L1", "Shell", 0, "Shell_Alpha", 10, 1),
+                Vehicle("Shell_Alpha_L2", "Shell", 0, "Shell_Alpha", 10, 2)
+            });
+            selector.IsEnabled = false;
+            Window window = new()
+            {
+                Width = 520,
+                Height = 360,
+                Content = selector,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+
+            try
+            {
+                window.Show();
+                PumpDispatcher();
+
+                Button[] buttons = VisualDescendants<Button>(selector).ToArray();
+                Assert.NotEmpty(buttons);
+                Assert.All(buttons, button =>
+                {
+                    Assert.False(button.IsEnabled);
+                    button.ApplyTemplate();
+                    Border body = Assert.IsType<Border>(button.Template.FindName("Body", button));
+                    SolidColorBrush background = Assert.IsType<SolidColorBrush>(body.Background);
+                    Assert.Equal(Color.FromRgb(31, 26, 21), background.Color);
+                    Assert.True(background.Color.R < 80 && background.Color.G < 80 && background.Color.B < 80);
+                });
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     private static CatalogPickerItem Vehicle(string id, string type, int typeOrder, string family, int familyOrder, int level) => new(
         id,
         id,
@@ -138,4 +184,22 @@ public sealed class VehicleQuickSelectorWpfTests
 
     private static void PumpDispatcher() =>
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T typed)
+            {
+                yield return typed;
+            }
+
+            foreach (T descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 }

@@ -18,6 +18,8 @@
     <Color x:Key="TextColor">#F1EBDD</Color>
     <Color x:Key="MutedTextColor">#B9AA92</Color>
     <Color x:Key="DisabledTextColor">#756A5A</Color>
+    <Color x:Key="DisabledControlBackgroundColor">#1F1A15</Color>
+    <Color x:Key="DisabledControlBorderColor">#42372B</Color>
 
     <SolidColorBrush x:Key="CoalBrush" Color="{StaticResource CoalColor}" />
     <SolidColorBrush x:Key="SootBrush" Color="{StaticResource SootColor}" />
@@ -33,6 +35,8 @@
     <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
     <SolidColorBrush x:Key="MutedTextBrush" Color="{StaticResource MutedTextColor}" />
     <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource DisabledTextColor}" />
+    <SolidColorBrush x:Key="DisabledControlBackgroundBrush" Color="{StaticResource DisabledControlBackgroundColor}" />
+    <SolidColorBrush x:Key="DisabledControlBorderBrush" Color="{StaticResource DisabledControlBorderColor}" />
 
     <!-- Shared geometry keeps sibling controls on the same baseline. -->
     <Thickness x:Key="ControlPadding">10,6</Thickness>
@@ -274,7 +278,12 @@
                             <Setter TargetName="ButtonFace" Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.42" />
+                            <Setter TargetName="ButtonFrame" Property="Background" Value="#0D0B09" />
+                            <Setter TargetName="ButtonFrame" Property="BorderBrush" Value="#0D0B09" />
+                            <Setter TargetName="ButtonFace" Property="Background" Value="{StaticResource DisabledControlBackgroundBrush}" />
+                            <Setter TargetName="ButtonFace" Property="BorderBrush" Value="{StaticResource DisabledControlBorderBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                            <Setter Property="Opacity" Value="1" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -353,7 +362,7 @@
                         SnapsToDevicePixels="True">
                         <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="1">
                             <Grid>
-                                <Border Height="2" Margin="5,3,5,0" VerticalAlignment="Top" Background="#55FFFFFF" />
+                                <Border x:Name="TopHighlight" Height="2" Margin="5,3,5,0" VerticalAlignment="Top" Background="#55FFFFFF" />
                                 <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True" />
                             </Grid>
                         </Border>
@@ -370,7 +379,13 @@
                             <Setter TargetName="Outer" Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.42" />
+                            <Setter TargetName="Outer" Property="Background" Value="#0D0B09" />
+                            <Setter TargetName="Outer" Property="BorderBrush" Value="#0D0B09" />
+                            <Setter TargetName="Body" Property="Background" Value="{StaticResource DisabledControlBackgroundBrush}" />
+                            <Setter TargetName="Body" Property="BorderBrush" Value="{StaticResource DisabledControlBorderBrush}" />
+                            <Setter TargetName="TopHighlight" Property="Opacity" Value="0" />
+                            <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                            <Setter Property="Opacity" Value="1" />
                             <Setter Property="Cursor" Value="Arrow" />
                         </Trigger>
                     </ControlTemplate.Triggers>
