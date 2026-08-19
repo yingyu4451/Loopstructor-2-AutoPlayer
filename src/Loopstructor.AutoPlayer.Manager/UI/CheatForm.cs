@@ -310,7 +310,7 @@ internal sealed partial class CheatForm : Window
         _itemsColumnGap.Width = new GridLength(0);
         _itemsSecondColumn.Width = new GridLength(0);
         _itemsSectionsGrid.RowDefinitions[1].Height = new GridLength(12);
-        _itemsSectionsGrid.RowDefinitions[2].Height = GridLength.Auto;
+        _itemsSectionsGrid.RowDefinitions[2].Height = new GridLength(1, GridUnitType.Star);
         Grid.SetRow(_catapultsSection, 2);
         Grid.SetColumn(_catapultsSection, 0);
     }
