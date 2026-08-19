@@ -19,7 +19,7 @@ public sealed class UpdateCoordinatorTests
 
             Assert.True(configured);
             Assert.Equal("yingyu4451", owner);
-            Assert.Equal("gui2", repository);
+            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
         });
     }
 
@@ -38,7 +38,26 @@ public sealed class UpdateCoordinatorTests
 
             Assert.True(configured);
             Assert.Equal("yingyu4451", owner);
-            Assert.Equal("gui2", repository);
+            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
+        });
+    }
+
+    [Fact]
+    public void TryResolveCoordinates_RenamedPublishedRepositoryMigratesSavedLegacyPair()
+    {
+        WithGitHubEnvironment(null, null, () =>
+        {
+            ManagerSettings settings = new()
+            {
+                GitHubOwner = "yingyu4451",
+                GitHubRepository = "gui2"
+            };
+
+            bool configured = UpdateCoordinator.TryResolveCoordinates(settings, out string owner, out string repository);
+
+            Assert.True(configured);
+            Assert.Equal("yingyu4451", owner);
+            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
         });
     }
 
@@ -83,7 +102,7 @@ public sealed class UpdateCoordinatorTests
     [Fact]
     public void TryResolveCoordinates_InvalidEnvironmentOverrideFailsClosed()
     {
-        WithGitHubEnvironment("invalid/owner", "gui2", () =>
+        WithGitHubEnvironment("invalid/owner", "Loopstructor-2-AutoPlayer", () =>
         {
             bool configured = UpdateCoordinator.TryResolveCoordinates(
                 new ManagerSettings(),

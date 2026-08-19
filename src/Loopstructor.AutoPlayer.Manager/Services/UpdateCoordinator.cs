@@ -190,6 +190,7 @@ public sealed class UpdateCoordinator
     internal static bool TryResolveCoordinates(ManagerSettings settings, out string owner, out string repository)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        settings.NormalizeUpdateSource();
         owner = ResolveCoordinate(
             GitHubOwnerEnvironmentVariable,
             settings.GitHubOwner,

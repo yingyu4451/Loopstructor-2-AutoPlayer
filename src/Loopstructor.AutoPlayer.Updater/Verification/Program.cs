@@ -156,7 +156,7 @@ static void VerifyDefaultUpdateConfiguration(string root)
 
         Require(configuration.ConfigurationPath.Length == 0, "default update configuration does not require a file");
         Require(configuration.Source.GitHubOwner == "yingyu4451", "default GitHub owner");
-        Require(configuration.Source.GitHubRepository == "gui2", "default GitHub repository");
+        Require(configuration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer", "default GitHub repository");
         Require(configuration.GitHubToken.Length == 0, "default update configuration does not invent a token");
 
         string retiredLayoutRoot = Path.Combine(root, "retired-config-layout");
@@ -173,8 +173,20 @@ static void VerifyDefaultUpdateConfiguration(string root)
             "retired updater directory does not inherit parent configuration");
         Require(
             retiredLayoutConfiguration.Source.GitHubOwner == "yingyu4451"
-            && retiredLayoutConfiguration.Source.GitHubRepository == "gui2",
+            && retiredLayoutConfiguration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer",
             "retired updater directory uses current built-in source defaults");
+
+        string legacyConfigPath = Path.Combine(applicationDirectory, "autoplayer-update.json");
+        File.WriteAllText(
+            legacyConfigPath,
+            "{\"GitHubOwner\":\"yingyu4451\",\"GitHubRepository\":\"gui2\"}");
+        LoadedUpdateConfiguration migratedConfiguration = new UpdateConfigurationLoader().Load(
+            options,
+            applicationDirectory);
+        Require(
+            migratedConfiguration.Source.GitHubOwner == "yingyu4451"
+            && migratedConfiguration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer",
+            "renamed published repository configuration migrates to current coordinates");
     }
     finally
     {

@@ -140,7 +140,7 @@ public sealed class DeltaPackageReconstructorTests
             PackageAsset = new GitHubReleaseAsset
             {
                 Name = deltaManifest.AssetName,
-                DownloadUri = new Uri("https://github.com/yingyu4451/gui2/releases/download/v0.5.3/" + deltaManifest.AssetName),
+                DownloadUri = new Uri("https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.5.3/" + deltaManifest.AssetName),
                 Size = deltaManifest.Size
             }
         };
@@ -150,7 +150,7 @@ public sealed class DeltaPackageReconstructorTests
             PackageAsset = new GitHubReleaseAsset
             {
                 Name = manifest.AssetName,
-                DownloadUri = new Uri("https://github.com/yingyu4451/gui2/releases/download/v0.5.3/" + manifest.AssetName),
+                DownloadUri = new Uri("https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.5.3/" + manifest.AssetName),
                 Size = manifest.Size
             },
             DeltaPackages = new[] { delta },

@@ -30,6 +30,8 @@ public sealed class UpdateConfigurationLoader
                      ?? new UpdateSourceSettings();
         }
 
+        source.NormalizeBuiltInRepositoryRename();
+
         string? ownerOverride = Environment.GetEnvironmentVariable(GitHubOwnerEnvironmentVariable);
         string? repositoryOverride = Environment.GetEnvironmentVariable(GitHubRepositoryEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(ownerOverride)) source.GitHubOwner = ownerOverride.Trim();

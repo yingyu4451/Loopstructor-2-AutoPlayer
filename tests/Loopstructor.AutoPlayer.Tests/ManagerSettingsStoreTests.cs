@@ -114,6 +114,40 @@ public sealed class ManagerSettingsStoreTests
     }
 
     [Fact]
+    public void Load_MigratesRenamedPublishedRepositoryWithoutChangingCustomForks()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            File.WriteAllText(
+                settingsPath,
+                """
+                {
+                  "GitHubOwner": "yingyu4451",
+                  "GitHubRepository": "gui2"
+                }
+                """);
+
+            ManagerSettings settings = new ManagerSettingsStore(settingsPath).Load(out string warning);
+
+            Assert.Empty(warning);
+            Assert.Equal(ManagerSettings.DefaultGitHubOwner, settings.GitHubOwner);
+            Assert.Equal(ManagerSettings.DefaultGitHubRepository, settings.GitHubRepository);
+
+            settings.GitHubOwner = "custom-owner";
+            settings.GitHubRepository = "gui2";
+            settings.NormalizeUpdateSource();
+            Assert.Equal("custom-owner", settings.GitHubOwner);
+            Assert.Equal("gui2", settings.GitHubRepository);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Save_ReplacesBlankUpdateSourceWithPublishedRepository()
     {
         string root = CreateTemporaryDirectory();
@@ -135,7 +169,7 @@ public sealed class ManagerSettingsStoreTests
             Assert.Equal(ManagerSettings.DefaultGitHubRepository, reloaded.GitHubRepository);
             string savedJson = File.ReadAllText(settingsPath);
             Assert.Contains("\"GitHubOwner\": \"yingyu4451\"", savedJson);
-            Assert.Contains("\"GitHubRepository\": \"gui2\"", savedJson);
+            Assert.Contains("\"GitHubRepository\": \"Loopstructor-2-AutoPlayer\"", savedJson);
         }
         finally
         {

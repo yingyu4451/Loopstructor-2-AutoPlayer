@@ -122,10 +122,30 @@ public sealed class UpdateCommandOptions
 
 public sealed class UpdateSourceSettings
 {
-    public string GitHubOwner { get; set; } = "yingyu4451";
-    public string GitHubRepository { get; set; } = "gui2";
+    public const string DefaultGitHubOwner = "yingyu4451";
+    public const string DefaultGitHubRepository = "Loopstructor-2-AutoPlayer";
+    public const string LegacyGitHubOwner = "yingyu4451";
+    public const string LegacyGitHubRepository = "gui2";
+
+    public string GitHubOwner { get; set; } = DefaultGitHubOwner;
+    public string GitHubRepository { get; set; } = DefaultGitHubRepository;
     public string RuntimeIdentifier { get; set; } = "win-x64";
     public string ManifestAssetName { get; set; } = "autoplayer-update-manifest.json";
+
+    public void NormalizeBuiltInRepositoryRename()
+    {
+        GitHubOwner = string.IsNullOrWhiteSpace(GitHubOwner) ? DefaultGitHubOwner : GitHubOwner.Trim();
+        GitHubRepository = string.IsNullOrWhiteSpace(GitHubRepository)
+            ? DefaultGitHubRepository
+            : GitHubRepository.Trim();
+
+        if (string.Equals(GitHubOwner, LegacyGitHubOwner, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(GitHubRepository, LegacyGitHubRepository, StringComparison.OrdinalIgnoreCase))
+        {
+            GitHubOwner = DefaultGitHubOwner;
+            GitHubRepository = DefaultGitHubRepository;
+        }
+    }
 }
 
 public sealed class UpdateManifest
