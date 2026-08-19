@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Automation;
@@ -142,11 +143,8 @@ public sealed class CheatFormWpfLayoutTests
             try
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
-                form.Show();
-                form.Activate();
-                PumpDispatcher();
                 form.LoadDemoCatalogAsync().GetAwaiter().GetResult();
-                PumpDispatcher();
+                ArrangeWindowForLayout(form, 1280, 860);
 
                 Border catapultSection = Assert.IsType<Border>(form.FindName("_catapultsSection"));
                 Assert.Equal(0, Grid.GetRow(catapultSection));
@@ -157,17 +155,14 @@ public sealed class CheatFormWpfLayoutTests
                 AssertOuterScrollBarCollapsed(form, 3);
                 AssertOuterScrollBarCollapsed(form, 5);
 
-                form.Width = 1179;
-                form.Height = 680;
-                PumpDispatcher();
+                ArrangeWindowForLayout(form, 1179, 680);
                 Assert.Equal(2, Grid.GetRow(catapultSection));
                 Assert.Equal(0, Grid.GetColumn(catapultSection));
                 AssertOuterScrollBarCollapsed(form, 2);
                 AssertOuterScrollBarCollapsed(form, 3);
                 AssertOuterScrollBarCollapsed(form, 5);
 
-                form.Width = 1180;
-                PumpDispatcher();
+                ArrangeWindowForLayout(form, 1180, 680);
                 Assert.Equal(0, Grid.GetRow(catapultSection));
                 Assert.Equal(2, Grid.GetColumn(catapultSection));
             }
@@ -198,8 +193,7 @@ public sealed class CheatFormWpfLayoutTests
             try
             {
                 form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
-                form.Show();
-                PumpDispatcher();
+                ArrangeWindowForLayout(form, 980, 680);
 
                 for (int index = 0; index < 6; index++)
                 {
@@ -207,15 +201,16 @@ public sealed class CheatFormWpfLayoutTests
                     form.UpdateLayout();
                     PumpDispatcher();
 
-                    int pixelWidth = (int)Math.Ceiling(form.ActualWidth * dpi / 96d);
-                    int pixelHeight = (int)Math.Ceiling(form.ActualHeight * dpi / 96d);
+                    FrameworkElement renderRoot = Assert.IsAssignableFrom<FrameworkElement>(form.Content);
+                    int pixelWidth = (int)Math.Ceiling(renderRoot.ActualWidth * dpi / 96d);
+                    int pixelHeight = (int)Math.Ceiling(renderRoot.ActualHeight * dpi / 96d);
                     System.Windows.Media.Imaging.RenderTargetBitmap bitmap = new(
                         pixelWidth,
                         pixelHeight,
                         dpi,
                         dpi,
                         System.Windows.Media.PixelFormats.Pbgra32);
-                    bitmap.Render(form);
+                    bitmap.Render(renderRoot);
 
                     byte[] pixel = new byte[4];
                     bitmap.CopyPixels(
@@ -223,7 +218,7 @@ public sealed class CheatFormWpfLayoutTests
                         pixel,
                         4,
                         0);
-                    Assert.True(pixel[3] > 0, $"选项卡 {index} 在 {dpi:0} DPI 下渲染为空白。 ");
+                    Assert.True(pixel[3] > 0, $"选项卡 {index} 在 {dpi:0} DPI 下渲染为空白。");
                     AssertTabFits(form, index);
                 }
             }
@@ -1057,6 +1052,20 @@ public sealed class CheatFormWpfLayoutTests
         TabItem tab = Assert.IsType<TabItem>(tabs.SelectedItem);
         if (tab.Content is not ScrollViewer page) return;
         Assert.NotEqual(Visibility.Visible, page.ComputedVerticalScrollBarVisibility);
+    }
+
+    private static void ArrangeWindowForLayout(CheatForm form, double width, double height)
+    {
+        form.Width = width;
+        form.Height = height;
+        typeof(CheatForm)
+            .GetMethod("ApplyResponsiveLayout", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(form, [width]);
+        FrameworkElement root = Assert.IsAssignableFrom<FrameworkElement>(form.Content);
+        root.Measure(new Size(width, height));
+        root.Arrange(new Rect(0, 0, width, height));
+        root.UpdateLayout();
+        PumpDispatcher();
     }
 
     private static void AssertTopAligned(FrameworkElement ancestor, params string[] names)
