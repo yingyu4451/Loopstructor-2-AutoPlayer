@@ -349,6 +349,7 @@ internal sealed class CatalogPickerItem
         GroupOrder = ReadInt(payload, "groupOrder", int.MaxValue);
         ItemOrder = ReadInt(payload, "itemOrder", int.MaxValue);
         TypeKey = ReadText(payload, "typeKey", GroupKey);
+        TypeName = ReadText(payload, "typeName", TypeKey);
         TypeOrder = ReadInt(payload, "typeOrder", GroupOrder);
         FamilyKey = ReadText(payload, "familyKey", GroupKey);
         FamilyOrder = ReadInt(payload, "familyOrder", GroupOrder);
@@ -380,6 +381,8 @@ internal sealed class CatalogPickerItem
     public int ItemOrder { get; }
 
     public string TypeKey { get; }
+
+    public string TypeName { get; }
 
     public int TypeOrder { get; }
 
@@ -429,6 +432,8 @@ internal sealed class CatalogPickerItem
         yield return LevelLabel;
         yield return GroupKey;
         yield return GroupName;
+        yield return TypeKey;
+        yield return TypeName;
         foreach (string tag in Tags) yield return tag;
     }
 

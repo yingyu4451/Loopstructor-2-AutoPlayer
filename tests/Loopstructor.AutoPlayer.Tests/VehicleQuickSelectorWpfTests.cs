@@ -29,7 +29,7 @@ public sealed class VehicleQuickSelectorWpfTests
                 Vehicle("Future_Gamma_L1", "Future", 2, "Future_Gamma", 30, 1)
             });
 
-            Assert.Equal(new[] { "全部", "Shell", "Link", "Future" }, Types(selector).Select(type => type.DisplayName));
+            Assert.Equal(new[] { "全部", "炮弹", "连锁", "未来" }, Types(selector).Select(type => type.DisplayName));
             VehicleSeriesChoice shell = Assert.Single(Series(selector));
             Assert.Equal("Shell_Alpha", shell.FamilyKey);
             Assert.Equal(new[] { "Shell_Alpha_L1", "Shell_Alpha_L3" }, shell.Levels.Select(level => level.Item.Id));
@@ -49,7 +49,7 @@ public sealed class VehicleQuickSelectorWpfTests
 
             Assert.Equal(48, selector.ItemCount);
             Assert.Equal(
-                new[] { "全部", "Shell", "Link", "Penetrate", "Missile" },
+                new[] { "全部", "炮弹", "连锁", "穿透", "导弹" },
                 Types(selector).Select(type => type.DisplayName));
             foreach (string type in new[] { "Shell", "Link", "Penetrate", "Missile" })
             {
@@ -88,6 +88,45 @@ public sealed class VehicleQuickSelectorWpfTests
             PumpDispatcher();
             Assert.Equal("Shell_Alpha", Assert.Single(Series(selector)).FamilyKey);
         });
+    }
+
+    [Fact]
+    public void ChineseVehicleAndTypeNames_AreSearchable()
+    {
+        RunSta(() =>
+        {
+            VehicleQuickSelectorControl selector = new();
+            selector.SetItems(new[]
+            {
+                Vehicle("Shell_Alpha_L1", "Shell", 0, "Shell_Alpha", 10, 1, "炮弹", "锻压"),
+                Vehicle("Link_Beta_L1", "Link", 1, "Link_Beta", 20, 1, "连锁", "雷叉")
+            });
+            TextBox search = Assert.IsType<TextBox>(selector.FindName("SearchBox"));
+
+            search.Text = "雷叉";
+            PumpDispatcher();
+            Assert.Equal("Link_Beta", Assert.Single(Series(selector)).FamilyKey);
+
+            search.Text = "炮弹";
+            PumpDispatcher();
+            Assert.Equal("Shell_Alpha", Assert.Single(Series(selector)).FamilyKey);
+        });
+    }
+
+    [Fact]
+    public void ChineseEnchantmentName_IsIncludedInCatalogSearch()
+    {
+        CatalogPickerItem item = new(
+            "Poison_Train",
+            "毒剂车列",
+            "Poison_Train",
+            null,
+            new[] { "附魔", "Poison_Train" },
+            new JObject(),
+            "Poison_Train");
+
+        Assert.True(item.Matches("毒剂"));
+        Assert.True(item.Matches("Poison"));
     }
 
     [Fact]
@@ -153,15 +192,24 @@ public sealed class VehicleQuickSelectorWpfTests
         });
     }
 
-    private static CatalogPickerItem Vehicle(string id, string type, int typeOrder, string family, int familyOrder, int level) => new(
+    private static CatalogPickerItem Vehicle(
+        string id,
+        string type,
+        int typeOrder,
+        string family,
+        int familyOrder,
+        int level,
+        string? typeName = null,
+        string? displayName = null) => new(
         id,
-        id,
+        displayName ?? id,
         id,
         null,
         new[] { type, family, id },
         new JObject
         {
             ["typeKey"] = type,
+            ["typeName"] = typeName ?? ChineseTypeName(type),
             ["typeOrder"] = typeOrder,
             ["familyKey"] = family,
             ["familyOrder"] = familyOrder,
@@ -172,6 +220,16 @@ public sealed class VehicleQuickSelectorWpfTests
             ["level"] = level
         },
         id);
+
+    private static string ChineseTypeName(string type) => type switch
+    {
+        "Shell" => "炮弹",
+        "Link" => "连锁",
+        "Penetrate" => "穿透",
+        "Missile" => "导弹",
+        "Future" => "未来",
+        _ => type
+    };
 
     private static IEnumerable<CatalogPickerItem> CurrentCheatRoster()
     {

@@ -92,7 +92,9 @@ internal sealed partial class VehicleQuickSelectorControl : UserControl
         {
             _types.Add(new VehicleTypeChoice(
                 group.Key,
-                string.IsNullOrWhiteSpace(group.Key) ? "其他" : group.Key,
+                group.Select(item => item.TypeName)
+                    .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
+                ?? (string.IsNullOrWhiteSpace(group.Key) ? "其他" : group.Key),
                 group.Min(item => item.TypeOrder)));
         }
     }

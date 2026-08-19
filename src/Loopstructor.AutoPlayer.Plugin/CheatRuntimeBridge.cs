@@ -33,6 +33,14 @@ internal sealed class CheatRuntimeBridge
     private const float EnemyBuffCellHeight = 45f;
     private const int MaxEnemyBuffColumns = 8;
     private static readonly TimeSpan SpawnPointCaptureTimeout = TimeSpan.FromMinutes(2);
+    private static readonly IReadOnlyDictionary<string, string> VehicleTypeChineseNames =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Shell"] = "炮弹",
+            ["Link"] = "连锁",
+            ["Penetrate"] = "穿透",
+            ["Missile"] = "导弹"
+        };
     private static readonly IReadOnlyDictionary<string, string> BattleAttributeFallbackNames =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -3712,6 +3720,9 @@ internal sealed class CheatRuntimeBridge
             : EnumGroupOrder(_vehicleType!, family);
         ApplyGrouping(item, "vehicle:" + family, family, familyOrder, level);
         item["typeKey"] = type;
+        item["typeName"] = VehicleTypeChineseNames.TryGetValue(type, out string? typeName)
+            ? typeName
+            : type;
         item["typeOrder"] = typeOrder;
         item["familyKey"] = family;
         item["familyOrder"] = familyOrder;
@@ -3723,6 +3734,11 @@ internal sealed class CheatRuntimeBridge
     {
         object? data = GetEnchantmentDetailData(value);
         JObject item = BuildCatalogItem(value, data, "enchantmentWordTextName", "icon", "附魔");
+        if (string.Equals((string?)item["name"], (string?)item["id"], StringComparison.Ordinal))
+        {
+            string fallbackName = ResolveChineseLocalizedString(GetMember(data, "fetterWordTextName"));
+            if (!string.IsNullOrWhiteSpace(fallbackName)) item["name"] = fallbackName;
+        }
         string enumName = value.ToString() ?? string.Empty;
         string family = enumName.Split(new[] { '_' }, 2)[0];
         int variantOrder = enumName.IndexOf('_') < 0 ? 0 : EnchantmentVariantOrder(enumName);
@@ -3749,7 +3765,12 @@ internal sealed class CheatRuntimeBridge
 
     private string ResolveEnchantmentDisplayName(object value)
     {
-        string name = ResolveChineseLocalizedString(GetMember(GetEnchantmentDetailData(value), "enchantmentWordTextName"));
+        object? data = GetEnchantmentDetailData(value);
+        string name = ResolveChineseLocalizedString(GetMember(data, "enchantmentWordTextName"));
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = ResolveChineseLocalizedString(GetMember(data, "fetterWordTextName"));
+        }
         return string.IsNullOrWhiteSpace(name) ? "未命名附魔" : name;
     }
 
@@ -4412,48 +4433,71 @@ internal sealed class CheatRuntimeBridge
         try
         {
             Type? settingsType = FindType("UnityEngine.Localization.Settings.LocalizationSettings");
-            if (settingsType == null) return string.Empty;
-
-            object? initialization = GetStaticMember(settingsType, "InitializationOperation");
-            if (initialization != null && !GetBool(initialization, "IsDone")) return string.Empty;
-
-            object? availableLocales = GetStaticMember(settingsType, "AvailableLocales");
-            object? locale = availableLocales == null
-                ? null
-                : FindMethod(availableLocales.GetType(), "GetLocale", typeof(string))
-                    ?.Invoke(availableLocales, new object[] { "zh" });
-            object? database = GetStaticMember(settingsType, "StringDatabase");
-            object? tableReference = GetMember(localizedString, "TableReference");
-            object? entryReference = GetMember(localizedString, "TableEntryReference");
-            if (locale == null || database == null || tableReference == null || entryReference == null)
+            if (settingsType != null)
             {
-                return string.Empty;
-            }
-
-            MethodInfo? method = database.GetType()
-                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
-                .FirstOrDefault(candidate =>
+                object? initialization = GetStaticMember(settingsType, "InitializationOperation");
+                if (initialization == null || GetBool(initialization, "IsDone"))
                 {
-                    if (!string.Equals(candidate.Name, "GetLocalizedString", StringComparison.Ordinal)) return false;
-                    ParameterInfo[] parameters = candidate.GetParameters();
-                    return parameters.Length == 5
-                           && parameters[0].ParameterType.Name == "TableReference"
-                           && parameters[1].ParameterType.Name == "TableEntryReference"
-                           && parameters[4].ParameterType == typeof(object[]);
-                });
-            if (method == null) return string.Empty;
+                    string forcedChinese = ResolveLocalizedStringForLocale(localizedString, settingsType, "zh");
+                    if (!string.IsNullOrWhiteSpace(forcedChinese)) return forcedChinese;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to the game's native LocalizedString path below.
+        }
 
-            ParameterInfo[] methodParameters = method.GetParameters();
-            object fallbackBehavior = Enum.ToObject(methodParameters[3].ParameterType, 0);
-            string? value = method.Invoke(
-                database,
-                new[] { tableReference, entryReference, locale, fallbackBehavior, Array.Empty<object>() }) as string;
-            return value?.Trim() ?? string.Empty;
+        try
+        {
+            MethodInfo? nativeMethod = localizedString.GetType().GetMethod(
+                "GetLocalizedString",
+                BindingFlags.Public | BindingFlags.Instance,
+                null,
+                Type.EmptyTypes,
+                null);
+            return (nativeMethod?.Invoke(localizedString, Array.Empty<object>()) as string)?.Trim() ?? string.Empty;
         }
         catch
         {
             return string.Empty;
         }
+    }
+
+    private static string ResolveLocalizedStringForLocale(object localizedString, Type settingsType, string localeCode)
+    {
+        object? availableLocales = GetStaticMember(settingsType, "AvailableLocales");
+        object? locale = availableLocales == null
+            ? null
+            : FindMethod(availableLocales.GetType(), "GetLocale", typeof(string))
+                ?.Invoke(availableLocales, new object[] { localeCode });
+        object? database = GetStaticMember(settingsType, "StringDatabase");
+        object? tableReference = GetMember(localizedString, "TableReference");
+        object? entryReference = GetMember(localizedString, "TableEntryReference");
+        if (locale == null || database == null || tableReference == null || entryReference == null)
+        {
+            return string.Empty;
+        }
+
+        MethodInfo? method = database.GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+            .FirstOrDefault(candidate =>
+            {
+                if (!string.Equals(candidate.Name, "GetLocalizedString", StringComparison.Ordinal)) return false;
+                ParameterInfo[] parameters = candidate.GetParameters();
+                return parameters.Length == 5
+                       && parameters[0].ParameterType.Name == "TableReference"
+                       && parameters[1].ParameterType.Name == "TableEntryReference"
+                       && parameters[4].ParameterType == typeof(object[]);
+            });
+        if (method == null) return string.Empty;
+
+        ParameterInfo[] methodParameters = method.GetParameters();
+        object fallbackBehavior = Enum.ToObject(methodParameters[3].ParameterType, 0);
+        string? value = method.Invoke(
+            database,
+            new[] { tableReference, entryReference, locale, fallbackBehavior, Array.Empty<object>() }) as string;
+        return value?.Trim() ?? string.Empty;
     }
 
     private CatalogIcon ExportCatalogIcon(Sprite? sprite)

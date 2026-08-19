@@ -49,10 +49,15 @@ public sealed class CheatResourceRefactorContractTests
         {
             Assert.Contains(field, LoadedStrings(RequireMethod(bridge, "ApplyGrouping")));
         }
-        foreach (string field in new[] { "typeKey", "typeOrder", "familyKey", "familyOrder" })
+        foreach (string field in new[] { "typeKey", "typeName", "typeOrder", "familyKey", "familyOrder" })
         {
             Assert.Contains(field, LoadedStrings(vehicle));
         }
+
+        Assert.Contains("enchantmentWordTextName", LoadedStrings(enchantment));
+        Assert.Contains("fetterWordTextName", LoadedStrings(enchantment));
+        Assert.Contains("zh", LoadedStrings(RequireMethod(bridge, "ResolveChineseLocalizedString")));
+        Assert.Contains("GetLocalizedString", LoadedStrings(RequireMethod(bridge, "ResolveChineseLocalizedString")));
 
         MethodDefinition pointClassifier = RequireMethod(bridge, "IsCatapultPoint");
         Assert.Contains("弹射点", LoadedStrings(pointClassifier));
