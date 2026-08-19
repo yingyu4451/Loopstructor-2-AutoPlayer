@@ -206,6 +206,66 @@ public sealed class CheatFormWpfLayoutTests
     }
 
     [Fact]
+    public void SelectedEnchantments_RenderAsReadOnlyWrappedIcons_WithDelayedGameDetails()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.LoadDemoCatalogAsync().GetAwaiter().GetResult();
+                PumpDispatcher();
+
+                EnchantmentSelectorControl selector = Assert.IsType<EnchantmentSelectorControl>(
+                    form.FindName("_enchantmentSelector"));
+                System.Collections.IEnumerable source = (System.Collections.IEnumerable)typeof(EnchantmentSelectorControl)
+                    .GetField("_items", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .GetValue(selector)!;
+                EnchantmentChoice selected = source.Cast<EnchantmentChoice>().First();
+                selected.Level = 12;
+                typeof(EnchantmentSelectorControl)
+                    .GetMethod("RefreshSummary", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .Invoke(selector, null);
+                PumpDispatcher();
+
+                ItemsControl summary = Assert.IsType<ItemsControl>(form.FindName("_selectedEnchantmentSummary"));
+                Assert.Single(VisualDescendants<WrapPanel>(summary));
+                EnchantmentChoice rendered = Assert.IsType<EnchantmentChoice>(Assert.Single(summary.Items));
+                Assert.Same(selected, rendered);
+                FrameworkElement container = Assert.IsAssignableFrom<FrameworkElement>(
+                    summary.ItemContainerGenerator.ContainerFromItem(rendered));
+                Border tile = VisualDescendants<Border>(container)
+                    .Single(border => Math.Abs(border.Width - 48) < 0.1 && Math.Abs(border.Height - 48) < 0.1);
+
+                Assert.Equal(1000, ToolTipService.GetInitialShowDelay(tile));
+                ToolTip tooltip = Assert.IsType<ToolTip>(tile.ToolTip);
+                Assert.IsType<CatalogDetailToolTip>(tooltip.Content);
+                string[] visibleTexts = VisualDescendants<TextBlock>(tile)
+                    .Select(text => text.Text)
+                    .Where(text => !string.IsNullOrWhiteSpace(text))
+                    .ToArray();
+                Assert.Contains("12", visibleTexts);
+                Assert.DoesNotContain(selected.Item.DisplayName, visibleTexts);
+                Assert.DoesNotContain(selected.Item.EnumName, visibleTexts);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void EnemyBuffOverlay_SendsIndependentVisibleCommand()
     {
         RunSta(() =>
@@ -760,6 +820,16 @@ public sealed class CheatFormWpfLayoutTests
         typeof(VehicleQuickSelectorControl)
             .GetMethod("LevelButton_OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
             .Invoke(selector, new object[] { new Button { DataContext = level }, new RoutedEventArgs() });
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
+            if (child is T match) yield return match;
+            foreach (T descendant in VisualDescendants<T>(child)) yield return descendant;
+        }
     }
 
     private static void RunSta(Action action)

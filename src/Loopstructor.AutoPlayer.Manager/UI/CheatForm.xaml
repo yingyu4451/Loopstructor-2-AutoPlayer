@@ -49,30 +49,42 @@
                 <Setter Property="TextTrimming" Value="CharacterEllipsis" />
             </Style>
             <DataTemplate x:Key="SelectedEnchantmentSummaryTemplate" DataType="{x:Type local:EnchantmentChoice}">
-                <Border Margin="0,0,0,5"
-                        Padding="6,4"
+                <Border Width="48"
+                        Height="48"
+                        Margin="3"
                         Background="#2B241A"
                         BorderBrush="#654525"
                         BorderThickness="1"
-                        CornerRadius="2">
+                        CornerRadius="2"
+                        AutomationProperties.Name="{Binding Item.DisplayName}"
+                        ToolTipService.InitialShowDelay="1000"
+                        ToolTipService.ShowDuration="30000">
+                    <Border.ToolTip>
+                        <ToolTip DataContext="{Binding PlacementTarget.DataContext.Item, RelativeSource={RelativeSource Self}}">
+                            <local:CatalogDetailToolTip />
+                        </ToolTip>
+                    </Border.ToolTip>
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="30" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Border Width="26" Height="26" Background="#15120F" BorderBrush="#5B3B24" BorderThickness="1">
-                            <Grid>
-                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BronzeBrush}" Text="◇" />
-                                <Image Margin="2" Source="{Binding Item.Icon}" Stretch="Uniform" />
-                            </Grid>
-                        </Border>
-                        <StackPanel Grid.Column="1" Margin="7,0,6,0" VerticalAlignment="Center">
-                            <TextBlock FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="{Binding Item.DisplayName}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock FontFamily="{StaticResource DataFont}" FontSize="9" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Item.EnumName}" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Border Grid.Column="2" MinWidth="28" Padding="5,2" VerticalAlignment="Center" Background="#74301F" BorderBrush="{StaticResource GoldBrush}" BorderThickness="1" CornerRadius="7">
-                            <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DataFont}" FontWeight="Bold" Foreground="#F5E8D4" Text="{Binding Level}" />
+                        <TextBlock HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="20"
+                                   Foreground="{StaticResource BronzeBrush}"
+                                   Text="◇" />
+                        <Image Margin="4" Source="{Binding Item.Icon}" Stretch="Uniform" />
+                        <Border MinWidth="22"
+                                Padding="4,1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Background="#B82B20"
+                                BorderBrush="#FFB84A"
+                                BorderThickness="1"
+                                CornerRadius="7">
+                            <TextBlock HorizontalAlignment="Center"
+                                       FontFamily="{StaticResource DataFont}"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       Text="{Binding Level}" />
                         </Border>
                     </Grid>
                 </Border>
@@ -387,11 +399,36 @@
                                             </Grid>
                                             <TextBlock Margin="0,14,0,5" Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
                                             <Border Height="104" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
-                                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                                    <ItemsControl ItemsSource="{Binding ElementName=_enchantmentSelector, Path=SelectedChoices}" ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}" />
-                                                </ScrollViewer>
+                                                <Grid>
+                                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                                        <ItemsControl x:Name="_selectedEnchantmentSummary"
+                                                                      ItemsSource="{Binding ElementName=_enchantmentSelector, Path=SelectedChoices}"
+                                                                      ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <WrapPanel IsItemsHost="True" />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+                                                    <TextBlock HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{StaticResource MutedTextBrush}"
+                                                               Text="未选择附魔时获取普通战车。"
+                                                               TextWrapping="Wrap">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Items.Count, ElementName=_selectedEnchantmentSummary}" Value="0">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Grid>
                                             </Border>
-                                            <TextBlock Margin="0,5,0,0" Foreground="{StaticResource MutedTextBrush}" Text="未选择附魔时获取普通战车。" TextWrapping="Wrap" />
                                         </StackPanel>
                                         <Border Grid.Column="1" Width="1" Background="#5A3B25" />
                                         <StackPanel Grid.Column="2">

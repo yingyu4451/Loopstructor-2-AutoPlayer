@@ -10,7 +10,7 @@ public sealed class CheatResourceRefactorContractTests
     private const string DisplayPatchType = "Loopstructor.AutoPlayer.Plugin.VehicleEnchantmentDisplayPatch";
 
     [Fact]
-    public void CatalogV5_UsesRandomModeFixedVehicleAndFetterPools_AndPartitionsOtherCompleteEnums()
+    public void CatalogV5_UsesRuntimeCompleteVehicleAndFetterEnums_AndPartitionsOtherCompleteEnums()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -23,13 +23,18 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains(5, LoadedInts(catalog));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnchantmentValues"));
-        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "RandomModeFixedPoolValues"));
-        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "RandomModeFixedPoolValues"));
-        MethodDefinition fixedPools = RequireMethod(bridge, "RandomModeFixedPoolValues");
-        Assert.Contains("GetRandomModeVehiclePool", LoadedStrings(vehicleValues));
-        Assert.Contains("GetRandomModeBasicFetterPool", LoadedStrings(enchantmentValues));
-        Assert.Contains(Calls(fixedPools), call => call.Name == "Invoke");
-        Assert.Contains("随机模式固定", LoadedStrings(fixedPools));
+        Assert.Contains(Calls(catalog), IsCall(BridgeType, "InvalidateRuntimeCatalogCache"));
+        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "FilterRuntimeVehicleValues"));
+        Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "FilterRuntimeEnchantmentValues"));
+        Assert.DoesNotContain(bridge.Methods, method => method.Name == "RandomModeFixedPoolValues");
+        Assert.DoesNotContain(
+            bridge.Fields,
+            field => field.Name.Contains("randomMode", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("GetAllMainRazorComponent", LoadedStrings(vehicleValues));
+        Assert.Contains("fetterTypes", LoadedStrings(enchantmentValues));
+        Assert.Contains("TryGetDetailData", LoadedStrings(enchantmentValues));
         Assert.DoesNotContain(bridge.Methods, method => method.Name == "ConfiguredCheatValues");
         Assert.DoesNotContain("AllDisposableRewards", LoadedStrings(catalog));
         Assert.DoesNotContain("AllSuperModuleRewards", LoadedStrings(catalog));
@@ -57,7 +62,7 @@ public sealed class CheatResourceRefactorContractTests
     }
 
     [Fact]
-    public void CatalogCoverage_UsesRandomModeFixedPoolsForVehicleAndEnchantments_WhileOtherResourcesStayEnumComplete()
+    public void CatalogCoverage_UsesOneRuntimeAvailabilitySetForCatalogAndMutations()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -72,13 +77,83 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.Contains(Calls(editEnchantment), IsCall(BridgeType, "AllEnchantmentValues"));
-        Assert.DoesNotContain(Calls(RequireMethod(bridge, "AllVehicleValues")), IsCall(BridgeType, "AllEnumValues"));
-        Assert.DoesNotContain(Calls(RequireMethod(bridge, "AllEnchantmentValues")), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(RequireMethod(bridge, "AllVehicleValues")), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(RequireMethod(bridge, "AllEnchantmentValues")), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(
+            Calls(RequireMethod(bridge, "BuildVehicleEnchantments")),
+            IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.DoesNotContain(Calls(grantDisposable), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantPoint), IsCall(BridgeType, "TryGetDisposableData"));
         Assert.DoesNotContain(Calls(grantRelic), IsCall(BridgeType, "TryGetSuperModuleData"));
         Assert.DoesNotContain(LoadedStrings(grantDisposable), value => value.Contains("奖励配置", StringComparison.Ordinal));
         Assert.DoesNotContain(LoadedStrings(grantRelic), value => value.Contains("奖励配置", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RuntimeVehicleFilter_IncludesEveryRegisteredLevel_AndExcludesMissingComponents()
+    {
+        Type bridge = LoadRuntimeBridgeType();
+        System.Reflection.MethodInfo filter = Assert.Single(
+            bridge.GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static),
+            method => method.Name == "FilterRuntimeVehicleValues");
+        object[] enumValues =
+        {
+            RuntimeVehicleType.Shell_Pulse_L1,
+            RuntimeVehicleType.Shell_Pulse_L2,
+            RuntimeVehicleType.Shell_Pulse_L3,
+            RuntimeVehicleType.Shell_Pulse_L4,
+            RuntimeVehicleType.Link_Missing_L1
+        };
+        object[] components =
+        {
+            new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L1),
+            new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L2),
+            new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L3),
+            new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L4)
+        };
+        object?[] arguments = { enumValues, components, typeof(RuntimeVehicleType), null };
+
+        IReadOnlyList<object> available = Assert.IsAssignableFrom<IReadOnlyList<object>>(
+            filter.Invoke(null, arguments));
+        IReadOnlyList<object> unavailable = Assert.IsAssignableFrom<IReadOnlyList<object>>(arguments[3]);
+
+        Assert.Equal(enumValues.Take(4), available);
+        Assert.Equal(new object[] { RuntimeVehicleType.Link_Missing_L1 }, unavailable);
+    }
+
+    [Fact]
+    public void RuntimeEnchantmentFilter_IncludesAllConfiguredFamilies_AndRejectsIncompleteEntries()
+    {
+        Type bridge = LoadRuntimeBridgeType();
+        System.Reflection.MethodInfo filter = Assert.Single(
+            bridge.GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static),
+            method => method.Name == "FilterRuntimeEnchantmentValues");
+        object[] enumValues = Enum.GetValues<RuntimeFetterType>().Cast<object>().Skip(1).ToArray();
+        System.Collections.Hashtable configuredTypes = new();
+        foreach (object value in enumValues.Where(value => !Equals(value, RuntimeFetterType.MissingType)))
+        {
+            configuredTypes[value] = 1;
+        }
+        Func<object, bool> hasDetail = value => !Equals(value, RuntimeFetterType.MissingDetail);
+        object?[] arguments = { enumValues, configuredTypes, hasDetail, null };
+
+        IReadOnlyList<object> available = Assert.IsAssignableFrom<IReadOnlyList<object>>(
+            filter.Invoke(null, arguments));
+        IReadOnlyList<object> unavailable = Assert.IsAssignableFrom<IReadOnlyList<object>>(arguments[3]);
+
+        Assert.Equal(
+            new object[]
+            {
+                RuntimeFetterType.Poison,
+                RuntimeFetterType.Poison_Advanced,
+                RuntimeFetterType.Poison_Train,
+                RuntimeFetterType.Poison_Railway,
+                RuntimeFetterType.Poison_Domain
+            },
+            available);
+        Assert.Equal(
+            new object[] { RuntimeFetterType.MissingDetail, RuntimeFetterType.MissingType },
+            unavailable);
     }
 
     [Fact]
@@ -178,6 +253,42 @@ public sealed class CheatResourceRefactorContractTests
         string path = Path.Combine(AppContext.BaseDirectory, "Loopstructor.AutoPlayer.Plugin.dll");
         Assert.True(File.Exists(path), "Plugin assembly was not copied to the test output: " + path);
         return AssemblyDefinition.ReadAssembly(path);
+    }
+
+    private static Type LoadRuntimeBridgeType()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Loopstructor.AutoPlayer.Plugin.dll");
+        System.Reflection.Assembly assembly = System.Reflection.Assembly.LoadFrom(path);
+        return assembly.GetType(BridgeType, throwOnError: true)!;
+    }
+
+    private enum RuntimeVehicleType
+    {
+        None,
+        Shell_Pulse_L1,
+        Shell_Pulse_L2,
+        Shell_Pulse_L3,
+        Shell_Pulse_L4,
+        Link_Missing_L1
+    }
+
+    private sealed class RuntimeVehicleComponent
+    {
+        public RuntimeVehicleComponent(RuntimeVehicleType type) => vehicleType = type;
+
+        public RuntimeVehicleType vehicleType { get; }
+    }
+
+    private enum RuntimeFetterType
+    {
+        None,
+        Poison,
+        Poison_Advanced,
+        Poison_Train,
+        Poison_Railway,
+        Poison_Domain,
+        MissingDetail,
+        MissingType
     }
 
     private static TypeDefinition RequireType(AssemblyDefinition assembly, string fullName) =>

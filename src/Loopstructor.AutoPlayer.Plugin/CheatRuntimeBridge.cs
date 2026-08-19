@@ -271,16 +271,22 @@ internal sealed class CheatRuntimeBridge
     private GrantAllRelicsJob _grantAllRelicsJob = GrantAllRelicsJob.Idle();
     private RelicRemovalJob _removeAllRelicsJob = RelicRemovalJob.Idle();
     private bool _fieldCatapultDeleteMode;
+    private Action<string>? _warningLogger;
+    private IReadOnlyList<object>? _availableVehicleValues;
+    private IReadOnlyList<object> _unavailableVehicleValues = Array.Empty<object>();
+    private IReadOnlyList<object>? _availableEnchantmentValues;
+    private IReadOnlyList<object> _unavailableEnchantmentValues = Array.Empty<object>();
 
     private Type? _vehicleManagerType;
+    private Type? _vehicleDataManagerType;
     private Type? _vehicleControllerType;
     private Type? _vehicleInterfaceType;
+    private Type? _basicVehicleComponentType;
     private Type? _fetterInfoCfgType;
     private Type? _fetterDetailDataType;
     private Type? _fetterModuleDataType;
     private Type? _vehicleType;
     private Type? _fetterType;
-    private Type? _randomModeContentPatchServiceType;
     private Type? _disposableManagerType;
     private Type? _disposableDataType;
     private Type? _disposableObjectType;
@@ -343,24 +349,26 @@ internal sealed class CheatRuntimeBridge
     public IReadOnlyList<string> MissingMembers => _missingMembers;
     public IReadOnlyList<string> Capabilities => IsAvailable ? CheatCommands.All : Array.Empty<string>();
 
-    public void Initialize(string artifactRoot)
+    public void Initialize(string artifactRoot, Action<string>? warningLogger = null)
     {
         _artifactRoot = Path.GetFullPath(artifactRoot);
+        _warningLogger = warningLogger;
         _missingMembers.Clear();
         _catalogIcons.Clear();
         _grantAllRelicsJob = GrantAllRelicsJob.Idle();
         _removeAllRelicsJob = RelicRemovalJob.Idle();
         _fieldCatapultDeleteMode = false;
+        InvalidateRuntimeCatalogCache();
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
+        _vehicleDataManagerType = Require("MetroTD.VehicleSystem.VehicleDataManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
         _vehicleInterfaceType = Require("MetroTD.VehicleSystem.IVehicle");
+        _basicVehicleComponentType = Require("MetroTD.VehicleSystem.BasicVehicleComponent");
         _fetterInfoCfgType = Require("MetroTD.VehicleSystem.SO_FetterInfoCfg");
         _fetterDetailDataType = Require("MetroTD.VehicleSystem.FetterDetailData");
         _fetterModuleDataType = Require("MetroTD.BuffSystem.FetterModuleData");
         _vehicleType = Require("MetroTD.VehicleSystem.VehicleType");
         _fetterType = Require("FetterEnum");
-        _randomModeContentPatchServiceType = Require(
-            "MetroTD.AchievementSystem.RandomModeContentPatch.RandomModeAchievementContentPatchService");
         _disposableManagerType = Require("MetroTD.DisposableSystem.DisposableManager");
         _disposableDataType = Require("MetroTD.DisposableSystem.DisposableData");
         _disposableObjectType = Require("MetroTD.DisposableSystem.DisposableObject");
@@ -433,8 +441,9 @@ internal sealed class CheatRuntimeBridge
     public JObject QueryCatalog()
     {
         EnsureAvailable();
-        IReadOnlyList<object> vehicles = AllVehicleValues();
-        IReadOnlyList<object> enchantments = AllEnchantmentValues();
+        InvalidateRuntimeCatalogCache();
+        IReadOnlyList<object> vehicles = AllVehicleValues(reportUnavailable: true);
+        IReadOnlyList<object> enchantments = AllEnchantmentValues(reportUnavailable: true);
         IReadOnlyList<object> allDisposables = AllEnumValues(_disposableType!);
         IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
         IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();
@@ -3110,11 +3119,15 @@ internal sealed class CheatRuntimeBridge
             _vehicleInterfaceType,
             fetterListType);
         RequireMethodContract(_vehicleManagerType, "EndVehicleGetMode");
+        RequireSingletonAccessor(_vehicleDataManagerType);
+        RequireMethodContract(_vehicleDataManagerType, "GetAllMainRazorComponent");
+        RequireMember(_basicVehicleComponentType, "vehicleType");
         RequireMethodContract(_updateVehicleStateEventHandlerType, "Throw", _vehicleControllerType);
         RequireMember(_vehicleControllerType, "ID");
         RequireMember(_vehicleControllerType, "vehicleType");
         RequireMember(_vehicleControllerType, "level");
         RequireSingletonAccessor(_fetterInfoCfgType);
+        RequireMember(_fetterInfoCfgType, "fetterTypes");
         RequireMethodContract(
             _fetterInfoCfgType,
             "TryGetDetailData",
@@ -3126,8 +3139,6 @@ internal sealed class CheatRuntimeBridge
         RequireMember(_fetterModuleDataType, "fetterEnum");
         RequireMember(_fetterModuleDataType, "level");
         RequireMember(_fetterModuleDataType, "count");
-        RequireMethodContract(_randomModeContentPatchServiceType, "GetRandomModeVehiclePool");
-        RequireMethodContract(_randomModeContentPatchServiceType, "GetRandomModeBasicFetterPool");
 
         RequireSingletonAccessor(_disposableManagerType);
         RequireMethodContract(_disposableManagerType, "TryGetDisposable", _disposableType);
@@ -3432,41 +3443,167 @@ internal sealed class CheatRuntimeBridge
         }
     }
 
-    private IReadOnlyList<object> AllVehicleValues()
+    private IReadOnlyList<object> AllVehicleValues(bool reportUnavailable = false)
     {
-        return RandomModeFixedPoolValues("GetRandomModeVehiclePool", _vehicleType!, "战车")
+        if (_availableVehicleValues != null)
+        {
+            if (reportUnavailable && _unavailableVehicleValues.Count > 0)
+            {
+                LogCatalogWarning("战车", "缺少可生成的 BasicVehicleComponent", _unavailableVehicleValues);
+            }
+            return _availableVehicleValues;
+        }
+
+        Type vehicleType = _vehicleType!;
+        object manager = GetRequiredSingleton(_vehicleDataManagerType!, "VehicleDataManager");
+        MethodInfo getAllComponents = FindMethod(manager.GetType(), "GetAllMainRazorComponent")
+                                      ?? throw new MissingMethodException(
+                                          manager.GetType().FullName,
+                                          "GetAllMainRazorComponent");
+        object? configuredComponents = getAllComponents.Invoke(manager, null);
+        if (configuredComponents is not IEnumerable components)
+        {
+            throw new InvalidOperationException("当前游戏的可生成战车组件目录尚未初始化。");
+        }
+
+        IReadOnlyList<object> enumValues = AllEnumValues(vehicleType)
             .Where(value => !string.Equals(value.ToString(), "Train_Head", StringComparison.Ordinal))
             .ToArray();
+        _availableVehicleValues = FilterRuntimeVehicleValues(
+            enumValues,
+            components,
+            vehicleType,
+            out _unavailableVehicleValues);
+        if (reportUnavailable && _unavailableVehicleValues.Count > 0)
+        {
+            LogCatalogWarning("战车", "缺少可生成的 BasicVehicleComponent", _unavailableVehicleValues);
+        }
+
+        if (_availableVehicleValues.Count == 0)
+        {
+            _availableVehicleValues = null;
+            throw new InvalidOperationException("当前游戏没有可由原生战车系统创建的战车类型。");
+        }
+
+        return _availableVehicleValues;
     }
 
-    private IReadOnlyList<object> AllEnchantmentValues() =>
-        RandomModeFixedPoolValues("GetRandomModeBasicFetterPool", _fetterType!, "附魔");
-
-    private IReadOnlyList<object> RandomModeFixedPoolValues(
-        string methodName,
-        Type enumType,
-        string displayName)
+    private IReadOnlyList<object> AllEnchantmentValues(bool reportUnavailable = false)
     {
-        Type serviceType = _randomModeContentPatchServiceType
-                           ?? throw new InvalidOperationException("当前游戏版本缺少随机模式固定池服务。");
-        MethodInfo method = FindMethod(serviceType, methodName)
-                            ?? throw new MissingMethodException(serviceType.FullName, methodName);
-        object? pool = method.Invoke(null, null);
-        if (pool is not IEnumerable values)
+        if (_availableEnchantmentValues != null)
         {
-            throw new InvalidOperationException($"随机模式固定{displayName}池尚未初始化。");
+            if (reportUnavailable && _unavailableEnchantmentValues.Count > 0)
+            {
+                LogCatalogWarning("附魔", "缺少有效详情或 fetterTypes 类型映射", _unavailableEnchantmentValues);
+            }
+            return _availableEnchantmentValues;
         }
 
-        IReadOnlyList<object> result = DistinctEnumValues(
-            values.Cast<object>()
-                .Where(value => value.GetType() == enumType)
-                .Where(value => !string.Equals(value.ToString(), "None", StringComparison.OrdinalIgnoreCase)));
-        if (result.Count == 0)
+        object configuration = GetRequiredSingleton(_fetterInfoCfgType!, "SO_FetterInfoCfg");
+        if (GetMember(configuration, "fetterTypes") is not IDictionary configuredTypes)
         {
-            throw new InvalidOperationException($"随机模式固定{displayName}池为空。");
+            throw new InvalidOperationException("当前游戏的附魔类型映射尚未初始化。");
         }
 
-        return result;
+        MethodInfo tryGetDetailData = FindMethod(
+                                               configuration.GetType(),
+                                               "TryGetDetailData",
+                                               _fetterType!,
+                                               _fetterDetailDataType!.MakeByRefType())
+                                           ?? throw new MissingMethodException(
+                                               configuration.GetType().FullName,
+                                               "TryGetDetailData");
+        _availableEnchantmentValues = FilterRuntimeEnchantmentValues(
+            AllEnumValues(_fetterType!),
+            configuredTypes,
+            value => TryGetEnchantmentDetailData(configuration, tryGetDetailData, value, out _),
+            out _unavailableEnchantmentValues);
+        if (reportUnavailable && _unavailableEnchantmentValues.Count > 0)
+        {
+            LogCatalogWarning("附魔", "缺少有效详情或 fetterTypes 类型映射", _unavailableEnchantmentValues);
+        }
+
+        if (_availableEnchantmentValues.Count == 0)
+        {
+            _availableEnchantmentValues = null;
+            throw new InvalidOperationException("当前游戏没有配置完整且能够安全生效的附魔。");
+        }
+
+        return _availableEnchantmentValues;
+    }
+
+    private void InvalidateRuntimeCatalogCache()
+    {
+        _availableVehicleValues = null;
+        _unavailableVehicleValues = Array.Empty<object>();
+        _availableEnchantmentValues = null;
+        _unavailableEnchantmentValues = Array.Empty<object>();
+    }
+
+    private static IReadOnlyList<object> FilterRuntimeVehicleValues(
+        IEnumerable<object> enumValues,
+        IEnumerable configuredComponents,
+        Type enumType,
+        out IReadOnlyList<object> unavailable)
+    {
+        HashSet<long> configured = new();
+        foreach (object? component in configuredComponents)
+        {
+            if (component == null) continue;
+            object? value = GetMember(component, "vehicleType");
+            if (value == null || value.GetType() != enumType) continue;
+            configured.Add(Convert.ToInt64(value, CultureInfo.InvariantCulture));
+        }
+
+        List<object> availableValues = new();
+        List<object> unavailableValues = new();
+        foreach (object value in DistinctEnumValues(enumValues))
+        {
+            long numeric = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (configured.Contains(numeric)) availableValues.Add(value);
+            else unavailableValues.Add(value);
+        }
+
+        unavailable = unavailableValues;
+        return availableValues;
+    }
+
+    private static IReadOnlyList<object> FilterRuntimeEnchantmentValues(
+        IEnumerable<object> enumValues,
+        IDictionary configuredTypes,
+        Func<object, bool> hasDetail,
+        out IReadOnlyList<object> unavailable)
+    {
+        List<object> availableValues = new();
+        List<object> unavailableValues = new();
+        foreach (object value in DistinctEnumValues(enumValues))
+        {
+            if (configuredTypes.Contains(value) && hasDetail(value)) availableValues.Add(value);
+            else unavailableValues.Add(value);
+        }
+
+        unavailable = unavailableValues;
+        return availableValues;
+    }
+
+    private static bool TryGetEnchantmentDetailData(
+        object configuration,
+        MethodInfo tryGetDetailData,
+        object value,
+        out object? detail)
+    {
+        object?[] invokeArguments = { value, null };
+        bool succeeded = tryGetDetailData.Invoke(configuration, invokeArguments) is true;
+        detail = invokeArguments[1];
+        return succeeded && detail != null;
+    }
+
+    private void LogCatalogWarning(string category, string reason, IReadOnlyCollection<object> values)
+    {
+        const int previewLimit = 12;
+        string preview = string.Join("、", values.Take(previewLimit).Select(value => value.ToString()));
+        string remainder = values.Count > previewLimit ? $"，另有 {values.Count - previewLimit} 项" : string.Empty;
+        _warningLogger?.Invoke($"作弊目录已跳过 {values.Count} 个不可用{category}（{reason}）：{preview}{remainder}。");
     }
 
     private static IReadOnlyList<object> AllEnumValues(Type enumType) =>
@@ -3535,13 +3672,17 @@ internal sealed class CheatRuntimeBridge
     private object? GetEnchantmentDetailData(object value)
     {
         object configuration = GetRequiredSingleton(_fetterInfoCfgType!, "SO_FetterInfoCfg");
-        MethodInfo? method = FindMethod(
-            configuration.GetType(),
-            "TryGetDetailData",
-            _fetterType!,
-            _fetterDetailDataType!.MakeByRefType());
-        object?[] invokeArguments = { value, null };
-        return method?.Invoke(configuration, invokeArguments) is true ? invokeArguments[1] : null;
+        MethodInfo method = FindMethod(
+                                configuration.GetType(),
+                                "TryGetDetailData",
+                                _fetterType!,
+                                _fetterDetailDataType!.MakeByRefType())
+                            ?? throw new MissingMethodException(
+                                configuration.GetType().FullName,
+                                "TryGetDetailData");
+        return TryGetEnchantmentDetailData(configuration, method, value, out object? detail)
+            ? detail
+            : null;
     }
 
     private string ResolveEnchantmentDisplayName(object value)

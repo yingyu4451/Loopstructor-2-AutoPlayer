@@ -32,7 +32,7 @@ internal sealed class CheatController : IDisposable
         _activation = activation;
         _log = log;
         _baseContractAccepted = baseContractAccepted;
-        _runtime.Initialize(_activation.ArtifactRoot);
+        _runtime.Initialize(_activation.ArtifactRoot, message => _log.LogWarning(message));
         _sceneHandle = SceneManager.GetActiveScene().handle;
         _lastManagerHeartbeatUtcTicks = DateTime.UtcNow.Ticks;
 
