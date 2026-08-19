@@ -173,6 +173,85 @@ public sealed class CheatFormWpfLayoutTests
         });
     }
 
+    [Fact]
+    public void VehicleAndItemCatalogs_GrowWithWindowHeight_WithoutRedundantHeadings()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 1280,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.LoadDemoCatalogAsync().GetAwaiter().GetResult();
+
+                ArrangeWindowForLayout(form, 1280, 680);
+                form.SelectDemoTab(0);
+                form.UpdateLayout();
+                PumpDispatcher();
+
+                VehicleQuickSelectorControl vehicleCatalog = Assert.IsType<VehicleQuickSelectorControl>(form.FindName("_vehicleCatalog"));
+                EnchantmentSelectorControl enchantmentCatalog = Assert.IsType<EnchantmentSelectorControl>(form.FindName("_enchantmentSelector"));
+                Assert.True(double.IsNaN(vehicleCatalog.Height));
+                Assert.True(double.IsNaN(enchantmentCatalog.Height));
+                double compactVehicleHeight = vehicleCatalog.ActualHeight;
+                double compactEnchantmentHeight = enchantmentCatalog.ActualHeight;
+                AssertRemovedHeadings(
+                    Assert.IsAssignableFrom<DependencyObject>(Assert.IsType<TabItem>(Assert.IsType<TabControl>(form.FindName("_tabs")).SelectedItem).Content),
+                    "获取指定战车",
+                    "战车（先选类型，再选系列等级）",
+                    "附魔（悬停 1 秒查看游戏说明）");
+
+                ArrangeWindowForLayout(form, 1280, 860);
+                form.SelectDemoTab(0);
+                form.UpdateLayout();
+                PumpDispatcher();
+                Assert.True(vehicleCatalog.ActualHeight > compactVehicleHeight + 100,
+                    $"战车目录未随窗口增高：{compactVehicleHeight:0.##} -> {vehicleCatalog.ActualHeight:0.##}。");
+                Assert.True(enchantmentCatalog.ActualHeight > compactEnchantmentHeight + 100,
+                    $"附魔目录未随窗口增高：{compactEnchantmentHeight:0.##} -> {enchantmentCatalog.ActualHeight:0.##}。");
+
+                ArrangeWindowForLayout(form, 1280, 680);
+                form.SelectDemoTab(1);
+                form.UpdateLayout();
+                PumpDispatcher();
+                CatalogActionGridControl disposableActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_disposableActions"));
+                CatalogActionGridControl catapultActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_catapultActions"));
+                Assert.True(double.IsNaN(disposableActions.Height));
+                Assert.True(double.IsNaN(catapultActions.Height));
+                double compactDisposableHeight = disposableActions.ActualHeight;
+                double compactCatapultHeight = catapultActions.ActualHeight;
+
+                ArrangeWindowForLayout(form, 1280, 860);
+                form.SelectDemoTab(1);
+                form.UpdateLayout();
+                PumpDispatcher();
+                Assert.True(disposableActions.ActualHeight > compactDisposableHeight + 100,
+                    $"消耗品目录未随窗口增高：{compactDisposableHeight:0.##} -> {disposableActions.ActualHeight:0.##}。");
+                Assert.True(catapultActions.ActualHeight > compactCatapultHeight + 100,
+                    $"弹射点目录未随窗口增高：{compactCatapultHeight:0.##} -> {catapultActions.ActualHeight:0.##}。");
+
+                form.SelectDemoTab(2);
+                form.UpdateLayout();
+                PumpDispatcher();
+                AssertRemovedHeadings(
+                    Assert.IsAssignableFrom<DependencyObject>(Assert.IsType<TabItem>(Assert.IsType<TabControl>(form.FindName("_tabs")).SelectedItem).Content),
+                    "遗物");
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
     [Theory]
     [InlineData(96d)]
     [InlineData(144d)]
@@ -1052,6 +1131,20 @@ public sealed class CheatFormWpfLayoutTests
         TabItem tab = Assert.IsType<TabItem>(tabs.SelectedItem);
         if (tab.Content is not ScrollViewer page) return;
         Assert.NotEqual(Visibility.Visible, page.ComputedVerticalScrollBarVisibility);
+    }
+
+    private static void AssertRemovedHeadings(DependencyObject page, params string[] removedHeadings)
+    {
+        string[] visibleText = VisualDescendants<TextBlock>(page)
+            .Where(text => text.IsVisible)
+            .Select(text => text.Text)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+
+        foreach (string heading in removedHeadings)
+        {
+            Assert.DoesNotContain(heading, visibleText);
+        }
     }
 
     private static void ArrangeWindowForLayout(CheatForm form, double width, double height)

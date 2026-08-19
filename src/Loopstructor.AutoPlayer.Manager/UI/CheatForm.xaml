@@ -438,110 +438,129 @@
                         Style="{StaticResource CheatNavigationTabControlStyle}"
                         ItemContainerStyle="{StaticResource CheatNavigationTabStyle}">
                 <TabItem Header="战车">
-                    <ScrollViewer x:Name="_vehiclePageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="8,12,8,0">
-                            <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
-                                <StackPanel>
-                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="获取指定战车" />
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="2*" MinWidth="240" />
-                                            <ColumnDefinition Width="16" />
-                                            <ColumnDefinition Width="3*" MinWidth="420" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Style="{StaticResource CaptionStyle}" Text="战车（先选类型，再选系列等级）" />
-                                            <local:VehicleQuickSelectorControl x:Name="_vehicleCatalog" Height="286" />
-                                            <Grid Margin="0,10,0,0">
-                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /></Grid.RowDefinitions>
-                                                <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
-                                                <local:CheatNumericInput x:Name="_vehicleCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
-                                                <Button x:Name="_grantVehicleButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource PrimaryButtonStyle}" Content="获取战车" />
-                                            </Grid>
-                                            <TextBlock Margin="0,10,0,5" Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
-                                            <Border Height="96" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
-                                                <Grid>
-                                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                                        <ItemsControl x:Name="_selectedEnchantmentSummary"
-                                                                      ItemsSource="{Binding ElementName=_enchantmentSelector, Path=SelectedChoices}"
-                                                                      ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}">
-                                                            <ItemsControl.ItemsPanel>
-                                                                <ItemsPanelTemplate>
-                                                                    <WrapPanel IsItemsHost="True" />
-                                                                </ItemsPanelTemplate>
-                                                            </ItemsControl.ItemsPanel>
-                                                        </ItemsControl>
-                                                    </ScrollViewer>
-                                                    <TextBlock HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{StaticResource MutedTextBrush}"
-                                                               Text="未选择附魔时获取普通战车。"
-                                                               TextWrapping="Wrap">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding Items.Count, ElementName=_selectedEnchantmentSummary}" Value="0">
-                                                                        <Setter Property="Visibility" Value="Visible" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </Grid>
-                                            </Border>
-                                        </StackPanel>
-                                        <Border Grid.Column="1" Width="1" Background="#5A3B25" />
-                                        <StackPanel Grid.Column="2">
-                                            <DockPanel Margin="0,0,0,7" LastChildFill="False">
-                                                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="附魔（悬停 1 秒查看游戏说明）" />
-                                                <Button x:Name="_clearEnchantmentsButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,4" Content="清空所选" />
-                                            </DockPanel>
-                                            <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Height="450" />
-                                        </StackPanel>
+                    <Grid Margin="8,12,8,8">
+                        <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" MinWidth="240" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="3*" MinWidth="420" />
+                                </Grid.ColumnDefinitions>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <local:VehicleQuickSelectorControl x:Name="_vehicleCatalog" />
+                                    <Grid Grid.Row="2">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
+                                        <local:CheatNumericInput x:Name="_vehicleCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
+                                        <Button x:Name="_grantVehicleButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource PrimaryButtonStyle}" Content="获取战车" />
                                     </Grid>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
+                                    <StackPanel Grid.Row="4">
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
+                                        <Border Height="96" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                                            <Grid>
+                                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                                    <ItemsControl x:Name="_selectedEnchantmentSummary"
+                                                                  ItemsSource="{Binding ElementName=_enchantmentSelector, Path=SelectedChoices}"
+                                                                  ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <WrapPanel IsItemsHost="True" />
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                                <TextBlock HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{StaticResource MutedTextBrush}"
+                                                           Text="未选择附魔时获取普通战车。"
+                                                           TextWrapping="Wrap">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Items.Count, ElementName=_selectedEnchantmentSummary}" Value="0">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                                <Border Grid.Column="1" Width="1" Background="#5A3B25" />
+                                <Grid Grid.Column="2">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="8" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <Button x:Name="_clearEnchantmentsButton" HorizontalAlignment="Right" MinWidth="92" Padding="12,4" Content="清空所选" />
+                                    <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Grid.Row="2" />
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="道具">
                     <ScrollViewer x:Name="_itemsPageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <Grid x:Name="_itemsSectionsGrid" Margin="8,12,8,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="12" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition x:Name="_itemsFirstColumn" Width="*" />
-                                <ColumnDefinition x:Name="_itemsColumnGap" Width="0" />
-                                <ColumnDefinition x:Name="_itemsSecondColumn" Width="0" />
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="_consumablesSection" Margin="0" Style="{StaticResource CheatSectionStyle}">
-                                <StackPanel>
-                                    <DockPanel Margin="0,0,0,8" LastChildFill="False">
-                                        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
-                                        <Button x:Name="_clearConsumablesButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,5" Style="{StaticResource DangerButtonStyle}" Content="全部删除" AutomationProperties.Name="删除所有消耗品" ToolTip="立即删除背包内的所有非弹射点道具，不弹出确认框" />
-                                    </DockPanel>
-                                    <local:CatalogActionGridControl x:Name="_disposableActions" Height="246" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="_catapultsSection" Grid.Row="2" Margin="0" Style="{StaticResource CheatSectionStyle}">
-                                <StackPanel>
-                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
-                                    <local:CatalogActionGridControl x:Name="_catapultActions" Height="246" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
-                                    <Grid Margin="0,10,0,0">
-                                        <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="8" /><RowDefinition Height="44" /></Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                        <Button x:Name="_clearBackpackCatapultsButton" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空背包" AutomationProperties.Name="删除所有背包弹射点" />
-                                        <Button x:Name="_clearFieldCatapultsButton" Grid.Column="2" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空场上" AutomationProperties.Name="删除所有场上弹射点" />
-                                        <CheckBox x:Name="_fieldCatapultDeleteModeCheck" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center" Style="{StaticResource FieldDeleteToggleStyle}" FontWeight="Bold" Content="点击场上弹射点直接删除" ToolTip="开启后在游戏内悬停弹射点会显示红色标记，左键立即删除；按 Esc 退出" />
+                        <Grid MinHeight="{Binding ElementName=_itemsPageScroll, Path=ActualHeight}">
+                            <Grid x:Name="_itemsSectionsGrid" Margin="8,12,8,8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="_itemsFirstColumn" Width="*" />
+                                    <ColumnDefinition x:Name="_itemsColumnGap" Width="0" />
+                                    <ColumnDefinition x:Name="_itemsSecondColumn" Width="0" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="_consumablesSection" Margin="0" Style="{StaticResource CheatSectionStyle}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="8" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <DockPanel LastChildFill="False">
+                                            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
+                                            <Button x:Name="_clearConsumablesButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,5" Style="{StaticResource DangerButtonStyle}" Content="全部删除" AutomationProperties.Name="删除所有消耗品" ToolTip="立即删除背包内的所有非弹射点道具，不弹出确认框" />
+                                        </DockPanel>
+                                        <local:CatalogActionGridControl x:Name="_disposableActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
                                     </Grid>
-                                </StackPanel>
-                            </Border>
+                                </Border>
+                                <Border x:Name="_catapultsSection" Grid.Row="2" Margin="0" Style="{StaticResource CheatSectionStyle}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="8" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="10" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
+                                        <local:CatalogActionGridControl x:Name="_catapultActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
+                                        <Grid Grid.Row="4">
+                                            <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="8" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <Button x:Name="_clearBackpackCatapultsButton" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空背包" AutomationProperties.Name="删除所有背包弹射点" />
+                                            <Button x:Name="_clearFieldCatapultsButton" Grid.Column="2" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空场上" AutomationProperties.Name="删除所有场上弹射点" />
+                                            <CheckBox x:Name="_fieldCatapultDeleteModeCheck" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center" Style="{StaticResource FieldDeleteToggleStyle}" FontWeight="Bold" Content="点击场上弹射点直接删除" ToolTip="开启后在游戏内悬停弹射点会显示红色标记，左键立即删除；按 Esc 退出" />
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </Grid>
                     </ScrollViewer>
                 </TabItem>
@@ -551,21 +570,19 @@
                         <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="遗物" />
-                                    <local:CatalogActionGridControl x:Name="_relicActions" Grid.Row="1" MinHeight="250" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
-                                    <Grid Grid.Row="2" Margin="0,12,0,0">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                        <Button x:Name="_grantAllRelicsButton" MinWidth="132" AutomationProperties.Name="一键补齐全部遗物" Style="{StaticResource GoldButtonStyle}" Content="补齐全部" ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
-                                        <Button x:Name="_removeAllRelicsButton" Grid.Column="2" MinWidth="132" AutomationProperties.Name="删除所有遗物" Style="{StaticResource DangerButtonStyle}" Content="全部删除" ToolTip="逐帧删除当前持有的全部遗物，不弹出确认框" />
-                                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
-                                            <TextBlock x:Name="_grantAllRelicsStatus" Foreground="{StaticResource MutedTextBrush}" Text="全部遗物：未开始" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="_removeAllRelicsStatus" Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="删除遗物：未开始" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Grid>
+                                <local:CatalogActionGridControl x:Name="_relicActions" MinHeight="250" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
+                                <Grid Grid.Row="1" Margin="0,12,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Button x:Name="_grantAllRelicsButton" MinWidth="132" AutomationProperties.Name="一键补齐全部遗物" Style="{StaticResource GoldButtonStyle}" Content="补齐全部" ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
+                                    <Button x:Name="_removeAllRelicsButton" Grid.Column="2" MinWidth="132" AutomationProperties.Name="删除所有遗物" Style="{StaticResource DangerButtonStyle}" Content="全部删除" ToolTip="逐帧删除当前持有的全部遗物，不弹出确认框" />
+                                    <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                                        <TextBlock x:Name="_grantAllRelicsStatus" Foreground="{StaticResource MutedTextBrush}" Text="全部遗物：未开始" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="_removeAllRelicsStatus" Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="删除遗物：未开始" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
                         </Border>
                     </Grid>
