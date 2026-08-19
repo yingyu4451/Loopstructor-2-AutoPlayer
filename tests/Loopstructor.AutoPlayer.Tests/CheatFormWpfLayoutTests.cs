@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Core;
@@ -151,8 +152,155 @@ public sealed class CheatFormWpfLayoutTests
                 }
 
                 refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                PumpDispatcher();
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(250));
                 Assert.Single(calls, command => command == CheatCommands.QueryCatalog);
+                Assert.Equal(
+                    "演示资源目录已加载。",
+                    Assert.IsType<TextBlock>(form.FindName("_toastText")).Text);
+                Assert.True(Assert.IsType<Border>(form.FindName("_toastHost")).IsVisible);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void PersistentCheatState_IsRenderedInRunControlWithoutLegacyBanner()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                AutoPlayerStatus status = DemoData.CheatStatus();
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                form.Show();
+                PumpDispatcher();
+
+                TextBlock state = Assert.IsType<TextBlock>(form.FindName("_runControlStateText"));
+                Border badge = Assert.IsType<Border>(form.FindName("_runControlStateBadge"));
+                Assert.Equal("已启用", state.Text);
+                Assert.Null(form.FindName("_statusBanner"));
+                Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetHelpText(badge)));
+
+                status.CheatUsed = true;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                Assert.Equal("已启用 · 已标记", state.Text);
+
+                status.RunState = AutoPlayerRunState.Running;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                Assert.Equal("监视中 · 写操作锁定", state.Text);
+
+                status.CheatModeEnabled = false;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                Assert.Equal("自动游玩中", state.Text);
+
+                status.RunState = AutoPlayerRunState.Standby;
+                status.CheatUsed = false;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                Assert.Equal("未启用", state.Text);
+
+                form.UpdateSession(false, DemoData.CheatHello(), status);
+                Assert.Equal("未连接", state.Text);
+
+                status.CheatAvailable = false;
+                form.UpdateSession(true, DemoData.CheatHello(), status);
+                Assert.Equal("不可用", state.Text);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ModeToggle_UpdatesPersistentStateWithoutEnqueuingToast()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(250));
+
+                CheckBox enable = Assert.IsType<CheckBox>(form.FindName("_enableCheck"));
+                enable.IsChecked = false;
+                enable.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(250));
+
+                Assert.Equal("未启用", Assert.IsType<TextBlock>(form.FindName("_runControlStateText")).Text);
+                Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(form.FindName("_toastHost")).Visibility);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void TransientToasts_AreNonInteractiveAndDisplayInFifoOrderForThreeSecondsEach()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                PumpDispatcher();
+
+                System.Reflection.MethodInfo showError = typeof(CheatForm).GetMethod(
+                    "ShowLocalError",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                showError.Invoke(form, new object[] { "第一条错误" });
+                showError.Invoke(form, new object[] { "第二条错误" });
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(250));
+
+                Border toast = Assert.IsType<Border>(form.FindName("_toastHost"));
+                TextBlock text = Assert.IsType<TextBlock>(form.FindName("_toastText"));
+                Assert.True(toast.IsVisible);
+                Assert.False(toast.IsHitTestVisible);
+                Assert.Equal("第一条错误", text.Text);
+
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(2900));
+                Assert.Equal("第一条错误", text.Text);
+
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(500));
+                Assert.True(toast.IsVisible);
+                Assert.Equal("第二条错误", text.Text);
+
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(3400));
+                Assert.Equal(Visibility.Collapsed, toast.Visibility);
             }
             finally
             {

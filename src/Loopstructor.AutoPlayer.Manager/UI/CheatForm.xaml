@@ -307,7 +307,6 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -321,11 +320,28 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center">
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                         <TextBlock FontSize="15"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource GoldBrush}"
                                    Text="作弊运行控制" />
+                        <Border x:Name="_runControlStateBadge"
+                                MinWidth="68"
+                                Margin="12,0,0,0"
+                                Padding="9,3"
+                                VerticalAlignment="Center"
+                                Background="#182917"
+                                BorderBrush="{StaticResource SignalGreenBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                AutomationProperties.Name="作弊运行状态">
+                            <TextBlock x:Name="_runControlStateText"
+                                       HorizontalAlignment="Center"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource SignalGreenBrush}"
+                                       Text="未连接" />
+                        </Border>
                     </StackPanel>
                     <Button x:Name="_catalogRefreshButton"
                             Grid.Column="1"
@@ -345,34 +361,8 @@
                 </Grid>
             </Border>
 
-            <Border x:Name="_statusBanner"
-                    Grid.Row="1"
-                    Margin="0,8,0,10"
-                    Background="#221C13"
-                    BorderBrush="#5B3B24"
-                    BorderThickness="1">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="5" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border x:Name="_statusRail" Background="{StaticResource GoldBrush}" />
-                    <StackPanel Grid.Column="1" Margin="13,8,13,9">
-                        <TextBlock x:Name="_statusTitle"
-                                   FontWeight="Bold"
-                                   Foreground="{StaticResource GoldBrush}"
-                                   Text="等待可信游戏会话" />
-                        <TextBlock x:Name="_statusDetail"
-                                   Margin="0,3,0,0"
-                                   Foreground="{StaticResource MutedTextBrush}"
-                                   Text="启动已安装插件的游戏后，此处会显示作弊功能状态。"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
             <TabControl x:Name="_tabs"
-                        Grid.Row="2"
+                        Grid.Row="1"
                         Style="{StaticResource CheatNavigationTabControlStyle}"
                         ItemContainerStyle="{StaticResource CheatNavigationTabStyle}">
                 <TabItem Header="战车">
@@ -849,6 +839,45 @@
                     </ScrollViewer>
                 </TabItem>
             </TabControl>
+
+            <Border x:Name="_toastHost"
+                    Grid.RowSpan="2"
+                    Panel.ZIndex="200"
+                    MinWidth="280"
+                    MaxWidth="600"
+                    Margin="16,58,16,0"
+                    Padding="0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Background="#182B36"
+                    BorderBrush="#328CC5"
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    Focusable="False"
+                    IsHitTestVisible="False"
+                    Opacity="0"
+                    Visibility="Collapsed"
+                    AutomationProperties.LiveSetting="Polite"
+                    AutomationProperties.Name="作弊工具提示">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="_toastTranslate" Y="-14" />
+                </Border.RenderTransform>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="_toastRail" Background="#328CC5" />
+                    <TextBlock x:Name="_toastText"
+                               Grid.Column="1"
+                               Margin="14,10,14,11"
+                               VerticalAlignment="Center"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="#F4E8CF"
+                               TextWrapping="Wrap" />
+                </Grid>
+            </Border>
         </Grid>
     </controls:MechanicalShell>
 </Window>

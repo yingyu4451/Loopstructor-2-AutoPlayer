@@ -3,8 +3,10 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Core;
@@ -17,6 +19,19 @@ internal sealed partial class CheatForm : Window
 {
     private const decimal DefaultAttributeMinimum = -1_000_000_000m;
     private const decimal DefaultAttributeMaximum = 1_000_000_000m;
+    private static readonly TimeSpan ToastDisplayDuration = TimeSpan.FromSeconds(3);
+    private static readonly Duration ToastEnterDuration = new(TimeSpan.FromMilliseconds(180));
+    private static readonly Duration ToastExitDuration = new(TimeSpan.FromMilliseconds(150));
+
+    private enum CheatToastKind
+    {
+        Info,
+        Success,
+        Warning,
+        Error
+    }
+
+    private readonly record struct CheatToastNotification(string Message, CheatToastKind Kind);
 
     private static readonly SolidColorBrush BlueBrush = FrozenBrush(0x32, 0x8C, 0xC5);
     private static readonly SolidColorBrush RedBrush = FrozenBrush(0xD7, 0x4B, 0x31);
@@ -36,6 +51,8 @@ internal sealed partial class CheatForm : Window
     private readonly HashSet<string> _activeCatalogIconKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _capturePollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly DispatcherTimer _grantAllRelicsPollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private readonly DispatcherTimer _toastTimer = new() { Interval = ToastDisplayDuration };
+    private readonly Queue<CheatToastNotification> _toastQueue = new();
     private readonly ObservableCollection<CheatVehicleRow> _vehicleRows = new();
     private readonly ObservableCollection<CheatEnemyRow> _enemyRows = new();
     private readonly ObservableCollection<CheatSpawnPointRow> _spawnPointRows = new();
@@ -52,14 +69,15 @@ internal sealed partial class CheatForm : Window
     private BridgeHello? _hello;
     private AutoPlayerStatus? _status;
     private string _sessionKey = string.Empty;
-    private string _lastMessage = string.Empty;
-    private bool _lastMessageIsError;
+    private bool _toastVisible;
+    private string _lastPollingErrorToast = string.Empty;
     private long _captureEpoch;
     private string _spawnCaptureState = "idle";
     private string _grantAllRelicsState = "idle";
     private string _removeAllRelicsState = "idle";
     private int? _lastResolvedEnemyLevel;
     private string _lastResolvedLevelSource = string.Empty;
+    private long _toastEpoch;
 
     public CheatForm(Func<string, JObject?, Task<ControlResponse?>> sendCommand)
     {
@@ -78,6 +96,7 @@ internal sealed partial class CheatForm : Window
         Closed += CheatForm_OnClosed;
         _capturePollTimer.Tick += CapturePollTimerTick;
         _grantAllRelicsPollTimer.Tick += GrantAllRelicsPollTimerTick;
+        _toastTimer.Tick += ToastTimerTick;
         ApplyAvailability();
     }
 
@@ -258,6 +277,7 @@ internal sealed partial class CheatForm : Window
     {
         if (_hasLoaded) return;
         _hasLoaded = true;
+        DisplayNextToast();
         await RefreshStateOnShownAsync();
     }
 
@@ -280,6 +300,8 @@ internal sealed partial class CheatForm : Window
         _capturePollTimer.Tick -= CapturePollTimerTick;
         _grantAllRelicsPollTimer.Stop();
         _grantAllRelicsPollTimer.Tick -= GrantAllRelicsPollTimerTick;
+        ClearToastNotifications();
+        _toastTimer.Tick -= ToastTimerTick;
         _iconCache.Clear();
         _activeCatalogIconKeys.Clear();
     }
@@ -577,8 +599,7 @@ internal sealed partial class CheatForm : Window
             new JObject { ["vehicleId"] = vehicleId.DeepClone() });
         if (response?.Success == true)
         {
-            string successMessage = _lastMessage;
-            if (await RefreshVehiclesAsync(announce: false)) RestoreSuccessfulMessage(successMessage);
+            await RefreshVehiclesAsync(announce: false);
         }
     }
 
@@ -603,8 +624,7 @@ internal sealed partial class CheatForm : Window
             });
         if (response?.Success == true)
         {
-            string successMessage = _lastMessage;
-            if (await RefreshVehiclesAsync(announce: false)) RestoreSuccessfulMessage(successMessage);
+            await RefreshVehiclesAsync(announce: false);
         }
     }
 
@@ -632,8 +652,7 @@ internal sealed partial class CheatForm : Window
             });
         if (response?.Success == true)
         {
-            string successMessage = _lastMessage;
-            if (await RefreshVehiclesAsync(announce: false)) RestoreSuccessfulMessage(successMessage);
+            await RefreshVehiclesAsync(announce: false);
         }
     }
 
@@ -658,8 +677,7 @@ internal sealed partial class CheatForm : Window
             });
         if (response?.Success == true)
         {
-            string successMessage = _lastMessage;
-            if (await RefreshEnemiesAsync(announce: false)) RestoreSuccessfulMessage(successMessage);
+            await RefreshEnemiesAsync(announce: false);
         }
     }
 
@@ -750,7 +768,7 @@ internal sealed partial class CheatForm : Window
         AddSpawnPoint(string.Empty, _spawnX.Value, _spawnY.Value, _spawnZ.Value, "手工坐标");
         _spawnPointGrid.SelectedItem = _spawnPointRows.LastOrDefault();
         if (_spawnPointGrid.SelectedItem != null) _spawnPointGrid.ScrollIntoView(_spawnPointGrid.SelectedItem);
-        RestoreSuccessfulMessage("已将手工坐标添加到生成位置列表。");
+        EnqueueToast("已将手工坐标添加到生成位置列表。", CheatToastKind.Success);
     }
 
     private async Task RemoveSelectedSpawnPointAsync()
@@ -969,6 +987,10 @@ internal sealed partial class CheatForm : Window
                     ? "读取批量获取状态失败，将继续重试。"
                     : response.Message + "；将继续重试。");
             }
+            else
+            {
+                _lastPollingErrorToast = string.Empty;
+            }
         }
         catch (Exception exception)
         {
@@ -993,8 +1015,12 @@ internal sealed partial class CheatForm : Window
         }
         else if (_fieldCatapultDeleteModeCheck.IsChecked == true)
         {
-            _lastMessage = "读取场上弹射点删除模式失败：" + message;
-            _lastMessageIsError = true;
+            string toast = "读取场上弹射点删除模式失败：" + message;
+            if (!string.Equals(_lastPollingErrorToast, toast, StringComparison.Ordinal))
+            {
+                _lastPollingErrorToast = toast;
+                EnqueueToast(toast, CheatToastKind.Error);
+            }
         }
         else
         {
@@ -1108,11 +1134,7 @@ internal sealed partial class CheatForm : Window
         bool announce = true)
     {
         if (_isClosed || _busy) return null;
-        string previousMessage = _lastMessage;
-        bool previousMessageIsError = _lastMessageIsError;
         _busy = true;
-        _lastMessage = "正在执行命令...";
-        _lastMessageIsError = false;
         ApplyAvailability();
         try
         {
@@ -1132,13 +1154,11 @@ internal sealed partial class CheatForm : Window
             }
             else if (announce)
             {
-                _lastMessage = string.IsNullOrWhiteSpace(response.Message) ? "命令执行成功。" : response.Message;
-                _lastMessageIsError = false;
-            }
-            else
-            {
-                _lastMessage = previousMessage;
-                _lastMessageIsError = previousMessageIsError;
+                string message = string.IsNullOrWhiteSpace(response.Message) ? "命令执行成功。" : response.Message;
+                if (!string.Equals(command, CheatCommands.SetEnabled, StringComparison.OrdinalIgnoreCase))
+                {
+                    EnqueueToast(message, CheatToastKind.Success);
+                }
             }
 
             return response;
@@ -1344,115 +1364,210 @@ internal sealed partial class CheatForm : Window
                                        && SelectedEntity(_enemyGrid) != null
                                        && _enemyAttribute.SelectedCatalogItem?.Payload is AttributeItem;
 
-        RenderStatusBanner(available, runConflict);
+        RenderRunControlState(available, runConflict);
     }
 
-    private void RenderStatusBanner(bool available, bool runConflict)
+    private void RenderRunControlState(bool available, bool runConflict)
     {
-        Brush rail;
+        string label;
+        string detail;
+        Brush accent;
         Brush panel;
-        if (_busy)
+        if (_writeOutcomeUnknown)
         {
-            _statusTitle.Text = "正在执行作弊命令";
-            rail = BlueBrush;
-            panel = BluePanelBrush;
-        }
-        else if (_writeOutcomeUnknown)
-        {
-            _statusTitle.Text = "写命令结果未知 / 已冻结后续修改";
-            rail = RedBrush;
+            label = "写入冻结";
+            detail = "上一条写命令的结果无法确认；为避免重复修改，后续作弊写操作已冻结。";
+            accent = RedBrush;
             panel = RedPanelBrush;
         }
         else if (!_trusted)
         {
-            _statusTitle.Text = "未连接到可信游戏会话";
-            rail = RedBrush;
+            label = "未连接";
+            detail = "请先启动已安装插件的游戏，并等待 Manager 完成安全握手。";
+            accent = RedBrush;
             panel = RedPanelBrush;
         }
         else if (!available)
         {
-            _statusTitle.Text = "当前构建不支持作弊工具";
-            rail = RedBrush;
+            label = "不可用";
+            string reason = _status?.CheatAvailabilityReason ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(reason)) reason = _hello?.CheatAvailabilityReason ?? string.Empty;
+            detail = string.IsNullOrWhiteSpace(reason) ? "当前插件未提供作弊运行时合同。" : reason;
+            accent = RedBrush;
             panel = RedPanelBrush;
+        }
+        else if (_busy)
+        {
+            label = "正在执行";
+            detail = "正在等待 AutoPlayer 插件完成当前作弊命令。";
+            accent = BlueBrush;
+            panel = BluePanelBrush;
         }
         else if (runConflict && _status?.CheatModeEnabled == true)
         {
-            _statusTitle.Text = "自动游玩监视已开启 / 作弊写操作已锁定";
-            rail = AmberBrush;
+            label = "监视中 · 写操作锁定";
+            detail = "自动游玩期间可查询目录、战车和敌人，并切换敌人 ID 与 Buff 显示；其他作弊写操作已锁定。";
+            if (_status.CheatUsed) detail += " 当前配置已有作弊记录。";
+            accent = AmberBrush;
             panel = AmberPanelBrush;
         }
         else if (runConflict)
         {
-            _statusTitle.Text = "自动游玩中 / 可开启怪物监视";
-            rail = GreenBrush;
+            label = "自动游玩中";
+            detail = "可以启用作弊监视；启用后仍只开放查询以及敌人 ID、Buff 显示。";
+            if (_status?.CheatUsed == true) detail += " 当前配置已有作弊记录。";
+            accent = GreenBrush;
             panel = GreenPanelBrush;
+        }
+        else if (_status?.CheatModeEnabled == true && _status.CheatUsed)
+        {
+            label = "已启用 · 已标记";
+            detail = "作弊模式已启用，当前配置已有作弊记录。";
+            accent = AmberBrush;
+            panel = AmberPanelBrush;
         }
         else if (_status?.CheatModeEnabled == true)
         {
-            _statusTitle.Text = _status.CheatUsed
-                ? "作弊模式已启用 / 当前存档有作弊标记"
-                : "作弊模式已启用";
-            rail = AmberBrush;
-            panel = AmberPanelBrush;
+            label = "已启用";
+            detail = "可以执行资源、战斗、属性和怪物生成命令。";
+            accent = GreenBrush;
+            panel = GreenPanelBrush;
         }
         else if (_status?.CheatUsed == true)
         {
-            _statusTitle.Text = "当前存档已被作弊修改 / 关闭作弊后仍可自动游玩";
-            rail = AmberBrush;
+            label = "未启用 · 已标记";
+            detail = "作弊模式已关闭，但当前配置已有作弊记录；自动游玩结果会继续标记为 cheat-modified。";
+            accent = AmberBrush;
             panel = AmberPanelBrush;
         }
         else
         {
-            _statusTitle.Text = "作弊功能可用 / 尚未启用";
-            rail = GreenBrush;
+            label = "未启用";
+            detail = "作弊功能可用；开启作弊模式后可以执行修改命令。";
+            accent = GreenBrush;
             panel = GreenPanelBrush;
         }
 
-        if (_lastMessageIsError)
-        {
-            rail = RedBrush;
-            panel = RedPanelBrush;
-        }
-
-        _statusTitle.Foreground = rail;
-        _statusRail.Background = rail;
-        _statusBanner.Background = panel;
-        _statusDetail.Text = BuildStatusDetail(available);
+        _runControlStateText.Text = label;
+        _runControlStateText.Foreground = accent;
+        _runControlStateBadge.Background = panel;
+        _runControlStateBadge.BorderBrush = accent;
+        _runControlStateBadge.ToolTip = detail;
+        AutomationProperties.SetName(_runControlStateBadge, "作弊运行状态：" + label);
+        AutomationProperties.SetHelpText(_runControlStateBadge, detail);
     }
 
-    private string BuildStatusDetail(bool available)
+    private void EnqueueToast(string message, CheatToastKind kind)
     {
-        if (!string.IsNullOrWhiteSpace(_lastMessage)) return _lastMessage;
-        if (!_trusted) return "请先启动已安装插件的游戏，并等待 Manager 完成安全握手。";
-        if (!available)
+        if (string.IsNullOrWhiteSpace(message) || _isClosed) return;
+        if (!Dispatcher.CheckAccess())
         {
-            string reason = _status?.CheatAvailabilityReason ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(reason)) reason = _hello?.CheatAvailabilityReason ?? string.Empty;
-            return string.IsNullOrWhiteSpace(reason) ? "插件未提供作弊运行时合同。" : reason;
+            _ = Dispatcher.BeginInvoke(() => EnqueueToast(message, kind));
+            return;
         }
 
-        bool runConflict = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused;
-        if (runConflict && _status?.CheatModeEnabled == true)
-        {
-            return "自动游玩期间可查询目录、战车和敌人，并切换敌人 ID 与 Buff 显示；资源、属性、清怪等作弊写操作由插件锁定。";
-        }
+        _toastQueue.Enqueue(new CheatToastNotification(message.Trim(), kind));
+        DisplayNextToast();
+    }
 
-        if (runConflict)
-        {
-            return "可在自动游玩期间启用作弊监视；启用后仍只开放查询以及敌人 ID、Buff 显示。";
-        }
+    private void DisplayNextToast()
+    {
+        if (_isClosed || !_hasLoaded || _toastVisible || _toastQueue.Count == 0) return;
 
-        if (_status?.CheatUsed == true)
+        CheatToastNotification notification = _toastQueue.Dequeue();
+        (Brush accent, Brush panel, string kindName) = notification.Kind switch
         {
-            return "当前配置已有作弊记录；关闭作弊模式后仍可自动游玩，结果会继续标记为 cheat-modified。";
-        }
-        return "启用后可以执行资源、战斗、属性和怪物生成命令。";
+            CheatToastKind.Success => (GreenBrush, GreenPanelBrush, "成功"),
+            CheatToastKind.Warning => (AmberBrush, AmberPanelBrush, "警告"),
+            CheatToastKind.Error => (RedBrush, RedPanelBrush, "错误"),
+            _ => (BlueBrush, BluePanelBrush, "提示")
+        };
+
+        _toastVisible = true;
+        _toastTimer.Stop();
+        long epoch = ++_toastEpoch;
+        StopToastAnimations();
+        _toastText.Text = notification.Message;
+        _toastText.Foreground = accent;
+        _toastRail.Background = accent;
+        _toastHost.BorderBrush = accent;
+        _toastHost.Background = panel;
+        _toastHost.Opacity = 0;
+        _toastTranslate.Y = -14;
+        _toastHost.Visibility = Visibility.Visible;
+        AutomationProperties.SetName(_toastHost, kindName + "提示：" + notification.Message);
+
+        DoubleAnimation fade = new(0, 1, ToastEnterDuration) { FillBehavior = FillBehavior.Stop };
+        DoubleAnimation slide = new(-14, 0, ToastEnterDuration)
+        {
+            FillBehavior = FillBehavior.Stop,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (_isClosed || epoch != _toastEpoch || !_toastVisible) return;
+            StopToastAnimations();
+            _toastHost.Opacity = 1;
+            _toastTranslate.Y = 0;
+            _toastTimer.Start();
+        };
+        _toastHost.BeginAnimation(OpacityProperty, fade, HandoffBehavior.SnapshotAndReplace);
+        _toastTranslate.BeginAnimation(TranslateTransform.YProperty, slide, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void ToastTimerTick(object? sender, EventArgs eventArgs)
+    {
+        _toastTimer.Stop();
+        HideCurrentToast();
+    }
+
+    private void HideCurrentToast()
+    {
+        if (!_toastVisible) return;
+        long epoch = ++_toastEpoch;
+        DoubleAnimation fade = new(1, 0, ToastExitDuration) { FillBehavior = FillBehavior.Stop };
+        DoubleAnimation slide = new(0, -10, ToastExitDuration)
+        {
+            FillBehavior = FillBehavior.Stop,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (_isClosed || epoch != _toastEpoch) return;
+            StopToastAnimations();
+            _toastHost.Opacity = 0;
+            _toastTranslate.Y = -14;
+            _toastHost.Visibility = Visibility.Collapsed;
+            _toastVisible = false;
+            DisplayNextToast();
+        };
+        _toastHost.BeginAnimation(OpacityProperty, fade, HandoffBehavior.SnapshotAndReplace);
+        _toastTranslate.BeginAnimation(TranslateTransform.YProperty, slide, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void ClearToastNotifications()
+    {
+        _toastTimer.Stop();
+        _toastQueue.Clear();
+        _toastVisible = false;
+        _lastPollingErrorToast = string.Empty;
+        _toastEpoch++;
+        StopToastAnimations();
+        _toastHost.Opacity = 0;
+        _toastTranslate.Y = -14;
+        _toastHost.Visibility = Visibility.Collapsed;
+        _toastText.Text = string.Empty;
+    }
+
+    private void StopToastAnimations()
+    {
+        _toastHost.BeginAnimation(OpacityProperty, null);
+        _toastTranslate.BeginAnimation(TranslateTransform.YProperty, null);
     }
 
     private void ClearSessionData()
     {
-        _lastMessage = string.Empty;
-        _lastMessageIsError = false;
+        ClearToastNotifications();
         _writeOutcomeUnknown = false;
         _captureEpoch++;
         _capturePollTimer.Stop();
@@ -1962,16 +2077,7 @@ internal sealed partial class CheatForm : Window
 
     private void ShowLocalError(string message)
     {
-        _lastMessage = message;
-        _lastMessageIsError = true;
-        ApplyAvailability();
-    }
-
-    private void RestoreSuccessfulMessage(string message)
-    {
-        _lastMessage = message;
-        _lastMessageIsError = false;
-        ApplyAvailability();
+        EnqueueToast(message, CheatToastKind.Error);
     }
 
     private void SetCheckedSilently(CheckBox checkBox, bool value)
