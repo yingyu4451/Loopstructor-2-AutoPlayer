@@ -34,10 +34,10 @@
 
             <Style x:Key="CheatSectionStyle" TargetType="Border" BasedOn="{StaticResource InstrumentPanelStyle}">
                 <Setter Property="Margin" Value="0,0,0,12" />
+                <Setter Property="Padding" Value="12" />
             </Style>
             <Style x:Key="CheatCompactSectionStyle" TargetType="Border" BasedOn="{StaticResource CheatSectionStyle}">
-                <Setter Property="Margin" Value="0,0,0,10" />
-                <Setter Property="Padding" Value="14,10" />
+                <Setter Property="Padding" Value="12,10" />
             </Style>
             <Style x:Key="CheatStatusStyle" TargetType="TextBlock" BasedOn="{StaticResource DataTextStyle}">
                 <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
@@ -102,12 +102,12 @@
                 </Setter>
             </Style>
             <Style x:Key="CheatScrollThumbStyle" TargetType="Thumb">
-                <Setter Property="MinWidth" Value="8" />
+                <Setter Property="MinWidth" Value="6" />
                 <Setter Property="MinHeight" Value="28" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Thumb">
-                            <Border Margin="2"
+                            <Border Margin="1"
                                     Background="{StaticResource BronzeBrush}"
                                     BorderBrush="{StaticResource BrassBrush}"
                                     BorderThickness="1"
@@ -151,50 +151,88 @@
                 </Border>
             </ControlTemplate>
             <Style TargetType="ScrollBar">
-                <Setter Property="Width" Value="14" />
+                <Setter Property="Width" Value="9" />
                 <Setter Property="Background" Value="{StaticResource ScreenBrush}" />
                 <Setter Property="Template" Value="{StaticResource CheatVerticalScrollTemplate}" />
                 <Style.Triggers>
                     <Trigger Property="Orientation" Value="Horizontal">
                         <Setter Property="Width" Value="Auto" />
-                        <Setter Property="Height" Value="14" />
+                        <Setter Property="Height" Value="9" />
                         <Setter Property="Template" Value="{StaticResource CheatHorizontalScrollTemplate}" />
                     </Trigger>
                 </Style.Triggers>
             </Style>
             <Style x:Key="CheatNavigationTabStyle" TargetType="TabItem">
                 <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-                <Setter Property="Background" Value="#21170F" />
+                <Setter Property="Background" Value="#241A12" />
                 <Setter Property="BorderBrush" Value="{StaticResource BronzeBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="Padding" Value="10,11" />
+                <Setter Property="Padding" Value="10,9" />
                 <Setter Property="Margin" Value="0" />
-                <Setter Property="MinHeight" Value="46" />
+                <Setter Property="MinHeight" Value="50" />
                 <Setter Property="FontSize" Value="15" />
                 <Setter Property="FontWeight" Value="Bold" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TabItem">
-                            <Border x:Name="Plate"
-                                    Margin="2,0"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="2">
-                                <Grid>
-                                    <Border Margin="4" BorderBrush="#3D2A1A" BorderThickness="1" />
-                                    <ContentPresenter Margin="{TemplateBinding Padding}"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"
-                                                      ContentSource="Header" />
-                                </Grid>
-                            </Border>
+                            <Grid Margin="2,4,2,2">
+                                <Border x:Name="PlateShadow"
+                                        Margin="0,3,0,0"
+                                        Background="#090705"
+                                        BorderBrush="#090705"
+                                        BorderThickness="2"
+                                        CornerRadius="2" />
+                                <Border x:Name="Plate"
+                                        Margin="2,0,2,3"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="2">
+                                    <Grid>
+                                        <Border Margin="4" BorderBrush="#4B3220" BorderThickness="1" CornerRadius="1" />
+                                        <Grid Margin="{TemplateBinding Padding}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="12" />
+                                            </Grid.ColumnDefinitions>
+                                            <Ellipse x:Name="SignalLamp"
+                                                     Width="7"
+                                                     Height="7"
+                                                     VerticalAlignment="Center"
+                                                     Fill="#3B3025"
+                                                     Stroke="#725036"
+                                                     StrokeThickness="1" />
+                                            <ContentPresenter Grid.Column="1"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"
+                                                              ContentSource="Header" />
+                                            <Path Grid.Column="2"
+                                                  Width="7"
+                                                  Height="7"
+                                                  VerticalAlignment="Center"
+                                                  Data="M3.5,0 L7,3.5 3.5,7 0,3.5 Z"
+                                                  Fill="#4B3220"
+                                                  Stretch="Fill" />
+                                        </Grid>
+                                        <Border x:Name="LockBar"
+                                                Height="3"
+                                                Margin="16,0"
+                                                VerticalAlignment="Bottom"
+                                                Background="#4B3220" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="Plate" Property="Background" Value="#4A3318" />
+                                    <Setter TargetName="Plate" Property="Margin" Value="2,2,2,1" />
+                                    <Setter TargetName="Plate" Property="Background" Value="#4A351C" />
                                     <Setter TargetName="Plate" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
                                     <Setter TargetName="Plate" Property="BorderThickness" Value="2" />
+                                    <Setter TargetName="SignalLamp" Property="Fill" Value="{StaticResource SignalGreenBrush}" />
+                                    <Setter TargetName="SignalLamp" Property="Stroke" Value="#D7FFC4" />
+                                    <Setter TargetName="LockBar" Property="Background" Value="{StaticResource GoldBrush}" />
                                     <Setter Property="Foreground" Value="{StaticResource GoldBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
@@ -202,6 +240,21 @@
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                    <Setter TargetName="Plate" Property="BorderBrush" Value="{StaticResource BrassBrush}" />
+                                </Trigger>
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsSelected" Value="True" />
+                                        <Condition Property="IsMouseOver" Value="True" />
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="Plate" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                    <Setter Property="Foreground" Value="{StaticResource GoldBrush}" />
+                                </MultiTrigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Plate" Property="Background" Value="{StaticResource DisabledControlBackgroundBrush}" />
+                                    <Setter TargetName="Plate" Property="BorderBrush" Value="{StaticResource DisabledControlBorderBrush}" />
+                                    <Setter TargetName="SignalLamp" Property="Fill" Value="#24211D" />
+                                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -221,13 +274,32 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
-                                <UniformGrid Grid.Row="0"
-                                             Rows="1"
-                                             Columns="6"
-                                             IsItemsHost="True"
-                                             Panel.ZIndex="2" />
+                                <Grid x:Name="NavigationRail"
+                                      Grid.Row="0"
+                                      Height="56"
+                                      AutomationProperties.Name="作弊功能机械传送轨道"
+                                      Panel.ZIndex="2">
+                                    <Border Margin="0,5,0,3"
+                                            Background="#100C09"
+                                            BorderBrush="#090705"
+                                            BorderThickness="3"
+                                            CornerRadius="2" />
+                                    <Border Margin="4,9,4,7"
+                                            Background="{StaticResource InstrumentTexture}"
+                                            BorderBrush="{StaticResource BronzeBrush}"
+                                            BorderThickness="2"
+                                            CornerRadius="1">
+                                        <Grid>
+                                            <Rectangle Height="3" Margin="10,5" VerticalAlignment="Top" Fill="#4B3220" />
+                                            <Rectangle Height="3" Margin="10,5" VerticalAlignment="Bottom" Fill="#4B3220" />
+                                        </Grid>
+                                    </Border>
+                                    <UniformGrid Rows="1"
+                                                 Columns="6"
+                                                 IsItemsHost="True" />
+                                </Grid>
                                 <Border Grid.Row="1"
-                                        Margin="0,-1,0,0"
+                                        Margin="0,-2,0,0"
                                         Background="{TemplateBinding Background}"
                                         BorderBrush="{TemplateBinding BorderBrush}"
                                         BorderThickness="{TemplateBinding BorderThickness}"
@@ -366,9 +438,9 @@
                         Style="{StaticResource CheatNavigationTabControlStyle}"
                         ItemContainerStyle="{StaticResource CheatNavigationTabStyle}">
                 <TabItem Header="战车">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
-                            <Border Style="{StaticResource CheatSectionStyle}">
+                    <ScrollViewer x:Name="_vehiclePageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="8,12,8,0">
+                            <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="获取指定战车" />
                                     <Grid>
@@ -379,16 +451,16 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
                                             <TextBlock Style="{StaticResource CaptionStyle}" Text="战车（先选类型，再选系列等级）" />
-                                            <local:VehicleQuickSelectorControl x:Name="_vehicleCatalog" Height="310" />
-                                            <Grid Margin="0,14,0,0">
+                                            <local:VehicleQuickSelectorControl x:Name="_vehicleCatalog" Height="286" />
+                                            <Grid Margin="0,10,0,0">
                                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /></Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
                                                 <local:CheatNumericInput x:Name="_vehicleCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
                                                 <Button x:Name="_grantVehicleButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource PrimaryButtonStyle}" Content="获取战车" />
                                             </Grid>
-                                            <TextBlock Margin="0,14,0,5" Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
-                                            <Border Height="104" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                                            <TextBlock Margin="0,10,0,5" Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
+                                            <Border Height="96" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
                                                 <Grid>
                                                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                                         <ItemsControl x:Name="_selectedEnchantmentSummary"
@@ -426,7 +498,7 @@
                                                 <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="附魔（悬停 1 秒查看游戏说明）" />
                                                 <Button x:Name="_clearEnchantmentsButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,4" Content="清空所选" />
                                             </DockPanel>
-                                            <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Height="470" />
+                                            <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Height="450" />
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
@@ -436,9 +508,19 @@
                 </TabItem>
 
                 <TabItem Header="道具">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
-                            <Border Style="{StaticResource CheatSectionStyle}">
+                    <ScrollViewer x:Name="_itemsPageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <Grid x:Name="_itemsSectionsGrid" Margin="8,12,8,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition x:Name="_itemsFirstColumn" Width="*" />
+                                <ColumnDefinition x:Name="_itemsColumnGap" Width="0" />
+                                <ColumnDefinition x:Name="_itemsSecondColumn" Width="0" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="_consumablesSection" Margin="0" Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <DockPanel Margin="0,0,0,8" LastChildFill="False">
                                         <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
@@ -447,7 +529,7 @@
                                     <local:CatalogActionGridControl x:Name="_disposableActions" Height="246" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource CheatSectionStyle}">
+                            <Border x:Name="_catapultsSection" Grid.Row="2" Margin="0" Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
                                     <local:CatalogActionGridControl x:Name="_catapultActions" Height="246" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
@@ -460,18 +542,22 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
-                        </StackPanel>
+                        </Grid>
                     </ScrollViewer>
                 </TabItem>
 
                 <TabItem Header="遗物">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
-                            <Border Style="{StaticResource CheatSectionStyle}">
-                                <StackPanel>
+                    <Grid Margin="8,12,8,8">
+                        <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="遗物" />
-                                    <local:CatalogActionGridControl x:Name="_relicActions" Height="360" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
-                                    <Grid Margin="0,14,0,0">
+                                    <local:CatalogActionGridControl x:Name="_relicActions" Grid.Row="1" MinHeight="250" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
+                                    <Grid Grid.Row="2" Margin="0,12,0,0">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Button x:Name="_grantAllRelicsButton" MinWidth="132" AutomationProperties.Name="一键补齐全部遗物" Style="{StaticResource GoldButtonStyle}" Content="补齐全部" ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
                                         <Button x:Name="_removeAllRelicsButton" Grid.Column="2" MinWidth="132" AutomationProperties.Name="删除所有遗物" Style="{StaticResource DangerButtonStyle}" Content="全部删除" ToolTip="逐帧删除当前持有的全部遗物，不弹出确认框" />
@@ -480,41 +566,50 @@
                                             <TextBlock x:Name="_removeAllRelicsStatus" Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="删除遗物：未开始" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Grid>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="战斗">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
+                    <Grid Margin="8,12,8,8">
+                        <StackPanel>
                             <Border Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="战场状态" />
-                                    <WrapPanel>
-                                        <CheckBox x:Name="_baseGodModeCheck" Width="190" Margin="0,4,22,8" FontSize="15" FontWeight="Bold" Content="基地无敌" />
-                                        <CheckBox x:Name="_mapSkipCheck" Width="240" Margin="0,4,22,8" FontSize="15" FontWeight="Bold" Content="地图节点自由跳转" />
-                                    </WrapPanel>
+                                    <Grid Height="40" HorizontalAlignment="Left">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="220" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="_baseGodModeCheck" VerticalAlignment="Center" FontSize="15" FontWeight="Bold" Content="基地无敌" />
+                                        <CheckBox x:Name="_mapSkipCheck" Grid.Column="2" VerticalAlignment="Center" FontSize="15" FontWeight="Bold" Content="地图节点自由跳转" />
+                                    </Grid>
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="波次操作" />
-                                    <WrapPanel>
-                                        <Button x:Name="_endWaveButton" Margin="0,0,12,8" Style="{StaticResource DangerButtonStyle}" Content="结束当前波次" />
-                                        <Button x:Name="_clearEnemiesButton" Margin="0,0,12,8" Style="{StaticResource DangerButtonStyle}" Content="清除所有敌人" />
-                                    </WrapPanel>
+                                    <Grid Height="40" HorizontalAlignment="Left">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="220" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button x:Name="_endWaveButton" VerticalAlignment="Stretch" Style="{StaticResource DangerButtonStyle}" Content="结束当前波次" />
+                                        <Button x:Name="_clearEnemiesButton" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource DangerButtonStyle}" Content="清除所有敌人" />
+                                    </Grid>
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="敌人信息" />
-                                    <Grid Margin="0,4,0,8">
+                                    <Grid Height="40" HorizontalAlignment="Left">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="220" />
                                             <ColumnDefinition Width="16" />
-                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="220" />
                                         </Grid.ColumnDefinitions>
                                         <CheckBox x:Name="_enemyIdOverlayCheck"
                                                   VerticalAlignment="Center"
@@ -531,12 +626,12 @@
                                 </StackPanel>
                             </Border>
                         </StackPanel>
-                    </ScrollViewer>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="对象属性">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
+                    <ScrollViewer x:Name="_objectPageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="8,12,8,0">
                             <Border Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,12">
@@ -719,17 +814,22 @@
                 </TabItem>
 
                 <TabItem Header="生成">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="4,12,8,8">
-                            <TextBlock Margin="2,0,0,12" Style="{StaticResource CheatStatusStyle}" Text="怪物会在中心点附近按生成半径分散出现" />
-                            <Border Style="{StaticResource CheatSectionStyle}">
+                    <ScrollViewer x:Name="_generatePageScroll" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="8,10,8,0">
+                            <Border Margin="0" Style="{StaticResource CheatSectionStyle}">
                                 <StackPanel>
-                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="在指定世界坐标生成怪物" />
-                                    <Grid Margin="0,0,0,10">
+                                    <DockPanel Margin="0,0,0,6">
+                                        <TextBlock DockPanel.Dock="Left" Margin="0" Style="{StaticResource SectionTitleStyle}" Text="在指定世界坐标生成怪物" />
+                                        <TextBlock Margin="16,0,0,0"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center"
+                                                   Style="{StaticResource CheatStatusStyle}"
+                                                   Text="怪物会在中心点附近按生成半径分散出现" />
+                                    </DockPanel>
+                                    <Grid Margin="0,0,0,8">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="44" />
-                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="40" />
                                         </Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" MinWidth="280" />
@@ -744,18 +844,22 @@
                                         <local:CatalogPickerControl x:Name="_enemyCatalog" Grid.Row="1" />
                                         <TextBlock Grid.Column="2" Style="{StaticResource CaptionStyle}" Text="自定义等级" />
                                         <local:CheatNumericInput x:Name="_enemyLevel" Grid.Row="1" Grid.Column="2" Minimum="1" Maximum="200" Value="1" />
-                                        <TextBlock Grid.Column="4" Style="{StaticResource CaptionStyle}" Text="等级来源" />
+                                        <TextBlock x:Name="_resolvedLevelLabel"
+                                                   Grid.Column="4"
+                                                   Style="{StaticResource CaptionStyle}"
+                                                   Text="实际等级：跟随当前波次 AI 等级"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                         <CheckBox x:Name="_followCurrentLevelCheck" Grid.Row="1" Grid.Column="4" VerticalAlignment="Stretch" FontWeight="Bold" Content="跟随当前关卡" IsChecked="True" />
                                         <TextBlock Grid.Column="6" Style="{StaticResource CaptionStyle}" Text="每点数量" />
                                         <local:CheatNumericInput x:Name="_enemyCount" Grid.Row="1" Grid.Column="6" Minimum="1" Maximum="10" Value="1" />
-                                        <TextBlock x:Name="_resolvedLevelLabel" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="5" Margin="0,5,0,0" Style="{StaticResource CheatStatusStyle}" Text="实际等级：跟随当前波次 AI 等级" />
                                     </Grid>
 
-                                    <Separator />
-                                    <Grid Margin="0,0,0,10">
+                                    <Border Height="1" Margin="0,4,0,6" Background="#5A3B25" />
+                                    <Grid Margin="0,0,0,8">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="44" />
+                                            <RowDefinition Height="40" />
                                         </Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" MinWidth="105" />
@@ -799,13 +903,13 @@
                                                 Style="{StaticResource GoldButtonStyle}"
                                                 Content="添加坐标" />
                                     </Grid>
-                                    <Border Margin="0,2,0,10" Padding="10" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                                    <Border Margin="0,0,0,6" Padding="6" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
                                         <TextBlock x:Name="_captureStatusLabel" Style="{StaticResource CheatStatusStyle}" Text="选点状态：未启动" />
                                     </Border>
-                                    <Grid Margin="0,0,0,10">
+                                    <Grid Margin="0,0,0,6">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="160" />
+                                            <RowDefinition Height="68" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions>
@@ -828,8 +932,8 @@
                                         <Button x:Name="_removeSpawnPointButton" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Content="删除选中点" />
                                         <Button x:Name="_clearSpawnPointsButton" Grid.Row="2" Grid.Column="3" Margin="0,8,0,0" Content="清空位置" />
                                     </Grid>
-                                    <Separator />
-                                    <DockPanel Margin="0,8,0,0">
+                                    <Border Height="1" Margin="0,2,0,4" Background="#5A3B25" />
+                                    <DockPanel>
                                         <Button x:Name="_spawnEnemyButton" DockPanel.Dock="Left" Margin="0,0,14,0" Style="{StaticResource GoldButtonStyle}" Content="生成怪物" />
                                         <TextBlock x:Name="_spawnStatusLabel" Style="{StaticResource CheatStatusStyle}" Text="生成状态：尚未执行" />
                                     </DockPanel>

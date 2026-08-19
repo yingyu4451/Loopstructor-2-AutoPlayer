@@ -83,6 +83,12 @@ public sealed class CheatFormWpfLayoutTests
                 Assert.Equal(new[] { "战车", "道具", "遗物", "战斗", "对象属性", "生成" }, navigationTabs.Select(tab => tab.Header));
                 Assert.Equal(6, navigationTabs.Length);
                 Assert.All(navigationTabs, tab => Assert.Equal(navigationTabs[0].ActualWidth, tab.ActualWidth, precision: 2));
+                navigation.ApplyTemplate();
+                Assert.IsType<Grid>(navigation.Template.FindName("NavigationRail", navigation));
+                navigationTabs[0].ApplyTemplate();
+                System.Windows.Shapes.Ellipse selectedSignal = Assert.IsType<System.Windows.Shapes.Ellipse>(
+                    navigationTabs[0].Template.FindName("SignalLamp", navigationTabs[0]));
+                Assert.Same(form.FindResource("SignalGreenBrush"), selectedSignal.Fill);
                 Assert.IsType<Button>(form.FindName("_catalogRefreshButton"));
                 Assert.Null(form.FindName("_versionLabel"));
                 Assert.Null(form.FindName("_catalogSummary"));
@@ -100,6 +106,8 @@ public sealed class CheatFormWpfLayoutTests
                 AssertTabFits(form, 3);
                 AssertTopAligned(form, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
                 AssertMinimumWidth(form, 180, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
+                AssertLeftAligned(form, "_baseGodModeCheck", "_endWaveButton", "_enemyIdOverlayCheck");
+                AssertLeftAligned(form, "_mapSkipCheck", "_clearEnemiesButton", "_enemyBuffOverlayCheck");
 
                 AssertTabFits(form, 4);
                 AssertTopAligned(form, "_vehicleAttribute", "_vehicleCurrentValueFrame", "_vehicleAttributeValue", "_modifyVehicleButton");
@@ -109,6 +117,115 @@ public sealed class CheatFormWpfLayoutTests
                 AssertTabFits(form, 5);
                 AssertTopAligned(form, "_enemyCatalog", "_enemyLevel", "_followCurrentLevelCheck", "_enemyCount");
                 AssertTopAligned(form, "_spawnX", "_spawnY", "_spawnZ", "_spawnRadius", "_capturePointButton", "_cancelCaptureButton", "_addSpawnPointButton");
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ResponsivePages_UseWideItemColumns_AndAvoidDecorativeOuterScrolling()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 1280,
+                Height = 860,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                form.Activate();
+                PumpDispatcher();
+                form.LoadDemoCatalogAsync().GetAwaiter().GetResult();
+                PumpDispatcher();
+
+                Border catapultSection = Assert.IsType<Border>(form.FindName("_catapultsSection"));
+                Assert.Equal(0, Grid.GetRow(catapultSection));
+                Assert.Equal(2, Grid.GetColumn(catapultSection));
+                AssertOuterScrollBarCollapsed(form, 0);
+                AssertOuterScrollBarCollapsed(form, 1);
+                AssertOuterScrollBarCollapsed(form, 2);
+                AssertOuterScrollBarCollapsed(form, 3);
+                AssertOuterScrollBarCollapsed(form, 5);
+
+                form.Width = 1179;
+                form.Height = 680;
+                PumpDispatcher();
+                Assert.Equal(2, Grid.GetRow(catapultSection));
+                Assert.Equal(0, Grid.GetColumn(catapultSection));
+                AssertOuterScrollBarCollapsed(form, 2);
+                AssertOuterScrollBarCollapsed(form, 3);
+                AssertOuterScrollBarCollapsed(form, 5);
+
+                form.Width = 1180;
+                PumpDispatcher();
+                Assert.Equal(0, Grid.GetRow(catapultSection));
+                Assert.Equal(2, Grid.GetColumn(catapultSection));
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(96d)]
+    [InlineData(144d)]
+    [InlineData(192d)]
+    public void CommonDpiScales_AllTabsRenderToNonBlankFrames(double dpi)
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)))
+            {
+                Width = 980,
+                Height = 680,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.Show();
+                PumpDispatcher();
+
+                for (int index = 0; index < 6; index++)
+                {
+                    form.SelectDemoTab(index);
+                    form.UpdateLayout();
+                    PumpDispatcher();
+
+                    int pixelWidth = (int)Math.Ceiling(form.ActualWidth * dpi / 96d);
+                    int pixelHeight = (int)Math.Ceiling(form.ActualHeight * dpi / 96d);
+                    System.Windows.Media.Imaging.RenderTargetBitmap bitmap = new(
+                        pixelWidth,
+                        pixelHeight,
+                        dpi,
+                        dpi,
+                        System.Windows.Media.PixelFormats.Pbgra32);
+                    bitmap.Render(form);
+
+                    byte[] pixel = new byte[4];
+                    bitmap.CopyPixels(
+                        new Int32Rect(pixelWidth / 2, pixelHeight / 2, 1, 1),
+                        pixel,
+                        4,
+                        0);
+                    Assert.True(pixel[3] > 0, $"选项卡 {index} 在 {dpi:0} DPI 下渲染为空白。 ");
+                    AssertTabFits(form, index);
+                }
             }
             finally
             {
@@ -916,10 +1033,30 @@ public sealed class CheatFormWpfLayoutTests
 
         TabControl tabs = Assert.IsType<TabControl>(form.FindName("_tabs"));
         TabItem tab = Assert.IsType<TabItem>(tabs.SelectedItem);
-        ScrollViewer page = Assert.IsType<ScrollViewer>(tab.Content);
+        FrameworkElement page = Assert.IsAssignableFrom<FrameworkElement>(tab.Content);
+        if (page is ScrollViewer scrollViewer)
+        {
+            Assert.True(
+                scrollViewer.ExtentWidth <= scrollViewer.ViewportWidth + 1,
+                $"选项卡 {index} 存在水平裁剪：内容 {scrollViewer.ExtentWidth:0.##}，视口 {scrollViewer.ViewportWidth:0.##}。");
+            return;
+        }
+
         Assert.True(
-            page.ExtentWidth <= page.ViewportWidth + 1,
-            $"选项卡 {index} 存在水平裁剪：内容 {page.ExtentWidth:0.##}，视口 {page.ViewportWidth:0.##}。");
+            page.ActualWidth <= tabs.ActualWidth + 1,
+            $"选项卡 {index} 存在水平裁剪：内容 {page.ActualWidth:0.##}，视口 {tabs.ActualWidth:0.##}。");
+    }
+
+    private static void AssertOuterScrollBarCollapsed(CheatForm form, int index)
+    {
+        form.SelectDemoTab(index);
+        form.UpdateLayout();
+        PumpDispatcher();
+
+        TabControl tabs = Assert.IsType<TabControl>(form.FindName("_tabs"));
+        TabItem tab = Assert.IsType<TabItem>(tabs.SelectedItem);
+        if (tab.Content is not ScrollViewer page) return;
+        Assert.NotEqual(Visibility.Visible, page.ComputedVerticalScrollBarVisibility);
     }
 
     private static void AssertTopAligned(FrameworkElement ancestor, params string[] names)
@@ -935,6 +1072,20 @@ public sealed class CheatFormWpfLayoutTests
         Assert.True(
             tops.Max() - tops.Min() <= 1,
             $"兄弟控件未水平对齐：{string.Join(", ", names.Zip(tops, (name, top) => $"{name}={top:0.##}"))}");
+    }
+
+    private static void AssertLeftAligned(FrameworkElement ancestor, params string[] names)
+    {
+        double[] lefts = names.Select(name =>
+        {
+            FrameworkElement element = Assert.IsAssignableFrom<FrameworkElement>(ancestor.FindName(name));
+            Assert.True(element.ActualWidth > 0, $"{name} 没有获得可见宽度。");
+            return element.TransformToAncestor(ancestor).Transform(new Point()).X;
+        }).ToArray();
+
+        Assert.True(
+            lefts.Max() - lefts.Min() <= 1,
+            $"操作列未垂直对齐：{string.Join(", ", names.Zip(lefts, (name, left) => $"{name}={left:0.##}"))}");
     }
 
     private static void AssertMinimumWidth(FrameworkElement ancestor, double minimumWidth, params string[] names)
