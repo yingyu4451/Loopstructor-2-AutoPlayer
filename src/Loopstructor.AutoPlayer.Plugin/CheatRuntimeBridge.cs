@@ -274,9 +274,13 @@ internal sealed class CheatRuntimeBridge
     private Action<string>? _warningLogger;
     private IReadOnlyList<object>? _availableVehicleValues;
     private IReadOnlyList<object> _unavailableVehicleValues = Array.Empty<object>();
+    private readonly Dictionary<string, int> _vehicleTypeOrders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _vehicleFamilyOrders = new(StringComparer.Ordinal);
     private IReadOnlyList<object>? _availableEnchantmentValues;
     private IReadOnlyList<object> _unavailableEnchantmentValues = Array.Empty<object>();
 
+    private Type? _cheatManagerType;
+    private Type? _cheatVehiclePanelCfgType;
     private Type? _vehicleManagerType;
     private Type? _vehicleDataManagerType;
     private Type? _vehicleControllerType;
@@ -359,6 +363,8 @@ internal sealed class CheatRuntimeBridge
         _removeAllRelicsJob = RelicRemovalJob.Idle();
         _fieldCatapultDeleteMode = false;
         InvalidateRuntimeCatalogCache();
+        _cheatManagerType = Require("MetroTD.CheatSystem.CheatManager");
+        _cheatVehiclePanelCfgType = Require("MetroTD.CheatSystem.UI.CheatVehiclePanelCfg");
         _vehicleManagerType = Require("MetroTD.VehicleSystem.VehicleManager");
         _vehicleDataManagerType = Require("MetroTD.VehicleSystem.VehicleDataManager");
         _vehicleControllerType = Require("MetroTD.VehicleSystem.VehicleController");
@@ -533,7 +539,9 @@ internal sealed class CheatRuntimeBridge
         object vehicleEnum = ParseEnum(_vehicleType!, vehicleId, "战车类型");
         if (!ContainsEnumValue(AllVehicleValues(), vehicleEnum))
         {
-            return CheatExecutionResult.Fail("当前游戏枚举中没有可生成的战车：" + vehicleId + "。", "VEHICLE_NOT_CONFIGURED");
+            return CheatExecutionResult.Fail(
+                "当前游戏作弊面板未配置可获取战车：" + vehicleId + "。",
+                "VEHICLE_NOT_CONFIGURED");
         }
 
         JToken? enchantmentsToken = arguments["enchantments"];
@@ -3103,6 +3111,8 @@ internal sealed class CheatRuntimeBridge
 
     private void ValidateRuntimeContract()
     {
+        RequireMember(_cheatManagerType, "cheatVehiclePanelCfg");
+        RequireMember(_cheatVehiclePanelCfgType, "vehicleTypes");
         RequireSingletonAccessor(_vehicleManagerType);
         RequireMember(_vehicleManagerType, "MainVehicles");
         RequireMethodContract(_vehicleManagerType, "GetNewMainRazor", _vehicleType);
@@ -3455,6 +3465,12 @@ internal sealed class CheatRuntimeBridge
         }
 
         Type vehicleType = _vehicleType!;
+        object configuration = GetRequiredCheatVehicleConfiguration();
+        if (GetMember(configuration, "vehicleTypes") is not IEnumerable configuredVehicleTypes)
+        {
+            throw new InvalidOperationException("当前游戏作弊面板的战车名单尚未初始化，请稍后点击“刷新目录”重试。");
+        }
+
         object manager = GetRequiredSingleton(_vehicleDataManagerType!, "VehicleDataManager");
         MethodInfo getAllComponents = FindMethod(manager.GetType(), "GetAllMainRazorComponent")
                                       ?? throw new MissingMethodException(
@@ -3466,14 +3482,12 @@ internal sealed class CheatRuntimeBridge
             throw new InvalidOperationException("当前游戏的可生成战车组件目录尚未初始化。");
         }
 
-        IReadOnlyList<object> enumValues = AllEnumValues(vehicleType)
-            .Where(value => !string.Equals(value.ToString(), "Train_Head", StringComparison.Ordinal))
-            .ToArray();
         _availableVehicleValues = FilterRuntimeVehicleValues(
-            enumValues,
+            configuredVehicleTypes.Cast<object>(),
             components,
             vehicleType,
             out _unavailableVehicleValues);
+        IndexVehicleCatalogOrder(_availableVehicleValues);
         if (reportUnavailable && _unavailableVehicleValues.Count > 0)
         {
             LogCatalogWarning("战车", "缺少可生成的 BasicVehicleComponent", _unavailableVehicleValues);
@@ -3482,7 +3496,7 @@ internal sealed class CheatRuntimeBridge
         if (_availableVehicleValues.Count == 0)
         {
             _availableVehicleValues = null;
-            throw new InvalidOperationException("当前游戏没有可由原生战车系统创建的战车类型。");
+            throw new InvalidOperationException("当前游戏作弊面板没有配置能够由原生战车系统创建的战车。");
         }
 
         return _availableVehicleValues;
@@ -3536,12 +3550,14 @@ internal sealed class CheatRuntimeBridge
     {
         _availableVehicleValues = null;
         _unavailableVehicleValues = Array.Empty<object>();
+        _vehicleTypeOrders.Clear();
+        _vehicleFamilyOrders.Clear();
         _availableEnchantmentValues = null;
         _unavailableEnchantmentValues = Array.Empty<object>();
     }
 
     private static IReadOnlyList<object> FilterRuntimeVehicleValues(
-        IEnumerable<object> enumValues,
+        IEnumerable<object> configuredValues,
         IEnumerable configuredComponents,
         Type enumType,
         out IReadOnlyList<object> unavailable)
@@ -3557,15 +3573,57 @@ internal sealed class CheatRuntimeBridge
 
         List<object> availableValues = new();
         List<object> unavailableValues = new();
-        foreach (object value in DistinctEnumValues(enumValues))
+        HashSet<long> seen = new();
+        foreach (object value in configuredValues)
         {
+            if (value == null || value.GetType() != enumType) continue;
+            string id = value.ToString() ?? string.Empty;
             long numeric = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (!seen.Add(numeric)) continue;
+            if (string.Equals(id, "None", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Train_Head", StringComparison.OrdinalIgnoreCase))
+            {
+                unavailableValues.Add(value);
+                continue;
+            }
             if (configured.Contains(numeric)) availableValues.Add(value);
             else unavailableValues.Add(value);
         }
 
         unavailable = unavailableValues;
         return availableValues;
+    }
+
+    private object GetRequiredCheatVehicleConfiguration()
+    {
+        foreach (UnityEngine.Object manager in Resources.FindObjectsOfTypeAll(_cheatManagerType!))
+        {
+            object? configuration = GetMember(manager, "cheatVehiclePanelCfg");
+            if (configuration is UnityEngine.Object unityConfiguration && unityConfiguration != null)
+            {
+                return configuration;
+            }
+        }
+
+        UnityEngine.Object? directConfiguration = Resources.FindObjectsOfTypeAll(_cheatVehiclePanelCfgType!)
+            .FirstOrDefault(candidate => candidate != null);
+        return directConfiguration
+               ?? throw new InvalidOperationException(
+                   "当前游戏作弊面板战车配置尚未加载，请稍后点击“刷新目录”重试。");
+    }
+
+    private void IndexVehicleCatalogOrder(IEnumerable<object> values)
+    {
+        _vehicleTypeOrders.Clear();
+        _vehicleFamilyOrders.Clear();
+        foreach (object value in values)
+        {
+            string enumName = value.ToString() ?? string.Empty;
+            string type = VehicleTypeFamily(enumName);
+            string family = VehicleFamily(enumName, out _);
+            if (!_vehicleTypeOrders.ContainsKey(type)) _vehicleTypeOrders[type] = _vehicleTypeOrders.Count;
+            if (!_vehicleFamilyOrders.ContainsKey(family)) _vehicleFamilyOrders[family] = _vehicleFamilyOrders.Count;
+        }
     }
 
     private static IReadOnlyList<object> FilterRuntimeEnchantmentValues(
@@ -3646,8 +3704,12 @@ internal sealed class CheatRuntimeBridge
         string enumName = value.ToString() ?? string.Empty;
         string family = VehicleFamily(enumName, out int level);
         string type = VehicleTypeFamily(enumName);
-        int typeOrder = VehicleTypeOrder(_vehicleType!, type);
-        int familyOrder = EnumGroupOrder(_vehicleType!, family);
+        int typeOrder = _vehicleTypeOrders.TryGetValue(type, out int configuredTypeOrder)
+            ? configuredTypeOrder
+            : VehicleTypeOrder(_vehicleType!, type);
+        int familyOrder = _vehicleFamilyOrders.TryGetValue(family, out int configuredFamilyOrder)
+            ? configuredFamilyOrder
+            : EnumGroupOrder(_vehicleType!, family);
         ApplyGrouping(item, "vehicle:" + family, family, familyOrder, level);
         item["typeKey"] = type;
         item["typeOrder"] = typeOrder;

@@ -38,6 +38,36 @@ public sealed class VehicleQuickSelectorWpfTests
     }
 
     [Fact]
+    public void CurrentCheatRoster_ShowsFourTypes_FourSeriesEach_AndOnlyL1ToL3()
+    {
+        RunSta(() =>
+        {
+            VehicleQuickSelectorControl selector = new();
+            CatalogPickerItem[] roster = CurrentCheatRoster().ToArray();
+
+            selector.SetItems(roster);
+
+            Assert.Equal(48, selector.ItemCount);
+            Assert.Equal(
+                new[] { "全部", "Shell", "Link", "Penetrate", "Missile" },
+                Types(selector).Select(type => type.DisplayName));
+            foreach (string type in new[] { "Shell", "Link", "Penetrate", "Missile" })
+            {
+                CatalogPickerItem first = roster.First(item => item.TypeKey == type);
+                Select(selector, first.Id);
+                VehicleSeriesChoice[] series = Series(selector).ToArray();
+                Assert.Equal(4, series.Length);
+                Assert.All(series, family =>
+                {
+                    Assert.Equal(3, family.Levels.Count);
+                    Assert.Equal(new[] { "Lv.1", "Lv.2", "Lv.3" }, family.Levels.Select(level => level.DisplayLevel));
+                    Assert.DoesNotContain(family.Levels, level => level.Item.Id.EndsWith("_L4", StringComparison.Ordinal));
+                });
+            }
+        });
+    }
+
+    [Fact]
     public void SearchCrossesTypes_AndClearingRestoresPreviousType()
     {
         RunSta(() =>
@@ -142,6 +172,31 @@ public sealed class VehicleQuickSelectorWpfTests
             ["level"] = level
         },
         id);
+
+    private static IEnumerable<CatalogPickerItem> CurrentCheatRoster()
+    {
+        (string Type, string[] Families)[] roster =
+        {
+            ("Shell", new[] { "ShadowRift", "SoulChaser", "Projectile", "Burst" }),
+            ("Link", new[] { "IceRipple", "ForkLightning", "ElectricGun", "Station" }),
+            ("Penetrate", new[] { "SplitArrow", "ReturnToOrigin", "WindPiercer", "Crossbow" }),
+            ("Missile", new[] { "Long", "SelfGuided", "InterceptBlock", "RandomCatapult" })
+        };
+        int familyOrder = 0;
+        for (int typeOrder = 0; typeOrder < roster.Length; typeOrder++)
+        {
+            (string type, string[] families) = roster[typeOrder];
+            foreach (string familyName in families)
+            {
+                string family = type + "_" + familyName;
+                for (int level = 1; level <= 3; level++)
+                {
+                    yield return Vehicle(family + "_L" + level, type, typeOrder, family, familyOrder, level);
+                }
+                familyOrder++;
+            }
+        }
+    }
 
     private static IReadOnlyList<VehicleTypeChoice> Types(VehicleQuickSelectorControl selector) =>
         ((System.Collections.IEnumerable)typeof(VehicleQuickSelectorControl)

@@ -10,7 +10,7 @@ public sealed class CheatResourceRefactorContractTests
     private const string DisplayPatchType = "Loopstructor.AutoPlayer.Plugin.VehicleEnchantmentDisplayPatch";
 
     [Fact]
-    public void CatalogV5_UsesRuntimeCompleteVehicleAndFetterEnums_AndPartitionsOtherCompleteEnums()
+    public void CatalogV5_UsesGameCheatVehicleList_AndRuntimeCompleteFetterEnum()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
@@ -24,8 +24,9 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.Contains(Calls(catalog), IsCall(BridgeType, "InvalidateRuntimeCatalogCache"));
-        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.DoesNotContain(Calls(vehicleValues), IsCall(BridgeType, "AllEnumValues"));
         Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "AllEnumValues"));
+        Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "GetRequiredCheatVehicleConfiguration"));
         Assert.Contains(Calls(vehicleValues), IsCall(BridgeType, "FilterRuntimeVehicleValues"));
         Assert.Contains(Calls(enchantmentValues), IsCall(BridgeType, "FilterRuntimeEnchantmentValues"));
         Assert.DoesNotContain(bridge.Methods, method => method.Name == "RandomModeFixedPoolValues");
@@ -33,6 +34,7 @@ public sealed class CheatResourceRefactorContractTests
             bridge.Fields,
             field => field.Name.Contains("randomMode", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("GetAllMainRazorComponent", LoadedStrings(vehicleValues));
+        Assert.Contains("vehicleTypes", LoadedStrings(vehicleValues));
         Assert.Contains("fetterTypes", LoadedStrings(enchantmentValues));
         Assert.Contains("TryGetDetailData", LoadedStrings(enchantmentValues));
         Assert.DoesNotContain(bridge.Methods, method => method.Name == "ConfiguredCheatValues");
@@ -77,7 +79,7 @@ public sealed class CheatResourceRefactorContractTests
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllVehicleValues"));
         Assert.Contains(Calls(grantVehicle), IsCall(BridgeType, "AllEnchantmentValues"));
         Assert.Contains(Calls(editEnchantment), IsCall(BridgeType, "AllEnchantmentValues"));
-        Assert.Contains(Calls(RequireMethod(bridge, "AllVehicleValues")), IsCall(BridgeType, "AllEnumValues"));
+        Assert.DoesNotContain(Calls(RequireMethod(bridge, "AllVehicleValues")), IsCall(BridgeType, "AllEnumValues"));
         Assert.Contains(Calls(RequireMethod(bridge, "AllEnchantmentValues")), IsCall(BridgeType, "AllEnumValues"));
         Assert.Contains(
             Calls(RequireMethod(bridge, "BuildVehicleEnchantments")),
@@ -90,18 +92,18 @@ public sealed class CheatResourceRefactorContractTests
     }
 
     [Fact]
-    public void RuntimeVehicleFilter_IncludesEveryRegisteredLevel_AndExcludesMissingComponents()
+    public void RuntimeVehicleFilter_PreservesConfiguredRoster_AndDoesNotExpandFromComponents()
     {
         Type bridge = LoadRuntimeBridgeType();
         System.Reflection.MethodInfo filter = Assert.Single(
             bridge.GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static),
             method => method.Name == "FilterRuntimeVehicleValues");
-        object[] enumValues =
+        object[] configuredValues =
         {
+            RuntimeVehicleType.Shell_Pulse_L3,
+            RuntimeVehicleType.Shell_Pulse_L2,
             RuntimeVehicleType.Shell_Pulse_L1,
             RuntimeVehicleType.Shell_Pulse_L2,
-            RuntimeVehicleType.Shell_Pulse_L3,
-            RuntimeVehicleType.Shell_Pulse_L4,
             RuntimeVehicleType.Link_Missing_L1
         };
         object[] components =
@@ -111,14 +113,45 @@ public sealed class CheatResourceRefactorContractTests
             new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L3),
             new RuntimeVehicleComponent(RuntimeVehicleType.Shell_Pulse_L4)
         };
-        object?[] arguments = { enumValues, components, typeof(RuntimeVehicleType), null };
+        object?[] arguments = { configuredValues, components, typeof(RuntimeVehicleType), null };
 
         IReadOnlyList<object> available = Assert.IsAssignableFrom<IReadOnlyList<object>>(
             filter.Invoke(null, arguments));
         IReadOnlyList<object> unavailable = Assert.IsAssignableFrom<IReadOnlyList<object>>(arguments[3]);
 
-        Assert.Equal(enumValues.Take(4), available);
+        Assert.Equal(
+            new object[]
+            {
+                RuntimeVehicleType.Shell_Pulse_L3,
+                RuntimeVehicleType.Shell_Pulse_L2,
+                RuntimeVehicleType.Shell_Pulse_L1
+            },
+            available);
+        Assert.DoesNotContain(RuntimeVehicleType.Shell_Pulse_L4, available);
         Assert.Equal(new object[] { RuntimeVehicleType.Link_Missing_L1 }, unavailable);
+    }
+
+    [Fact]
+    public void VehicleCatalogContract_UsesCheatManagerConfiguration_AndKeepsExistingObjectsVisible()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        MethodDefinition initialize = RequireMethod(bridge, "Initialize");
+        MethodDefinition validate = RequireMethod(bridge, "ValidateRuntimeContract");
+        MethodDefinition configuration = RequireMethod(bridge, "GetRequiredCheatVehicleConfiguration");
+        MethodDefinition buildState = RequireMethod(bridge, "BuildVehicleState");
+        MethodDefinition buildCatalogItem = RequireMethod(bridge, "BuildVehicleCatalogItem");
+
+        Assert.Contains("MetroTD.CheatSystem.CheatManager", LoadedStrings(initialize));
+        Assert.Contains("MetroTD.CheatSystem.UI.CheatVehiclePanelCfg", LoadedStrings(initialize));
+        Assert.Contains("cheatVehiclePanelCfg", LoadedStrings(validate));
+        Assert.Contains("vehicleTypes", LoadedStrings(validate));
+        Assert.Contains(
+            Calls(configuration),
+            call => call.DeclaringType.FullName == "UnityEngine.Resources" && call.Name == "FindObjectsOfTypeAll");
+        Assert.Contains(Calls(buildState), IsCall(BridgeType, "BuildVehicleCatalogItem"));
+        Assert.DoesNotContain(Calls(buildState), IsCall(BridgeType, "AllVehicleValues"));
+        Assert.DoesNotContain(Calls(buildCatalogItem), IsCall(BridgeType, "AllVehicleValues"));
     }
 
     [Fact]
