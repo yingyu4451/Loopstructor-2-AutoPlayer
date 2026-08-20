@@ -1,0 +1,119 @@
+<UserControl x:Class="Loopstructor.AutoPlayer.Manager.UI.VehicleCheatPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
+             x:ClassModifier="internal">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Loopstructor.AutoPlayer.Manager;component/UI/GameTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="CheatSectionStyle" TargetType="Border" BasedOn="{StaticResource InstrumentPanelStyle}">
+                <Setter Property="Padding" Value="12" />
+            </Style>
+            <DataTemplate x:Key="SelectedEnchantmentSummaryTemplate" DataType="{x:Type local:EnchantmentChoice}">
+                <Border Width="48"
+                        Height="48"
+                        Margin="3"
+                        Background="#2B241A"
+                        BorderBrush="#654525"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        AutomationProperties.Name="{Binding Item.DisplayName}"
+                        ToolTipService.InitialShowDelay="1000"
+                        ToolTipService.ShowDuration="30000">
+                    <Border.ToolTip>
+                        <ToolTip DataContext="{Binding PlacementTarget.DataContext.Item, RelativeSource={RelativeSource Self}}">
+                            <local:CatalogDetailToolTip />
+                        </ToolTip>
+                    </Border.ToolTip>
+                    <Grid>
+                        <TextBlock HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="20"
+                                   Foreground="{StaticResource BronzeBrush}"
+                                   Text="◇" />
+                        <Image Margin="4" Source="{Binding Item.Icon}" Stretch="Uniform" />
+                        <Border MinWidth="22"
+                                Padding="4,1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Background="#B82B20"
+                                BorderBrush="#FFB84A"
+                                BorderThickness="1"
+                                CornerRadius="7">
+                            <TextBlock HorizontalAlignment="Center"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       Text="{Binding Level}" />
+                        </Border>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid Margin="8,12,8,8">
+        <Border Style="{StaticResource CheatSectionStyle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" MinWidth="240" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="3*" MinWidth="420" />
+                </Grid.ColumnDefinitions>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <local:VehicleQuickSelectorControl x:Name="VehicleCatalog" />
+                    <Grid Grid.Row="2">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="数量" />
+                        <local:CheatNumericInput x:Name="VehicleCount" Grid.Row="1" Minimum="1" Maximum="20" Value="1" />
+                        <Button x:Name="GrantVehicleButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Stretch" Style="{StaticResource PrimaryButtonStyle}" Content="获取战车" />
+                    </Grid>
+                    <StackPanel Grid.Row="4">
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="本次装配的附魔" />
+                        <Border Height="96" Padding="7" Background="{StaticResource ScreenBrush}" BorderBrush="#4E3522" BorderThickness="1">
+                            <Grid>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="SelectedEnchantmentSummary"
+                                                  ItemsSource="{Binding ElementName=EnchantmentSelector, Path=SelectedChoices}"
+                                                  ItemTemplate="{StaticResource SelectedEnchantmentSummaryTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel IsItemsHost="True" /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           Text="未选择附魔时获取普通战车。"
+                                           TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Items.Count, ElementName=SelectedEnchantmentSummary}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+                <Border Grid.Column="1" Width="1" Background="#5A3B25" />
+                <local:EnchantmentSelectorControl x:Name="EnchantmentSelector" Grid.Column="2" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

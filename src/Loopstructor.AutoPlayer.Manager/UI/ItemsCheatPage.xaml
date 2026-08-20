@@ -1,0 +1,115 @@
+<UserControl x:Class="Loopstructor.AutoPlayer.Manager.UI.ItemsCheatPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Loopstructor.AutoPlayer.Manager.UI"
+             x:ClassModifier="internal">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Loopstructor.AutoPlayer.Manager;component/UI/GameTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="CheatSectionStyle" TargetType="Border" BasedOn="{StaticResource InstrumentPanelStyle}">
+                <Setter Property="Padding" Value="12" />
+            </Style>
+            <Style x:Key="FieldDeleteToggleStyle" TargetType="CheckBox">
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Grid Background="Transparent">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Switch"
+                                        Width="38"
+                                        Height="26"
+                                        HorizontalAlignment="Left"
+                                        Background="#211310"
+                                        BorderBrush="#7D3328"
+                                        BorderThickness="2"
+                                        CornerRadius="2">
+                                    <Border x:Name="Lamp"
+                                            Width="13"
+                                            Height="13"
+                                            Margin="4"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Background="#684139"
+                                            BorderBrush="#A86D5E"
+                                            BorderThickness="1"
+                                            CornerRadius="1" />
+                                </Border>
+                                <ContentPresenter Grid.Column="1" Margin="3,0,0,0" VerticalAlignment="Center" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Switch" Property="Background" Value="#3B1713" />
+                                    <Setter TargetName="Switch" Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+                                    <Setter TargetName="Lamp" Property="Background" Value="{StaticResource DangerBrush}" />
+                                    <Setter TargetName="Lamp" Property="BorderBrush" Value="#FFD0C8" />
+                                    <Setter TargetName="Lamp" Property="HorizontalAlignment" Value="Right" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Switch" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Switch" Property="BorderBrush" Value="{StaticResource SignalGreenBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45" />
+                                    <Setter Property="Cursor" Value="Arrow" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid x:Name="ItemsSectionsGrid" Margin="8,12,8,8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Border x:Name="ConsumablesSection" Style="{StaticResource CheatSectionStyle}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
+                    <Button x:Name="ClearConsumablesButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,5" Style="{StaticResource DangerButtonStyle}" Content="全部删除" AutomationProperties.Name="删除所有消耗品" ToolTip="立即删除背包内的所有非弹射点道具，不弹出确认框" />
+                </DockPanel>
+                <local:CatalogActionGridControl x:Name="DisposableActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
+            </Grid>
+        </Border>
+        <Border x:Name="CatapultsSection" Grid.Column="2" Style="{StaticResource CheatSectionStyle}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="10" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
+                <local:CatalogActionGridControl x:Name="CatapultActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
+                <Grid Grid.Row="4">
+                    <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="8" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Button x:Name="ClearBackpackCatapultsButton" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空背包" AutomationProperties.Name="删除所有背包弹射点" />
+                    <Button x:Name="ClearFieldCatapultsButton" Grid.Column="2" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空场上" AutomationProperties.Name="删除所有场上弹射点" />
+                    <CheckBox x:Name="FieldCatapultDeleteModeCheck" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center" Style="{StaticResource FieldDeleteToggleStyle}" FontWeight="Bold" Content="点击场上弹射点直接删除" ToolTip="开启后在游戏内悬停弹射点会显示红色标记，左键立即删除；按 Esc 退出" />
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

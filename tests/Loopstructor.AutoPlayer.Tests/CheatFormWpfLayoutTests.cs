@@ -14,6 +14,29 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class CheatFormWpfLayoutTests
 {
     [Fact]
+    public void ResourceTabs_AreIndependentPages_WithBoundShellState()
+    {
+        RunSta(() =>
+        {
+            CheatForm form = new((command, payload) =>
+                Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload)));
+
+            try
+            {
+                Assert.IsType<CheatShellViewModel>(form.DataContext);
+                TabControl tabs = Assert.IsType<TabControl>(form.FindName("_tabs"));
+                Assert.IsType<VehicleCheatPage>(Assert.IsType<TabItem>(tabs.Items[0]).Content);
+                Assert.IsType<ItemsCheatPage>(Assert.IsType<TabItem>(tabs.Items[1]).Content);
+                Assert.IsType<RelicsCheatPage>(Assert.IsType<TabItem>(tabs.Items[2]).Content);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void ToolWindow_IsConfiguredAsIndependentTopLevelWindow()
     {
         RunSta(() =>
@@ -152,7 +175,8 @@ public sealed class CheatFormWpfLayoutTests
                 form.SelectDemoTab(1);
                 form.UpdateLayout();
                 PumpDispatcher();
-                Grid itemPage = Assert.IsType<Grid>(Assert.IsType<TabItem>(Assert.IsType<TabControl>(form.FindName("_tabs")).SelectedItem).Content);
+                Assert.IsType<ItemsCheatPage>(Assert.IsType<TabItem>(Assert.IsType<TabControl>(form.FindName("_tabs")).SelectedItem).Content);
+                Grid itemPage = Assert.IsType<Grid>(form.FindName("_itemsSectionsGrid"));
                 AssertItemsPageActionsVisible(form, itemPage);
                 AssertOuterScrollBarCollapsed(form, 0);
                 AssertOuterScrollBarCollapsed(form, 1);

@@ -53,6 +53,7 @@ internal sealed partial class CheatForm : Window
     private readonly DispatcherTimer _grantAllRelicsPollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly DispatcherTimer _toastTimer = new() { Interval = ToastDisplayDuration };
     private readonly Queue<CheatToastNotification> _toastQueue = new();
+    private readonly CheatShellViewModel _shellViewModel = new();
     private readonly ObservableCollection<CheatVehicleRow> _vehicleRows = new();
     private readonly ObservableCollection<CheatEnemyRow> _enemyRows = new();
     private readonly ObservableCollection<CheatSpawnPointRow> _spawnPointRows = new();
@@ -79,10 +80,32 @@ internal sealed partial class CheatForm : Window
     private string _lastResolvedLevelSource = string.Empty;
     private long _toastEpoch;
 
+    private VehicleQuickSelectorControl _vehicleCatalog => _vehiclePage.VehicleCatalog;
+    private CheatNumericInput _vehicleCount => _vehiclePage.VehicleCount;
+    private Button _grantVehicleButton => _vehiclePage.GrantVehicleButton;
+    private ItemsControl _selectedEnchantmentSummary => _vehiclePage.SelectedEnchantmentSummary;
+    private EnchantmentSelectorControl _enchantmentSelector => _vehiclePage.EnchantmentSelector;
+    private Grid _itemsSectionsGrid => _itemsPage.ItemsSectionsGrid;
+    private Border _consumablesSection => _itemsPage.ConsumablesSection;
+    private Button _clearConsumablesButton => _itemsPage.ClearConsumablesButton;
+    private CatalogActionGridControl _disposableActions => _itemsPage.DisposableActions;
+    private Border _catapultsSection => _itemsPage.CatapultsSection;
+    private CatalogActionGridControl _catapultActions => _itemsPage.CatapultActions;
+    private Button _clearBackpackCatapultsButton => _itemsPage.ClearBackpackCatapultsButton;
+    private Button _clearFieldCatapultsButton => _itemsPage.ClearFieldCatapultsButton;
+    private CheckBox _fieldCatapultDeleteModeCheck => _itemsPage.FieldCatapultDeleteModeCheck;
+    private CatalogActionGridControl _relicActions => _relicsPage.RelicActions;
+    private Button _grantAllRelicsButton => _relicsPage.GrantAllRelicsButton;
+    private Button _removeAllRelicsButton => _relicsPage.RemoveAllRelicsButton;
+    private TextBlock _grantAllRelicsStatus => _relicsPage.GrantAllRelicsStatus;
+    private TextBlock _removeAllRelicsStatus => _relicsPage.RemoveAllRelicsStatus;
+
     public CheatForm(Func<string, JObject?, Task<ControlResponse?>> sendCommand)
     {
         _sendCommand = sendCommand ?? throw new ArgumentNullException(nameof(sendCommand));
         InitializeComponent();
+        DataContext = _shellViewModel;
+        RegisterResourcePageNames();
 
         Title = $"Loopstructor 2.AutoPlayer 作弊工具 - v{ManagerProductInfo.Version}";
         _vehicleGrid.ItemsSource = _vehicleRows;
@@ -98,6 +121,29 @@ internal sealed partial class CheatForm : Window
         _grantAllRelicsPollTimer.Tick += GrantAllRelicsPollTimerTick;
         _toastTimer.Tick += ToastTimerTick;
         ApplyAvailability();
+    }
+
+    private void RegisterResourcePageNames()
+    {
+        RegisterName("_vehicleCatalog", _vehicleCatalog);
+        RegisterName("_vehicleCount", _vehicleCount);
+        RegisterName("_grantVehicleButton", _grantVehicleButton);
+        RegisterName("_selectedEnchantmentSummary", _selectedEnchantmentSummary);
+        RegisterName("_enchantmentSelector", _enchantmentSelector);
+        RegisterName("_itemsSectionsGrid", _itemsSectionsGrid);
+        RegisterName("_consumablesSection", _consumablesSection);
+        RegisterName("_clearConsumablesButton", _clearConsumablesButton);
+        RegisterName("_disposableActions", _disposableActions);
+        RegisterName("_catapultsSection", _catapultsSection);
+        RegisterName("_catapultActions", _catapultActions);
+        RegisterName("_clearBackpackCatapultsButton", _clearBackpackCatapultsButton);
+        RegisterName("_clearFieldCatapultsButton", _clearFieldCatapultsButton);
+        RegisterName("_fieldCatapultDeleteModeCheck", _fieldCatapultDeleteModeCheck);
+        RegisterName("_relicActions", _relicActions);
+        RegisterName("_grantAllRelicsButton", _grantAllRelicsButton);
+        RegisterName("_removeAllRelicsButton", _removeAllRelicsButton);
+        RegisterName("_grantAllRelicsStatus", _grantAllRelicsStatus);
+        RegisterName("_removeAllRelicsStatus", _removeAllRelicsStatus);
     }
 
     public void UpdateSession(bool trusted, BridgeHello? hello, AutoPlayerStatus? status)
@@ -1362,97 +1408,14 @@ internal sealed partial class CheatForm : Window
                                        && SelectedEntity(_enemyGrid) != null
                                        && _enemyAttribute.SelectedCatalogItem?.Payload is AttributeItem;
 
-        RenderRunControlState(available, runConflict);
-    }
-
-    private void RenderRunControlState(bool available, bool runConflict)
-    {
-        string label;
-        string detail;
-        Brush accent;
-        Brush panel;
-        if (_writeOutcomeUnknown)
-        {
-            label = "写入冻结";
-            detail = "上一条写命令的结果无法确认；为避免重复修改，后续作弊写操作已冻结。";
-            accent = RedBrush;
-            panel = RedPanelBrush;
-        }
-        else if (!_trusted)
-        {
-            label = "未连接";
-            detail = "请先启动已安装插件的游戏，并等待 Manager 完成安全握手。";
-            accent = RedBrush;
-            panel = RedPanelBrush;
-        }
-        else if (!available)
-        {
-            label = "不可用";
-            string reason = _status?.CheatAvailabilityReason ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(reason)) reason = _hello?.CheatAvailabilityReason ?? string.Empty;
-            detail = string.IsNullOrWhiteSpace(reason) ? "当前插件未提供作弊运行时合同。" : reason;
-            accent = RedBrush;
-            panel = RedPanelBrush;
-        }
-        else if (_busy)
-        {
-            label = "正在执行";
-            detail = "正在等待 AutoPlayer 插件完成当前作弊命令。";
-            accent = BlueBrush;
-            panel = BluePanelBrush;
-        }
-        else if (runConflict && _status?.CheatModeEnabled == true)
-        {
-            label = "监视中 · 写操作锁定";
-            detail = "自动游玩期间可查询目录、战车和敌人，并切换敌人 ID 与 Buff 显示；其他作弊写操作已锁定。";
-            if (_status.CheatUsed) detail += " 当前配置已有作弊记录。";
-            accent = AmberBrush;
-            panel = AmberPanelBrush;
-        }
-        else if (runConflict)
-        {
-            label = "自动游玩中";
-            detail = "可以启用作弊监视；启用后仍只开放查询以及敌人 ID、Buff 显示。";
-            if (_status?.CheatUsed == true) detail += " 当前配置已有作弊记录。";
-            accent = GreenBrush;
-            panel = GreenPanelBrush;
-        }
-        else if (_status?.CheatModeEnabled == true && _status.CheatUsed)
-        {
-            label = "已启用 · 已标记";
-            detail = "作弊模式已启用，当前配置已有作弊记录。";
-            accent = AmberBrush;
-            panel = AmberPanelBrush;
-        }
-        else if (_status?.CheatModeEnabled == true)
-        {
-            label = "已启用";
-            detail = "可以执行资源、战斗、属性和怪物生成命令。";
-            accent = GreenBrush;
-            panel = GreenPanelBrush;
-        }
-        else if (_status?.CheatUsed == true)
-        {
-            label = "未启用 · 已标记";
-            detail = "作弊模式已关闭，但当前配置已有作弊记录；自动游玩结果会继续标记为 cheat-modified。";
-            accent = AmberBrush;
-            panel = AmberPanelBrush;
-        }
-        else
-        {
-            label = "未启用";
-            detail = "作弊功能可用；开启作弊模式后可以执行修改命令。";
-            accent = GreenBrush;
-            panel = GreenPanelBrush;
-        }
-
-        _runControlStateText.Text = label;
-        _runControlStateText.Foreground = accent;
-        _runControlStateBadge.Background = panel;
-        _runControlStateBadge.BorderBrush = accent;
-        _runControlStateBadge.ToolTip = detail;
-        AutomationProperties.SetName(_runControlStateBadge, "作弊运行状态：" + label);
-        AutomationProperties.SetHelpText(_runControlStateBadge, detail);
+        _shellViewModel.UpdateRunState(
+            _writeOutcomeUnknown,
+            _trusted,
+            available,
+            _busy,
+            runConflict,
+            _status,
+            _hello);
     }
 
     private void EnqueueToast(string message, CheatToastKind kind)
