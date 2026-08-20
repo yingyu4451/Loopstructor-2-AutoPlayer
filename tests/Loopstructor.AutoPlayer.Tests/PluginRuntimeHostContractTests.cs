@@ -12,6 +12,70 @@ public sealed class PluginRuntimeHostContractTests
     private const string BridgeType = "Loopstructor.AutoPlayer.Plugin.RuntimeBridge";
     private const string CheatControllerType = "Loopstructor.AutoPlayer.Plugin.CheatController";
     private const string CheatBridgeType = "Loopstructor.AutoPlayer.Plugin.CheatRuntimeBridge";
+    private const string SelectionHighlighterType = "Loopstructor.AutoPlayer.Plugin.NativeSelectionHighlighter";
+
+    [Fact]
+    public void SelectionPreview_HighlightsOriginalUiWithoutAddingASeparateGameOverlay()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        TypeDefinition highlighter = RequireType(assembly, SelectionHighlighterType);
+        MethodDefinition timedPreview = RequireMethod(controller, "TryWaitForSelectionPreview");
+        MethodDefinition frontEndPreview = RequireMethod(controller, "TryWaitForFrontEndSelectionPreview");
+        MethodDefinition normalEvent = RequireMethod(controller, "TryHandleNormalEventUi");
+        MethodDefinition rewardWait = RequireMethod(controller, "TryWaitForRewardOptions");
+        MethodDefinition eventWait = RequireMethod(controller, "TryWaitForEventOptions");
+        MethodDefinition merge = RequireMethod(controller, "RunMergeAutomationStep");
+        MethodDefinition show = RequireMethod(highlighter, "Show");
+
+        Assert.Contains(controller.Fields, field => field.Name == "_selectionHighlighter");
+        Assert.Contains(Calls(timedPreview), IsCall(ControllerType, "ShowSelectionHighlight"));
+        Assert.Contains(Calls(RequireMethod(controller, "ShowSelectionHighlight")), IsCall(SelectionHighlighterType, "Show"));
+        Assert.Contains(Calls(frontEndPreview), IsCall(ControllerType, "TryWaitForSelectionPreview"));
+        Assert.Contains(Calls(normalEvent), IsCall(ControllerType, "ShowSelectionHighlight"));
+        Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "ShowRewardSelectionHighlight"));
+        Assert.Contains(Calls(eventWait), IsCall(ControllerType, "ShowEventSelectionHighlight"));
+        Assert.Contains(Calls(merge), IsCall(ControllerType, "TryWaitForSelectionPreview"));
+        Assert.Contains(LoadedStrings(show), value => value == "UnityEngine.UI.Image");
+        Assert.Contains(LoadedStrings(show), value => value == "raycastTarget");
+
+        MethodDefinition drawOverlay = RequireMethod(RequireType(assembly, SessionType), "DrawOverlay");
+        Assert.DoesNotContain(Calls(drawOverlay), IsCall(ControllerType, "ShowSelectionHighlight"));
+        Assert.DoesNotContain(Calls(drawOverlay), IsCall(SelectionHighlighterType, "Show"));
+    }
+
+    [Fact]
+    public void SelectionPreview_IsClearedOnSceneChangePauseStopFaultCompletionAndSessionDispose()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        foreach (string methodName in new[]
+                 {
+                     "ObserveActiveScene",
+                     "CommitFault",
+                     "Complete"
+                 })
+        {
+            Assert.Contains(
+                Calls(RequireMethod(controller, methodName)),
+                IsCall(ControllerType, "ClearSelectionHighlight"));
+        }
+
+        foreach (string methodName in new[] { "ApplyPause", "ApplyStop" })
+        {
+            Assert.Contains(
+                Calls(RequireMethod(controller, methodName)),
+                IsCall(ControllerType, "ClearDeferredReadDecisions"));
+        }
+        Assert.Contains(
+            Calls(RequireMethod(controller, "ClearDeferredReadDecisions")),
+            IsCall(ControllerType, "ClearSelectionHighlight"));
+
+        TypeDefinition session = RequireType(assembly, SessionType);
+        Assert.Contains(
+            session.NestedTypes.SelectMany(type => type.Methods).SelectMany(Calls),
+            IsCall(ControllerType, "ClearNativeSelectionHighlight"));
+    }
 
     [Fact]
     public void BattlePolling_UsesWaveQueryAndAvoidsRepeatedFullStateSerialization()

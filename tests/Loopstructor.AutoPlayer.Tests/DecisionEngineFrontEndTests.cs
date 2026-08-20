@@ -134,6 +134,38 @@ public sealed class DecisionEngineFrontEndTests
         Assert.Equal(AutomationStage.RandomSelection, action.Stage);
     }
 
+    [Fact]
+    public void RandomMode_SelectionActionCarriesTheExactOriginalUiMemberIdentity()
+    {
+        JObject result = FrontEndState(new
+        {
+            sceneName = "RandomChooseScene",
+            managerExists = true,
+            selectedVehicleSelectable = false,
+            selectedFetterSelectable = false,
+            availableVehicles = new[]
+            {
+                new { index = 6, vehicleType = "Shell_ShadowRift_L2" }
+            },
+            availableFetters = new[]
+            {
+                new { index = 7, fetterEnum = "Fire_Train" }
+            }
+        });
+        DecisionEngine engine = new();
+
+        AutomationAction vehicle = engine.DecideFrontEnd(
+            result,
+            new AutomationRunOptions { Mode = AutomationGameMode.Random, RandomVehicleIndex = 6 });
+        Assert.Equal("Shell_ShadowRift_L2", vehicle.Arguments.Value<string>("vehicleType"));
+
+        ((JObject)result.SelectToken("data.state")!)["selectedVehicleSelectable"] = true;
+        AutomationAction fetter = engine.DecideFrontEnd(
+            result,
+            new AutomationRunOptions { Mode = AutomationGameMode.Random, RandomFetterIndex = 7 });
+        Assert.Equal("Fire_Train", fetter.Arguments.Value<string>("fetterEnum"));
+    }
+
     private static JObject FrontEndState(object state) => JObject.FromObject(new
     {
         success = true,

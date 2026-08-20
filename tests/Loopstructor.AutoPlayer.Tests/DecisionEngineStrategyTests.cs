@@ -515,4 +515,29 @@ public sealed class DecisionEngineStrategyTests
         },
         vehicleTags = Array.Empty<string>()
     };
+
+    [Fact]
+    public void RouteSelectionActionCarriesTheOriginalMapNodeIdentityForNativeHighlighting()
+    {
+        JObject affordances = Affordances(new
+        {
+            readyIndex = 3,
+            instanceId = 8123,
+            path = "Canvas/RoomMap/Node_3",
+            pos = new { x = 4, y = 2 },
+            canPlayerSelect = true,
+            rewardEnum = "RandomEvent",
+            needFight = false,
+            totalEnemyAmount = 0,
+            dropCounts = new { vehicle = 0, catapult = 0, money = 0, disposable = 0, superModule = 0 }
+        });
+
+        AutomationAction action = new DecisionEngine().DecideInGame(affordances, null, null);
+
+        Assert.Equal("selectMapNode", action.Command);
+        Assert.Equal(8123, action.Arguments.Value<int>("instanceId"));
+        Assert.Equal("Canvas/RoomMap/Node_3", action.Arguments.Value<string>("path"));
+        Assert.Equal(4, action.Arguments.Value<int>("x"));
+        Assert.Equal(2, action.Arguments.Value<int>("y"));
+    }
 }

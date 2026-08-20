@@ -351,6 +351,7 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
             _controlServer = null;
             CleanupStep("释放作弊控制器", () => _cheatController?.Dispose());
             _cheatController = null;
+            CleanupStep("移除自动游玩选择边框", () => _controller?.ClearNativeSelectionHighlight());
             CleanupStep("移除怪物生成点输入补丁", SpawnPointCaptureInputPatch.Detach);
             CleanupStep("恢复战车附魔图标布局", VehicleEnchantmentDisplayPatch.Reset);
             CleanupStep("重置地图跳关补丁", MapSkipPatch.Reset);

@@ -126,7 +126,14 @@ public sealed class DecisionEngine
                 string candidates = BuildRouteCandidateSummary(nodes, priority);
                 return new AutomationAction(
                     "selectMapNode",
-                    JObject.FromObject(new { readyIndex = index.Value }),
+                    JObject.FromObject(new
+                    {
+                        readyIndex = index.Value,
+                        instanceId = route["instanceId"]?.Value<int>() ?? 0,
+                        path = route["path"]?.Value<string>() ?? string.Empty,
+                        x = route.SelectToken("pos.x")?.Value<int>() ?? 0,
+                        y = route.SelectToken("pos.y")?.Value<int>() ?? 0
+                    }),
                     AutomationStage.SelectingRoute,
                     $"选择路线选项 {index.Value}（{reward}{risk}，策略评分 {RouteScore(route, priority)}）。候选：{candidates}");
             }
@@ -306,12 +313,32 @@ public sealed class DecisionEngine
 
         if (state["selectedVehicleSelectable"]?.Value<bool>() != true)
         {
-            return new AutomationAction("selectRandomVehicle", JObject.FromObject(new { index = options.RandomVehicleIndex }), AutomationStage.RandomSelection, "选择一个可用的随机模式载具。");
+            JObject? selected = (state["availableVehicles"] as JArray)?.OfType<JObject>()
+                .FirstOrDefault(item => item["index"]?.Value<int>() == options.RandomVehicleIndex);
+            return new AutomationAction(
+                "selectRandomVehicle",
+                JObject.FromObject(new
+                {
+                    index = options.RandomVehicleIndex,
+                    vehicleType = selected?["vehicleType"]?.Value<string>() ?? string.Empty
+                }),
+                AutomationStage.RandomSelection,
+                "选择一个可用的随机模式载具。");
         }
 
         if (state["selectedFetterSelectable"]?.Value<bool>() != true)
         {
-            return new AutomationAction("selectRandomFetter", JObject.FromObject(new { index = options.RandomFetterIndex }), AutomationStage.RandomSelection, "选择一个可用的随机模式羁绊。");
+            JObject? selected = (state["availableFetters"] as JArray)?.OfType<JObject>()
+                .FirstOrDefault(item => item["index"]?.Value<int>() == options.RandomFetterIndex);
+            return new AutomationAction(
+                "selectRandomFetter",
+                JObject.FromObject(new
+                {
+                    index = options.RandomFetterIndex,
+                    fetterEnum = selected?["fetterEnum"]?.Value<string>() ?? string.Empty
+                }),
+                AutomationStage.RandomSelection,
+                "选择一个可用的随机模式羁绊。");
         }
 
         return new AutomationAction("submitRandomMode", JObject.FromObject(new { autoStop = true }), AutomationStage.RandomSelection, "推进随机模式转盘并进入本局。");

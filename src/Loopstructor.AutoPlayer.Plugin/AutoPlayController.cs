@@ -161,6 +161,7 @@ internal sealed class AutoPlayController
     private readonly IncrementalDefenseStationGridProbe _defenseStationGridProbe = new();
     private readonly List<TimelineEvent> _timeline = new();
     private readonly SceneTransitionGate _frontEndTransitionGate = new();
+    private readonly NativeSelectionHighlighter _selectionHighlighter = new();
 
     private AutomationRunOptions _options = new();
     private AutoPlayerRunState _runState;
@@ -196,6 +197,10 @@ internal sealed class AutoPlayController
     private string _normalEventFingerprint = string.Empty;
     private int _normalEventProbeFailures;
     private AutomationAction? _pendingMapAction;
+    private string _selectionHighlightOwner = string.Empty;
+    private string _selectionHighlightFingerprint = string.Empty;
+    private string _selectionPreviewFingerprint = string.Empty;
+    private float _selectionPreviewReadyAt = -1f;
     private AutomationAction? _deferredFrontEndAction;
     private AutomationAction? _deferredNormalEventAction;
     private bool _deferredNormalEventChoosingOption;
@@ -974,6 +979,7 @@ internal sealed class AutoPlayController
         {
             AutomationAction deferred = _deferredFrontEndAction;
             _deferredFrontEndAction = null;
+            ClearSelectionHighlight("front-end");
             bool deferredExecuted = Execute(deferred);
             if (deferredExecuted && IsSceneTransitionCommand(deferred.Command))
             {
@@ -1033,6 +1039,11 @@ internal sealed class AutoPlayController
             return;
         }
 
+        if (TryWaitForFrontEndSelectionPreview(action))
+        {
+            return;
+        }
+
         _deferredFrontEndAction = action;
         ScheduleContinuationFrame();
         SetStage(action.Stage, "已读取前端状态；下一帧再发送 " + action.Command + "，避免同帧叠加运行时命令。");
@@ -1077,6 +1088,7 @@ internal sealed class AutoPlayController
         {
             AutomationAction deferredReward = _deferredRewardAction;
             _deferredRewardAction = null;
+            ClearSelectionHighlight("reward");
             Execute(deferredReward);
             return;
         }
@@ -1615,6 +1627,7 @@ internal sealed class AutoPlayController
         _rewardObjectCollectionLedger.Clear();
         ResetRewardOptionObservation();
         _pendingMapAction = null;
+        ClearSelectionHighlight();
         _deferredFrontEndAction = null;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
@@ -2001,6 +2014,19 @@ internal sealed class AutoPlayController
             if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
             {
                 ResetWaveStartObservation();
+                NativeSelectionTarget? target = BuildInstanceSelectionTarget(
+                    action,
+                    "MetroTD.RoomSystem.MapNodeUI",
+                    "instanceId",
+                    "path");
+                if (target != null && TryWaitForSelectionPreview(
+                        "map",
+                        action,
+                        target,
+                        "已用绿色边框标出下一步地图节点；观察时间结束后再选择。"))
+                {
+                    return;
+                }
             }
 
             Execute(action);
@@ -2075,6 +2101,7 @@ internal sealed class AutoPlayController
 
     private void PauseForRecoverableRuntimeState(string reason)
     {
+        ClearSelectionHighlight();
         _runState = AutoPlayerRunState.Paused;
         _pausedAtUtc = DateTime.UtcNow;
         _stage = AutomationStage.Recovery;
@@ -2180,6 +2207,7 @@ internal sealed class AutoPlayController
             bool choosingDeferredOption = _deferredNormalEventChoosingOption;
             _deferredNormalEventAction = null;
             _deferredNormalEventChoosingOption = false;
+            ClearSelectionHighlight("normal-event");
             bool clicked = Execute(deferred);
             if (clicked && _runState == AutoPlayerRunState.Running)
             {
@@ -2304,6 +2332,7 @@ internal sealed class AutoPlayController
             NormalEventUiDecision.SelectTarget(snapshot, _options.SkipStory);
         if (immediateStoryTarget?.Role == NormalEventUiButtonRole.SkipStory)
         {
+            ClearSelectionHighlight("normal-event");
             _deferredNormalEventAction = new AutomationAction(
                 "uiClick",
                 JObject.FromObject(new { instanceId = immediateStoryTarget.InstanceId }),
@@ -2334,6 +2363,22 @@ internal sealed class AutoPlayController
             runtimeState.CurrentStoryIndex,
             runtimeState.CurrentStoryCount,
             snapshot.Fingerprint);
+        NormalEventUiButton? observedTarget = NormalEventUiDecision.SelectTarget(snapshot, _options.SkipStory);
+        if (observedTarget?.Role == NormalEventUiButtonRole.ChooseOption)
+        {
+            ShowSelectionHighlight(
+                "normal-event",
+                fingerprint + "|" + observedTarget.InstanceId,
+                NativeSelectionTarget.ByInstance(
+                    "ActFramework_ByHZR.UI.UIButton",
+                    observedTarget.InstanceId,
+                    observedTarget.Path));
+        }
+        else
+        {
+            ClearSelectionHighlight("normal-event");
+        }
+
         if (!string.Equals(fingerprint, _normalEventFingerprint, StringComparison.Ordinal))
         {
             _normalEventFingerprint = fingerprint;
@@ -2358,7 +2403,7 @@ internal sealed class AutoPlayController
             return true;
         }
 
-        NormalEventUiButton? target = NormalEventUiDecision.SelectTarget(snapshot, _options.SkipStory);
+        NormalEventUiButton? target = observedTarget;
         bool choosingOption = target?.Role == NormalEventUiButtonRole.ChooseOption;
         bool skippingStory = target?.Role == NormalEventUiButtonRole.SkipStory;
 
@@ -2396,6 +2441,7 @@ internal sealed class AutoPlayController
         {
             AutomationAction action = _pendingMapAction;
             _pendingMapAction = null;
+            ClearSelectionHighlight("event");
             Execute(action);
             if (string.Equals(action.Command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase))
             {
@@ -4910,6 +4956,28 @@ internal sealed class AutoPlayController
             return;
         }
 
+        if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
+        {
+            JObject mergeState = State(_mergeAutomationQueryResult);
+            int optionIndex = action.Arguments["index"]?.Value<int>() ?? -1;
+            JObject? option = (mergeState["mergeOptions"] as JArray)?.OfType<JObject>()
+                .FirstOrDefault(candidate => candidate["index"]?.Value<int>() == optionIndex);
+            NativeSelectionTarget? target = option == null
+                ? null
+                : NativeSelectionTarget.ByInstance(
+                    "MetroTD.UISystem.RebuildUI_Option_Fetter",
+                    option["instanceId"]?.Value<int>() ?? 0,
+                    option["path"]?.Value<string>());
+            if (target != null && TryWaitForSelectionPreview(
+                    "merge-fetter",
+                    action,
+                    target,
+                    "已用绿色边框标出将选择的合成附魔；观察时间结束后再选择。"))
+            {
+                return;
+            }
+        }
+
         if (string.Equals(action.Command, "queryMergeState", StringComparison.OrdinalIgnoreCase))
         {
             if (!TryInvokeOptionalReadOnly(action.Command, action.Arguments, out JObject queryResult))
@@ -6600,8 +6668,133 @@ internal sealed class AutoPlayController
         }
     }
 
+    internal void ClearNativeSelectionHighlight() => ClearSelectionHighlight();
+
+    private bool TryWaitForFrontEndSelectionPreview(AutomationAction action)
+    {
+        NativeSelectionTarget? target = null;
+        string detail = string.Empty;
+        if (string.Equals(action.Command, "selectRandomVehicle", StringComparison.OrdinalIgnoreCase))
+        {
+            string vehicleType = action.Arguments["vehicleType"]?.Value<string>() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(vehicleType))
+            {
+                target = NativeSelectionTarget.ByMember(
+                    "Systems.UISystem.RandomMode_Selected_Vehicle",
+                    "m_vehicleType",
+                    vehicleType);
+                detail = "已用绿色边框标出将选择的初始战车；观察时间结束后再选择。";
+            }
+        }
+        else if (string.Equals(action.Command, "selectRandomFetter", StringComparison.OrdinalIgnoreCase))
+        {
+            string fetter = action.Arguments["fetterEnum"]?.Value<string>() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(fetter))
+            {
+                target = NativeSelectionTarget.ByMember(
+                    "Systems.UISystem.RandomMode_Selected_Fetter",
+                    "m_fetter",
+                    fetter);
+                detail = "已用绿色边框标出将选择的初始附魔；观察时间结束后再选择。";
+            }
+        }
+
+        return target != null && TryWaitForSelectionPreview("front-end", action, target, detail);
+    }
+
+    private bool TryWaitForSelectionPreview(
+        string owner,
+        AutomationAction action,
+        NativeSelectionTarget target,
+        string detail)
+    {
+        string fingerprint = string.Join(
+            "|",
+            owner,
+            action.Command,
+            action.Arguments.ToString(Newtonsoft.Json.Formatting.None),
+            target.Key);
+        float now = Time.realtimeSinceStartup;
+        if (!string.Equals(_selectionPreviewFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            _selectionPreviewFingerprint = fingerprint;
+            _selectionPreviewReadyAt = now + RecordingObservationDelaySeconds;
+            ShowSelectionHighlight(owner, fingerprint, target);
+            _nextTickAt = Math.Max(_nextTickAt, _selectionPreviewReadyAt);
+            SetStage(action.Stage, detail);
+            AddTimeline("selection-preview", detail);
+            return true;
+        }
+
+        if (!string.Equals(_selectionHighlightOwner, owner, StringComparison.Ordinal) ||
+            !string.Equals(_selectionHighlightFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            ShowSelectionHighlight(owner, fingerprint, target);
+        }
+
+        if (now < _selectionPreviewReadyAt)
+        {
+            ShowSelectionHighlight(owner, fingerprint, target);
+            _nextTickAt = Math.Max(_nextTickAt, _selectionPreviewReadyAt);
+            SetStage(action.Stage, detail);
+            return true;
+        }
+
+        ClearSelectionHighlight(owner);
+        _selectionPreviewFingerprint = fingerprint;
+        _selectionPreviewReadyAt = 0f;
+        return false;
+    }
+
+    private void ShowSelectionHighlight(string owner, string fingerprint, NativeSelectionTarget target)
+    {
+        if (!string.Equals(_selectionHighlightOwner, owner, StringComparison.Ordinal) ||
+            !string.Equals(_selectionHighlightFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            _selectionHighlighter.Clear();
+        }
+
+        _selectionHighlightOwner = owner;
+        _selectionHighlightFingerprint = fingerprint;
+        if (!_selectionHighlighter.Show(target, out string error) && !string.IsNullOrWhiteSpace(error))
+        {
+            _log.LogDebug("下一步选择绿色边框暂不可用：" + error);
+        }
+    }
+
+    private void ClearSelectionHighlight(string owner)
+    {
+        if (!string.Equals(_selectionHighlightOwner, owner, StringComparison.Ordinal)) return;
+        _selectionHighlighter.Clear();
+        _selectionHighlightOwner = string.Empty;
+        _selectionHighlightFingerprint = string.Empty;
+    }
+
+    private void ClearSelectionHighlight()
+    {
+        _selectionHighlighter.Clear();
+        _selectionHighlightOwner = string.Empty;
+        _selectionHighlightFingerprint = string.Empty;
+        _selectionPreviewFingerprint = string.Empty;
+        _selectionPreviewReadyAt = -1f;
+    }
+
+    private static NativeSelectionTarget? BuildInstanceSelectionTarget(
+        AutomationAction action,
+        string componentType,
+        string instanceProperty,
+        string pathProperty)
+    {
+        int instanceId = action.Arguments[instanceProperty]?.Value<int>() ?? 0;
+        string path = action.Arguments[pathProperty]?.Value<string>() ?? string.Empty;
+        return instanceId == 0 && string.IsNullOrWhiteSpace(path)
+            ? null
+            : NativeSelectionTarget.ByInstance(componentType, instanceId, path);
+    }
+
     private void ClearDeferredReadDecisions()
     {
+        ClearSelectionHighlight();
         _deferredFrontEndAction = null;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
@@ -6728,6 +6921,14 @@ internal sealed class AutoPlayController
     private bool ExecuteWithResult(AutomationAction action, bool optional, out JObject result)
     {
         result = new JObject();
+        if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearSelectionHighlight("map");
+        }
+        else if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearSelectionHighlight("merge-fetter");
+        }
         SetStage(action.Stage, action.Reason);
         if (string.Equals(action.Command, "wait", StringComparison.Ordinal))
         {
@@ -7539,6 +7740,16 @@ internal sealed class AutoPlayController
             return false;
         }
 
+        if (RewardSelectionNeedsVehicleContext(options) && !_rewardVehicleContextAttempted)
+        {
+            AutomationAction contextPreparation = DecideObservedReward(rewardResult);
+            if (string.Equals(contextPreparation.Command, "wait", StringComparison.OrdinalIgnoreCase))
+            {
+                SetStage(contextPreparation.Stage, contextPreparation.Reason);
+                return true;
+            }
+        }
+
         string fingerprint = BuildRewardOptionsFingerprint(options);
         bool rewardUiTransient = state["busy"]?.Value<bool>() == true ||
                                  state["refresh"]?.Value<bool>() == true ||
@@ -7553,13 +7764,17 @@ internal sealed class AutoPlayController
             RecordingObservationDelaySeconds);
         if (observation.FingerprintChanged)
         {
-            ClearRewardVehicleContext();
+            if (!string.Equals(_rewardVehicleContextFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                ClearRewardVehicleContext();
+            }
         }
 
         _rewardOptionsFingerprint = observation.Fingerprint;
         _rewardOptionsReadyAt = observation.ReadyAt;
         if (observation.Status == RewardOptionObservationStatus.WaitingForStableUi)
         {
+            ClearSelectionHighlight("reward");
             _nextTickAt = Math.Max(
                 _nextTickAt,
                 Time.realtimeSinceStartup + RewardSelectionSettlementPollSeconds);
@@ -7571,6 +7786,7 @@ internal sealed class AutoPlayController
 
         if (observation.Status == RewardOptionObservationStatus.RecordingStarted)
         {
+            ShowRewardSelectionHighlight(rewardResult);
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
             SetStage(AutomationStage.ManagingRewards, "奖励选项已完整出现，保留 0.75 秒观察时间后再选择。");
             AddTimeline("observation", "奖励选项已稳定显示；将在 0.75 秒观察时间结束后选择。");
@@ -7580,6 +7796,7 @@ internal sealed class AutoPlayController
 
         if (observation.Status == RewardOptionObservationStatus.Recording)
         {
+            ShowRewardSelectionHighlight(rewardResult);
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
             SetStage(AutomationStage.ManagingRewards, "奖励选项保持显示，正在等待 0.75 秒观察时间结束。");
             return true;
@@ -7596,6 +7813,7 @@ internal sealed class AutoPlayController
         JArray options = eventResult.SelectToken(path) as JArray ?? new JArray();
         if (options.Count == 0)
         {
+            ClearSelectionHighlight("event");
             _eventOptionSelectionReadyAt = -1f;
             _eventOptionsFingerprint = string.Empty;
             return false;
@@ -7608,6 +7826,7 @@ internal sealed class AutoPlayController
         if (!string.Equals(fingerprint, _eventOptionsFingerprint, StringComparison.Ordinal))
         {
             _eventOptionsFingerprint = fingerprint;
+            ShowEventSelectionHighlight(eventResult, panel, fingerprint);
             _eventOptionSelectionReadyAt = Time.realtimeSinceStartup + RecordingObservationDelaySeconds;
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
             SetStage(AutomationStage.ManagingEvent, panelName + "已完整出现，保留 0.75 秒观察时间后再选择。");
@@ -7618,6 +7837,7 @@ internal sealed class AutoPlayController
 
         if (Time.realtimeSinceStartup < _eventOptionSelectionReadyAt)
         {
+            ShowEventSelectionHighlight(eventResult, panel, fingerprint);
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
             SetStage(AutomationStage.ManagingEvent, panelName + "保持显示，正在等待 0.75 秒观察时间结束。");
             return true;
@@ -7678,6 +7898,61 @@ internal sealed class AutoPlayController
     private static string JoinStringArray(JObject option, string propertyName) =>
         string.Join(",", (option[propertyName] as JArray)?.Values<string>() ?? Enumerable.Empty<string>());
 
+    private void ShowRewardSelectionHighlight(JObject rewardResult)
+    {
+        JObject rewardState = State(rewardResult);
+        AutomationAction decision = _rewardVehicleContextFailed || _rewardVehicleContextResult == null
+            ? _decisionEngine.DecideReward(rewardResult, null, _options.DecisionPriority)
+            : _decisionEngine.DecideReward(rewardResult, _rewardVehicleContextResult, _options.DecisionPriority);
+        if (!string.Equals(decision.Command, "chooseRewardOption", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearSelectionHighlight("reward");
+            return;
+        }
+
+        int index = decision.Arguments["index"]?.Value<int>() ?? -1;
+        JObject? option = (rewardState["options"] as JArray)?.OfType<JObject>()
+            .FirstOrDefault(candidate => candidate["index"]?.Value<int>() == index);
+        int instanceId = option?["instanceId"]?.Value<int>() ?? 0;
+        if (instanceId == 0)
+        {
+            ClearSelectionHighlight("reward");
+            return;
+        }
+
+        ShowSelectionHighlight(
+            "reward",
+            _rewardOptionsFingerprint + "|" + instanceId,
+            NativeSelectionTarget.ByInstance(
+                "MetroTD.RewardSystem.GeneralRewardItemUI",
+                instanceId,
+                option?["path"]?.Value<string>()));
+    }
+
+    private void ShowEventSelectionHighlight(JObject eventResult, string panel, string fingerprint)
+    {
+        AutomationAction decision = _decisionEngine.DecideEvent(eventResult, panel);
+        if (!string.Equals(decision.Command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearSelectionHighlight("event");
+            return;
+        }
+
+        int instanceId = decision.Arguments["instanceId"]?.Value<int>() ?? 0;
+        if (instanceId == 0)
+        {
+            ClearSelectionHighlight("event");
+            return;
+        }
+
+        ShowSelectionHighlight(
+            "event",
+            fingerprint + "|" + instanceId,
+            NativeSelectionTarget.ByInstance(
+                "MetroTD.UISystem.WaveFunctionUI_Item_Behaviour",
+                instanceId));
+    }
+
     private void ResetRewardOptionObservation()
     {
         ClearRewardObjectsObservation();
@@ -7693,6 +7968,7 @@ internal sealed class AutoPlayController
 
     private void ClearRewardOptionsObservation()
     {
+        ClearSelectionHighlight("reward");
         _rewardOptionsReadyAt = -1f;
         _rewardOptionsFingerprint = string.Empty;
         ClearRewardVehicleContext();
@@ -7708,6 +7984,7 @@ internal sealed class AutoPlayController
 
     private void ResetEventOptionObservation()
     {
+        ClearSelectionHighlight("event");
         _eventOptionsReadyAt = -1f;
         _eventOptionSelectionReadyAt = -1f;
         _eventOptionsFingerprint = string.Empty;
@@ -7725,6 +8002,7 @@ internal sealed class AutoPlayController
 
     private void ResetNormalEventActionObservation()
     {
+        ClearSelectionHighlight("normal-event");
         _normalEventActionReadyAt = -1f;
         _normalEventFingerprint = string.Empty;
     }
@@ -7936,6 +8214,7 @@ internal sealed class AutoPlayController
 
     private void CommitFault(string reason)
     {
+        ClearSelectionHighlight();
         _runState = AutoPlayerRunState.Faulted;
         _stage = AutomationStage.Recovery;
         _stageDetail = reason;
@@ -7959,6 +8238,7 @@ internal sealed class AutoPlayController
         lock (_sync)
         {
             if (_runState == AutoPlayerRunState.Completed) return;
+            ClearSelectionHighlight();
             _runState = AutoPlayerRunState.Completed;
             _stage = AutomationStage.Completed;
             _stageDetail = reason;
