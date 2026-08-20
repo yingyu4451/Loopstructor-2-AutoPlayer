@@ -18,36 +18,54 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Border Background="{StaticResource ScreenBrush}" BorderBrush="{StaticResource BronzeBrush}" BorderThickness="1" CornerRadius="2">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="38" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border Margin="1" Background="#2A2118" BorderBrush="#5B3B24" BorderThickness="0,0,1,0">
-                    <Viewbox Width="17" Height="17" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Path Data="M7,1 A6,6 0 1 0 7,13 A6,6 0 1 0 7,1 M11.3,11.3 L16,16"
-                              Fill="Transparent"
-                              Stroke="{StaticResource GoldBrush}"
-                              StrokeThickness="1.7" />
-                    </Viewbox>
-                </Border>
-                <Grid Grid.Column="1">
-                    <TextBox x:Name="SearchBox"
-                             Padding="9,6"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             AutomationProperties.Name="搜索附魔"
-                             TextChanged="SearchBox_OnTextChanged" />
-                    <TextBlock x:Name="SearchHint"
-                               Margin="10,0,0,0"
-                               VerticalAlignment="Center"
-                               Foreground="#8D806E"
-                               IsHitTestVisible="False"
-                               Text="搜索附魔中文名、枚举名或家族…" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border x:Name="SearchFrame"
+                    Background="{StaticResource ScreenBrush}"
+                    BorderBrush="{StaticResource BronzeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="38" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Margin="1" Background="#2A2118" BorderBrush="#5B3B24" BorderThickness="0,0,1,0">
+                        <Viewbox Width="17" Height="17" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Data="M7,1 A6,6 0 1 0 7,13 A6,6 0 1 0 7,1 M11.3,11.3 L16,16"
+                                  Fill="Transparent"
+                                  Stroke="{StaticResource GoldBrush}"
+                                  StrokeThickness="1.7" />
+                        </Viewbox>
+                    </Border>
+                    <Grid Grid.Column="1">
+                        <TextBox x:Name="SearchBox"
+                                 Padding="9,6"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 AutomationProperties.Name="搜索附魔"
+                                 TextChanged="SearchBox_OnTextChanged" />
+                        <TextBlock x:Name="SearchHint"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="#8D806E"
+                                   IsHitTestVisible="False"
+                                   Text="搜索附魔中文名、枚举名或家族…" />
+                    </Grid>
                 </Grid>
-            </Grid>
-        </Border>
+            </Border>
+            <Button x:Name="ClearSelectionsButton"
+                    Grid.Column="2"
+                    MinWidth="92"
+                    Padding="12,4"
+                    AutomationProperties.Name="清空所选附魔"
+                    Content="清空所选"
+                    Click="ClearSelectionsButton_OnClick" />
+        </Grid>
         <Border Grid.Row="2"
                 MinHeight="190"
                 Background="{StaticResource ScreenBrush}"

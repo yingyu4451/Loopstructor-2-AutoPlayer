@@ -498,71 +498,54 @@
                                     </StackPanel>
                                 </Grid>
                                 <Border Grid.Column="1" Width="1" Background="#5A3B25" />
-                                <Grid Grid.Column="2">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="8" />
-                                        <RowDefinition Height="*" />
-                                    </Grid.RowDefinitions>
-                                    <Button x:Name="_clearEnchantmentsButton" HorizontalAlignment="Right" MinWidth="92" Padding="12,4" Content="清空所选" />
-                                    <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Grid.Row="2" />
-                                </Grid>
+                                <local:EnchantmentSelectorControl x:Name="_enchantmentSelector" Grid.Column="2" />
                             </Grid>
                         </Border>
                     </Grid>
                 </TabItem>
 
                 <TabItem Header="道具">
-                    <ScrollViewer x:Name="_itemsPageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <Grid MinHeight="{Binding ElementName=_itemsPageScroll, Path=ActualHeight}">
-                            <Grid x:Name="_itemsSectionsGrid" Margin="8,12,8,8">
+                    <Grid x:Name="_itemsSectionsGrid" Margin="8,12,8,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="_consumablesSection" Margin="0" Style="{StaticResource CheatSectionStyle}">
+                            <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="*" />
-                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="8" />
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition x:Name="_itemsFirstColumn" Width="*" />
-                                    <ColumnDefinition x:Name="_itemsColumnGap" Width="0" />
-                                    <ColumnDefinition x:Name="_itemsSecondColumn" Width="0" />
-                                </Grid.ColumnDefinitions>
-                                <Border x:Name="_consumablesSection" Margin="0" Style="{StaticResource CheatSectionStyle}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="8" />
-                                            <RowDefinition Height="*" />
-                                        </Grid.RowDefinitions>
-                                        <DockPanel LastChildFill="False">
-                                            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
-                                            <Button x:Name="_clearConsumablesButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,5" Style="{StaticResource DangerButtonStyle}" Content="全部删除" AutomationProperties.Name="删除所有消耗品" ToolTip="立即删除背包内的所有非弹射点道具，不弹出确认框" />
-                                        </DockPanel>
-                                        <local:CatalogActionGridControl x:Name="_disposableActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
-                                    </Grid>
-                                </Border>
-                                <Border x:Name="_catapultsSection" Grid.Row="2" Margin="0" Style="{StaticResource CheatSectionStyle}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="8" />
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="10" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
-                                        <local:CatalogActionGridControl x:Name="_catapultActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
-                                        <Grid Grid.Row="4">
-                                            <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="8" /><RowDefinition Height="44" /></Grid.RowDefinitions>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                            <Button x:Name="_clearBackpackCatapultsButton" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空背包" AutomationProperties.Name="删除所有背包弹射点" />
-                                            <Button x:Name="_clearFieldCatapultsButton" Grid.Column="2" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空场上" AutomationProperties.Name="删除所有场上弹射点" />
-                                            <CheckBox x:Name="_fieldCatapultDeleteModeCheck" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center" Style="{StaticResource FieldDeleteToggleStyle}" FontWeight="Bold" Content="点击场上弹射点直接删除" ToolTip="开启后在游戏内悬停弹射点会显示红色标记，左键立即删除；按 Esc 退出" />
-                                        </Grid>
-                                    </Grid>
-                                </Border>
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="消耗品" />
+                                    <Button x:Name="_clearConsumablesButton" DockPanel.Dock="Right" MinWidth="92" Padding="12,5" Style="{StaticResource DangerButtonStyle}" Content="全部删除" AutomationProperties.Name="删除所有消耗品" ToolTip="立即删除背包内的所有非弹射点道具，不弹出确认框" />
+                                </DockPanel>
+                                <local:CatalogActionGridControl x:Name="_disposableActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个；悬停 1 秒查看游戏说明" />
                             </Grid>
-                        </Grid>
-                    </ScrollViewer>
+                        </Border>
+                        <Border x:Name="_catapultsSection" Grid.Column="2" Margin="0" Style="{StaticResource CheatSectionStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="8" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="弹射点" />
+                                <local:CatalogActionGridControl x:Name="_catapultActions" Grid.Row="2" InteractionHint="左键图标立即获取 1 个弹射点；悬停 1 秒查看游戏说明" />
+                                <Grid Grid.Row="4">
+                                    <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="8" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Button x:Name="_clearBackpackCatapultsButton" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空背包" AutomationProperties.Name="删除所有背包弹射点" />
+                                    <Button x:Name="_clearFieldCatapultsButton" Grid.Column="2" MinWidth="132" Style="{StaticResource DangerButtonStyle}" Content="清空场上" AutomationProperties.Name="删除所有场上弹射点" />
+                                    <CheckBox x:Name="_fieldCatapultDeleteModeCheck" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center" Style="{StaticResource FieldDeleteToggleStyle}" FontWeight="Bold" Content="点击场上弹射点直接删除" ToolTip="开启后在游戏内悬停弹射点会显示红色标记，左键立即删除；按 Esc 退出" />
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="遗物">

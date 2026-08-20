@@ -98,6 +98,41 @@ public sealed class EnchantmentSelectorWpfTests
         });
     }
 
+    [Fact]
+    public void SearchAndClearAction_ShareOneHeaderRow()
+    {
+        RunSta(() =>
+        {
+            EnchantmentSelectorControl selector = new();
+            selector.SetItems(new[] { Item("Poison", "毒", "Poison", 10, 0) });
+            Window window = new()
+            {
+                Width = 720,
+                Height = 520,
+                Content = selector,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                window.Show();
+                PumpDispatcher();
+                Border search = Assert.IsType<Border>(selector.FindName("SearchFrame"));
+                Button clear = Assert.IsType<Button>(selector.FindName("ClearSelectionsButton"));
+                Point searchTop = search.TransformToAncestor(selector).Transform(new Point());
+                Point clearTop = clear.TransformToAncestor(selector).Transform(new Point());
+                Assert.Equal(searchTop.Y, clearTop.Y, precision: 2);
+                Assert.Equal(search.ActualHeight, clear.ActualHeight, precision: 2);
+                Assert.False(clear.IsEnabled);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     private static CatalogPickerItem Item(string id, string name, string group, int groupOrder, int itemOrder) =>
         new(
             id,

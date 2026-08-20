@@ -19,7 +19,6 @@ internal sealed partial class CheatForm : Window
 {
     private const decimal DefaultAttributeMinimum = -1_000_000_000m;
     private const decimal DefaultAttributeMaximum = 1_000_000_000m;
-    private const double WideItemsLayoutBreakpoint = 1180d;
     private static readonly TimeSpan ToastDisplayDuration = TimeSpan.FromSeconds(3);
     private static readonly Duration ToastEnterDuration = new(TimeSpan.FromMilliseconds(180));
     private static readonly Duration ToastExitDuration = new(TimeSpan.FromMilliseconds(150));
@@ -67,7 +66,6 @@ internal sealed partial class CheatForm : Window
     private bool _grantAllRelicsPollInProgress;
     private bool _isClosed;
     private bool _hasLoaded;
-    private bool _wideItemsLayout;
     private BridgeHello? _hello;
     private AutoPlayerStatus? _status;
     private string _sessionKey = string.Empty;
@@ -94,13 +92,11 @@ internal sealed partial class CheatForm : Window
         WireEvents();
         RegisterAvailabilityControls();
         Loaded += CheatForm_OnLoaded;
-        SizeChanged += CheatForm_OnSizeChanged;
         Closing += CheatForm_OnClosing;
         Closed += CheatForm_OnClosed;
         _capturePollTimer.Tick += CapturePollTimerTick;
         _grantAllRelicsPollTimer.Tick += GrantAllRelicsPollTimerTick;
         _toastTimer.Tick += ToastTimerTick;
-        ApplyResponsiveLayout(Width);
         ApplyAvailability();
     }
 
@@ -165,7 +161,6 @@ internal sealed partial class CheatForm : Window
         _catalogRefreshButton.Click += async (_, _) => await RefreshCatalogAsync();
         _grantVehicleButton.Click += async (_, _) => await GrantVehicleAsync();
         _enchantmentSelector.SelectionChanged += (_, _) => ApplyAvailability();
-        _clearEnchantmentsButton.Click += (_, _) => _enchantmentSelector.ClearSelections();
         _tabs.SelectionChanged += (_, eventArgs) =>
         {
             if (!ReferenceEquals(eventArgs.OriginalSource, _tabs)) return;
@@ -250,7 +245,7 @@ internal sealed partial class CheatForm : Window
     private void RegisterAvailabilityControls()
     {
         AddMutationControls(
-            _vehicleCount, _enchantmentSelector, _clearEnchantmentsButton,
+            _vehicleCount, _enchantmentSelector,
             _grantVehicleButton, _disposableActions,
             _clearConsumablesButton,
             _relicActions, _grantAllRelicsButton, _removeAllRelicsButton,
@@ -285,36 +280,6 @@ internal sealed partial class CheatForm : Window
         await RefreshStateOnShownAsync();
     }
 
-    private void CheatForm_OnSizeChanged(object sender, SizeChangedEventArgs eventArgs) =>
-        ApplyResponsiveLayout(eventArgs.NewSize.Width);
-
-    private void ApplyResponsiveLayout(double width)
-    {
-        bool useWideItemsLayout = width >= WideItemsLayoutBreakpoint;
-        if (_wideItemsLayout == useWideItemsLayout) return;
-
-        _wideItemsLayout = useWideItemsLayout;
-        if (useWideItemsLayout)
-        {
-            _itemsFirstColumn.Width = new GridLength(1, GridUnitType.Star);
-            _itemsColumnGap.Width = new GridLength(12);
-            _itemsSecondColumn.Width = new GridLength(1, GridUnitType.Star);
-            _itemsSectionsGrid.RowDefinitions[1].Height = new GridLength(0);
-            _itemsSectionsGrid.RowDefinitions[2].Height = new GridLength(0);
-            Grid.SetRow(_catapultsSection, 0);
-            Grid.SetColumn(_catapultsSection, 2);
-            return;
-        }
-
-        _itemsFirstColumn.Width = new GridLength(1, GridUnitType.Star);
-        _itemsColumnGap.Width = new GridLength(0);
-        _itemsSecondColumn.Width = new GridLength(0);
-        _itemsSectionsGrid.RowDefinitions[1].Height = new GridLength(12);
-        _itemsSectionsGrid.RowDefinitions[2].Height = new GridLength(1, GridUnitType.Star);
-        Grid.SetRow(_catapultsSection, 2);
-        Grid.SetColumn(_catapultsSection, 0);
-    }
-
     private void CheatForm_OnClosing(object? sender, CancelEventArgs eventArgs)
     {
         if (string.Equals(_spawnCaptureState, "armed", StringComparison.OrdinalIgnoreCase)
@@ -330,7 +295,6 @@ internal sealed partial class CheatForm : Window
     private void CheatForm_OnClosed(object? sender, EventArgs eventArgs)
     {
         _isClosed = true;
-        SizeChanged -= CheatForm_OnSizeChanged;
         _capturePollTimer.Stop();
         _capturePollTimer.Tick -= CapturePollTimerTick;
         _grantAllRelicsPollTimer.Stop();
@@ -1371,7 +1335,6 @@ internal sealed partial class CheatForm : Window
         _enemyIdOverlayCheck.IsEnabled = canQueryEntities;
         _enemyBuffOverlayCheck.IsEnabled = canQueryEntities;
 
-        _clearEnchantmentsButton.IsEnabled = canMutate && _enchantmentSelector.Selections.Count > 0;
         _grantVehicleButton.IsEnabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
         _grantAllRelicsButton.IsEnabled = canMutate;
         _removeAllRelicsButton.IsEnabled = canMutate;

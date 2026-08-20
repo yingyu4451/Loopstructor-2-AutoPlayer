@@ -66,6 +66,8 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private void ClearSelectionsButton_OnClick(object sender, RoutedEventArgs eventArgs) => ClearSelections();
+
     public void CloseDetails()
     {
         CloseDetails(ItemsHost);
@@ -119,6 +121,7 @@ internal sealed partial class EnchantmentSelectorControl : UserControl
         foreach (EnchantmentChoice item in selected) _selectedItems.Add(item);
         long layers = selected.Aggregate<EnchantmentChoice, long>(0, (total, item) => total + item.Level);
         SummaryText.Text = $"已选 {selected.Length} 种附魔 · 共 {layers} 层";
+        ClearSelectionsButton.IsEnabled = selected.Length > 0;
     }
 }
 

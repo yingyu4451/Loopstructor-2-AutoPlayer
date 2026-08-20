@@ -127,7 +127,7 @@ public sealed class CheatFormWpfLayoutTests
     }
 
     [Fact]
-    public void ResponsivePages_UseWideItemColumns_AndAvoidDecorativeOuterScrolling()
+    public void ItemPage_KeepsBothSectionsAndBottomActionsVisibleAtSupportedSizes()
     {
         RunSta(() =>
         {
@@ -149,22 +149,28 @@ public sealed class CheatFormWpfLayoutTests
                 Border catapultSection = Assert.IsType<Border>(form.FindName("_catapultsSection"));
                 Assert.Equal(0, Grid.GetRow(catapultSection));
                 Assert.Equal(2, Grid.GetColumn(catapultSection));
+                form.SelectDemoTab(1);
+                form.UpdateLayout();
+                PumpDispatcher();
+                Grid itemPage = Assert.IsType<Grid>(Assert.IsType<TabItem>(Assert.IsType<TabControl>(form.FindName("_tabs")).SelectedItem).Content);
+                AssertItemsPageActionsVisible(form, itemPage);
                 AssertOuterScrollBarCollapsed(form, 0);
                 AssertOuterScrollBarCollapsed(form, 1);
                 AssertOuterScrollBarCollapsed(form, 2);
                 AssertOuterScrollBarCollapsed(form, 3);
                 AssertOuterScrollBarCollapsed(form, 5);
 
-                ArrangeWindowForLayout(form, 1179, 680);
-                Assert.Equal(2, Grid.GetRow(catapultSection));
-                Assert.Equal(0, Grid.GetColumn(catapultSection));
+                ArrangeWindowForLayout(form, 980, 680);
+                form.SelectDemoTab(1);
+                form.UpdateLayout();
+                PumpDispatcher();
+                Assert.Equal(0, Grid.GetRow(catapultSection));
+                Assert.Equal(2, Grid.GetColumn(catapultSection));
+                AssertItemsPageActionsVisible(form, itemPage);
+                AssertOuterScrollBarCollapsed(form, 1);
                 AssertOuterScrollBarCollapsed(form, 2);
                 AssertOuterScrollBarCollapsed(form, 3);
                 AssertOuterScrollBarCollapsed(form, 5);
-
-                ArrangeWindowForLayout(form, 1180, 680);
-                Assert.Equal(0, Grid.GetRow(catapultSection));
-                Assert.Equal(2, Grid.GetColumn(catapultSection));
             }
             finally
             {
@@ -199,8 +205,12 @@ public sealed class CheatFormWpfLayoutTests
 
                 VehicleQuickSelectorControl vehicleCatalog = Assert.IsType<VehicleQuickSelectorControl>(form.FindName("_vehicleCatalog"));
                 EnchantmentSelectorControl enchantmentCatalog = Assert.IsType<EnchantmentSelectorControl>(form.FindName("_enchantmentSelector"));
+                Border enchantmentSearch = Assert.IsType<Border>(enchantmentCatalog.FindName("SearchFrame"));
+                Button clearEnchantments = Assert.IsType<Button>(enchantmentCatalog.FindName("ClearSelectionsButton"));
                 Assert.True(double.IsNaN(vehicleCatalog.Height));
                 Assert.True(double.IsNaN(enchantmentCatalog.Height));
+                AssertTopAligned(enchantmentCatalog, "SearchFrame", "ClearSelectionsButton");
+                Assert.Equal(enchantmentSearch.ActualHeight, clearEnchantments.ActualHeight, precision: 2);
                 double compactVehicleHeight = vehicleCatalog.ActualHeight;
                 double compactEnchantmentHeight = enchantmentCatalog.ActualHeight;
                 AssertRemovedHeadings(
@@ -1133,6 +1143,33 @@ public sealed class CheatFormWpfLayoutTests
         Assert.NotEqual(Visibility.Visible, page.ComputedVerticalScrollBarVisibility);
     }
 
+    private static void AssertItemsPageActionsVisible(CheatForm form, Grid itemPage)
+    {
+        CatalogActionGridControl disposableActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_disposableActions"));
+        CatalogActionGridControl catapultActions = Assert.IsType<CatalogActionGridControl>(form.FindName("_catapultActions"));
+        FrameworkElement[] controls =
+        [
+            Assert.IsType<TextBlock>(disposableActions.FindName("InteractionText")),
+            Assert.IsType<TextBlock>(catapultActions.FindName("InteractionText")),
+            Assert.IsType<Button>(form.FindName("_clearBackpackCatapultsButton")),
+            Assert.IsType<Button>(form.FindName("_clearFieldCatapultsButton")),
+            Assert.IsType<CheckBox>(form.FindName("_fieldCatapultDeleteModeCheck"))
+        ];
+
+        foreach (FrameworkElement control in controls)
+        {
+            Assert.True(control.ActualWidth > 0, $"{control.Name} 没有获得可见宽度。");
+            Assert.True(control.ActualHeight > 0, $"{control.Name} 没有获得可见高度。");
+            Rect bounds = control.TransformToAncestor(itemPage).TransformBounds(new Rect(control.RenderSize));
+            Assert.True(
+                bounds.Left >= -1
+                && bounds.Top >= -1
+                && bounds.Right <= itemPage.ActualWidth + 1
+                && bounds.Bottom <= itemPage.ActualHeight + 1,
+                $"{control.Name} 超出道具页可视范围：{bounds}，页面 {itemPage.ActualWidth:0.##}x{itemPage.ActualHeight:0.##}。");
+        }
+    }
+
     private static void AssertRemovedHeadings(DependencyObject page, params string[] removedHeadings)
     {
         string[] visibleText = VisualDescendants<TextBlock>(page)
@@ -1151,9 +1188,6 @@ public sealed class CheatFormWpfLayoutTests
     {
         form.Width = width;
         form.Height = height;
-        typeof(CheatForm)
-            .GetMethod("ApplyResponsiveLayout", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(form, [width]);
         FrameworkElement root = Assert.IsAssignableFrom<FrameworkElement>(form.Content);
         root.Measure(new Size(width, height));
         root.Arrange(new Rect(0, 0, width, height));
