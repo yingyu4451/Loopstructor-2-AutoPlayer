@@ -60,6 +60,7 @@ internal sealed class RuntimeBridge
         ("cancelVehicleInteraction", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "CancelVehicleInteraction"),
         ("moveVehicleInTrain", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "MoveVehicleInTrain"),
         ("queryMap", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "QueryMapState"),
+        ("uiClickMapButton", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "UiClickMapButton"),
         ("selectMapNode", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "SelectMapNode"),
         ("selectSublevel", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "SelectSublevel"),
         ("setTimeSpeed", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "SetTimeSpeed"),

@@ -26,6 +26,7 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition rewardWait = RequireMethod(controller, "TryWaitForRewardOptions");
         MethodDefinition eventWait = RequireMethod(controller, "TryWaitForEventOptions");
         MethodDefinition merge = RequireMethod(controller, "RunMergeAutomationStep");
+        MethodDefinition ensureMapOpen = RequireMethod(controller, "TryEnsureMapOpenForSelectionPreview");
         MethodDefinition show = RequireMethod(highlighter, "Show");
 
         Assert.Contains(controller.Fields, field => field.Name == "_selectionHighlighter");
@@ -36,13 +37,51 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "ShowRewardSelectionHighlight"));
         Assert.Contains(Calls(eventWait), IsCall(ControllerType, "ShowEventSelectionHighlight"));
         Assert.Contains(Calls(merge), IsCall(ControllerType, "TryWaitForSelectionPreview"));
+        Assert.Contains(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_MergeRebuildPanel_VehicleItem");
+        Assert.Contains(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Merge");
+        Assert.DoesNotContain(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Fetter");
+        Assert.Contains(LoadedStrings(ensureMapOpen), value => value == "uiClickMapButton");
+        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "InvalidateFullWaveQueryCache"));
+        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleContinuationFrame"));
+        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleNormalPoll"));
         Assert.Contains(LoadedStrings(show), value => value == "UnityEngine.UI.Image");
         Assert.Contains(LoadedStrings(show), value => value == "raycastTarget");
+
+        FieldDefinition thickness = highlighter.Fields.Single(field => field.Name == "BorderThickness");
+        Assert.Equal(2f, thickness.Constant);
+        MethodDefinition initializeBorderColor = RequireMethod(highlighter, ".cctor");
+        Assert.Contains(Calls(initializeBorderColor), call => call.DeclaringType.FullName == "UnityEngine.Color32");
+        Assert.Contains(initializeBorderColor.Body.Instructions, instruction => IsLoadedInteger(instruction, 0x79));
+        Assert.Contains(initializeBorderColor.Body.Instructions, instruction => IsLoadedInteger(instruction, 0xD5));
+        Assert.Contains(initializeBorderColor.Body.Instructions, instruction => IsLoadedInteger(instruction, 0x3B));
+        Assert.Contains(initializeBorderColor.Body.Instructions, instruction => IsLoadedInteger(instruction, 0xFF));
+
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        MethodDefinition initializeBridgeContract = RequireMethod(bridge, ".cctor");
+        Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "uiClickMapButton");
+        Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "UiClickMapButton");
 
         MethodDefinition drawOverlay = RequireMethod(RequireType(assembly, SessionType), "DrawOverlay");
         Assert.DoesNotContain(Calls(drawOverlay), IsCall(ControllerType, "ShowSelectionHighlight"));
         Assert.DoesNotContain(Calls(drawOverlay), IsCall(SelectionHighlighterType, "Show"));
     }
+
+    private static bool IsLoadedInteger(Instruction instruction, int value) => instruction.OpCode.Code switch
+    {
+        Code.Ldc_I4_M1 => value == -1,
+        Code.Ldc_I4_0 => value == 0,
+        Code.Ldc_I4_1 => value == 1,
+        Code.Ldc_I4_2 => value == 2,
+        Code.Ldc_I4_3 => value == 3,
+        Code.Ldc_I4_4 => value == 4,
+        Code.Ldc_I4_5 => value == 5,
+        Code.Ldc_I4_6 => value == 6,
+        Code.Ldc_I4_7 => value == 7,
+        Code.Ldc_I4_8 => value == 8,
+        Code.Ldc_I4_S => instruction.Operand is sbyte shortValue && shortValue == value,
+        Code.Ldc_I4 => instruction.Operand is int intValue && intValue == value,
+        _ => false
+    };
 
     [Fact]
     public void SelectionPreview_IsClearedOnSceneChangePauseStopFaultCompletionAndSessionDispose()

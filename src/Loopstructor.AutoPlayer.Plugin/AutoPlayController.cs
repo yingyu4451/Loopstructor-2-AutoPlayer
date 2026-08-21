@@ -201,6 +201,8 @@ internal sealed class AutoPlayController
     private string _selectionHighlightFingerprint = string.Empty;
     private string _selectionPreviewFingerprint = string.Empty;
     private float _selectionPreviewReadyAt = -1f;
+    private bool _mapPreviewOpenPending;
+    private float _mapPreviewOpenRequestedAt = -1f;
     private AutomationAction? _deferredFrontEndAction;
     private AutomationAction? _deferredNormalEventAction;
     private bool _deferredNormalEventChoosingOption;
@@ -1303,6 +1305,11 @@ internal sealed class AutoPlayController
         }
 
         bool mapOpen = mapState["mapOpen"]?.Value<bool>() == true;
+        if (TryEnsureMapOpenForSelectionPreview(canSelectNextNode, mapOpen))
+        {
+            return;
+        }
+
         if (!_defensePrepared && canStartWave)
         {
             JObject vehicleState;
@@ -1396,6 +1403,69 @@ internal sealed class AutoPlayController
             null,
             null,
             _options.DecisionPriority));
+    }
+
+    private bool TryEnsureMapOpenForSelectionPreview(bool canSelectNextNode, bool mapOpen)
+    {
+        if (!canSelectNextNode)
+        {
+            _mapPreviewOpenPending = false;
+            _mapPreviewOpenRequestedAt = -1f;
+            return false;
+        }
+
+        if (mapOpen)
+        {
+            _mapPreviewOpenPending = false;
+            _mapPreviewOpenRequestedAt = -1f;
+            return false;
+        }
+
+        float now = Time.realtimeSinceStartup;
+        if (_mapPreviewOpenPending)
+        {
+            if (_mapPreviewOpenRequestedAt >= 0f &&
+                now - _mapPreviewOpenRequestedAt < RecordingObservationDelaySeconds)
+            {
+                InvalidateFullWaveQueryCache();
+                ScheduleContinuationFrame();
+                SetStage(AutomationStage.SelectingRoute, "已打开游戏原生地图，正在等待地图节点生成并重新读取状态。");
+                return true;
+            }
+
+            _mapPreviewOpenPending = false;
+            _mapPreviewOpenRequestedAt = -1f;
+            InvalidateFullWaveQueryCache();
+            ScheduleNormalPoll();
+            SetStage(AutomationStage.SelectingRoute, "游戏原生地图尚未确认打开；本轮不会盲选节点，稍后重新查询并重试。");
+            return true;
+        }
+
+        AutomationAction openMap = new(
+            "uiClickMapButton",
+            null,
+            AutomationStage.SelectingRoute,
+            "打开游戏原生地图，以显示自动游玩即将选择的节点。");
+        if (!ExecuteWithResult(openMap, optional: true, out JObject result))
+        {
+            ScheduleNormalPoll();
+            SetStage(AutomationStage.SelectingRoute, "无法打开游戏原生地图；本轮不会盲选节点，稍后重新查询并重试。");
+            return true;
+        }
+
+        if (State(result)["mapOpen"]?.Value<bool>() != true)
+        {
+            ScheduleNormalPoll();
+            SetStage(AutomationStage.SelectingRoute, "地图按钮已执行，但游戏没有确认地图已打开；本轮不会盲选节点，稍后重试。");
+            return true;
+        }
+
+        _mapPreviewOpenPending = true;
+        _mapPreviewOpenRequestedAt = now;
+        InvalidateFullWaveQueryCache();
+        ScheduleContinuationFrame();
+        SetStage(AutomationStage.SelectingRoute, "游戏原生地图已打开；下一帧重新读取节点并显示绿色边框。");
+        return true;
     }
 
     private void PrepareOpeningDefenseIncrementally()
@@ -4956,18 +5026,47 @@ internal sealed class AutoPlayController
             return;
         }
 
+        if (string.Equals(action.Command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase))
+        {
+            JObject mergeState = State(_mergeAutomationQueryResult);
+            int itemInstanceId = action.Arguments["itemInstanceId"]?.Value<int>() ?? 0;
+            int itemIndex = action.Arguments["index"]?.Value<int>() ?? -1;
+            JObject? item = (mergeState["mergeVehicles"] as JArray)?.OfType<JObject>()
+                .FirstOrDefault(candidate => itemInstanceId != 0
+                    ? candidate["instanceId"]?.Value<int>() == itemInstanceId
+                    : candidate["index"]?.Value<int>() == itemIndex);
+            int targetInstanceId = item?["instanceId"]?.Value<int>() ?? itemInstanceId;
+            string targetPath = item?["path"]?.Value<string>() ?? string.Empty;
+            NativeSelectionTarget? target = targetInstanceId == 0 && string.IsNullOrWhiteSpace(targetPath)
+                ? null
+                : NativeSelectionTarget.ByInstance(
+                    "MetroTD.UISystem.RebuildUI_MergeRebuildPanel_VehicleItem",
+                    targetInstanceId,
+                    targetPath);
+            if (target != null && TryWaitForSelectionPreview(
+                    "merge-vehicle",
+                    action,
+                    target,
+                    "已用绿色边框标出下一辆升星素材战车；观察时间结束后再选择。"))
+            {
+                return;
+            }
+        }
+
         if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
         {
             JObject mergeState = State(_mergeAutomationQueryResult);
             int optionIndex = action.Arguments["index"]?.Value<int>() ?? -1;
             JObject? option = (mergeState["mergeOptions"] as JArray)?.OfType<JObject>()
                 .FirstOrDefault(candidate => candidate["index"]?.Value<int>() == optionIndex);
-            NativeSelectionTarget? target = option == null
+            int targetInstanceId = option?["instanceId"]?.Value<int>() ?? 0;
+            string targetPath = option?["path"]?.Value<string>() ?? string.Empty;
+            NativeSelectionTarget? target = targetInstanceId == 0 && string.IsNullOrWhiteSpace(targetPath)
                 ? null
                 : NativeSelectionTarget.ByInstance(
-                    "MetroTD.UISystem.RebuildUI_Option_Fetter",
-                    option["instanceId"]?.Value<int>() ?? 0,
-                    option["path"]?.Value<string>());
+                    "MetroTD.UISystem.RebuildUI_Option_Merge",
+                    targetInstanceId,
+                    targetPath);
             if (target != null && TryWaitForSelectionPreview(
                     "merge-fetter",
                     action,
@@ -6777,6 +6876,8 @@ internal sealed class AutoPlayController
         _selectionHighlightFingerprint = string.Empty;
         _selectionPreviewFingerprint = string.Empty;
         _selectionPreviewReadyAt = -1f;
+        _mapPreviewOpenPending = false;
+        _mapPreviewOpenRequestedAt = -1f;
     }
 
     private static NativeSelectionTarget? BuildInstanceSelectionTarget(
@@ -6924,6 +7025,10 @@ internal sealed class AutoPlayController
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
         {
             ClearSelectionHighlight("map");
+        }
+        else if (string.Equals(action.Command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearSelectionHighlight("merge-vehicle");
         }
         else if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
         {

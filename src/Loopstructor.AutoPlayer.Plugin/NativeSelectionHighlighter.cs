@@ -12,7 +12,8 @@ namespace Loopstructor.AutoPlayer.Plugin;
 internal sealed class NativeSelectionHighlighter
 {
     private const string BorderObjectName = "Loopstructor.AutoPlayer.SelectionBorder";
-    private static readonly Color BorderColor = new(0.34f, 1f, 0.24f, 1f);
+    private const float BorderThickness = 2f;
+    private static readonly Color BorderColor = new Color32(0x79, 0xD5, 0x3B, 0xFF);
     private GameObject? _borderRoot;
     private string _targetKey = string.Empty;
 
@@ -75,10 +76,10 @@ internal sealed class NativeSelectionHighlighter
                 ignoreLayoutProperty.SetValue(layoutElement, true, null);
             }
 
-            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Top", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -4f), Vector2.zero);
-            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Bottom", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 4f));
-            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Left", Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(4f, 0f));
-            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Right", new Vector2(1f, 0f), Vector2.one, new Vector2(-4f, 0f), Vector2.zero);
+            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Top", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -BorderThickness), Vector2.zero);
+            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Bottom", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, BorderThickness));
+            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Left", Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(BorderThickness, 0f));
+            AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Right", new Vector2(1f, 0f), Vector2.one, new Vector2(-BorderThickness, 0f), Vector2.zero);
             rootRect.SetAsLastSibling();
             return true;
         }
