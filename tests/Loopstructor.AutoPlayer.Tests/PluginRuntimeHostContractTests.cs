@@ -41,6 +41,9 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Merge");
         Assert.DoesNotContain(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Fetter");
         Assert.Contains(LoadedStrings(ensureMapOpen), value => value == "uiClickMapButton");
+        Assert.Contains(
+            Calls(RequireMethod(controller, "TickInGame")),
+            IsCall("Loopstructor.AutoPlayer.Core.MapRouteSelectionPolicy", "IsSelectionOutstanding"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "InvalidateFullWaveQueryCache"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleContinuationFrame"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleNormalPoll"));

@@ -1305,7 +1305,12 @@ internal sealed class AutoPlayController
         }
 
         bool mapOpen = mapState["mapOpen"]?.Value<bool>() == true;
-        if (TryEnsureMapOpenForSelectionPreview(canSelectNextNode, mapOpen))
+        bool routeSelectionOutstanding = MapRouteSelectionPolicy.IsSelectionOutstanding(
+            canSelectNextNode,
+            canStartWave,
+            HasMapNode(mapState, "chooseNode"),
+            HasMapNode(mapState, "pendingSubLevelNode"));
+        if (TryEnsureMapOpenForSelectionPreview(routeSelectionOutstanding, mapOpen))
         {
             return;
         }
@@ -1397,7 +1402,7 @@ internal sealed class AutoPlayController
             blockers,
             mapState,
             canStartWave,
-            canSelectNextNode);
+            routeSelectionOutstanding);
         ExecuteInGameDecision(_decisionEngine.DecideInGame(
             lightweightAffordances,
             null,
@@ -1405,9 +1410,9 @@ internal sealed class AutoPlayController
             _options.DecisionPriority));
     }
 
-    private bool TryEnsureMapOpenForSelectionPreview(bool canSelectNextNode, bool mapOpen)
+    private bool TryEnsureMapOpenForSelectionPreview(bool routeSelectionOutstanding, bool mapOpen)
     {
-        if (!canSelectNextNode)
+        if (!routeSelectionOutstanding)
         {
             _mapPreviewOpenPending = false;
             _mapPreviewOpenRequestedAt = -1f;
@@ -1467,6 +1472,10 @@ internal sealed class AutoPlayController
         SetStage(AutomationStage.SelectingRoute, "游戏原生地图已打开；下一帧重新读取节点并显示绿色边框。");
         return true;
     }
+
+    private static bool HasMapNode(JObject mapState, string propertyName) =>
+        mapState[propertyName] is JToken node &&
+        node.Type != JTokenType.Null;
 
     private void PrepareOpeningDefenseIncrementally()
     {
