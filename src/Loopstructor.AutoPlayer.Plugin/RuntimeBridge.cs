@@ -28,6 +28,7 @@ internal sealed class RuntimeBridge
     private PropertyInfo? _waveFunctionOptionFlowInstance;
     private PropertyInfo? _waveFunctionOptionFlowHasPendingFlow;
     private PropertyInfo? _waveFunctionOptionFlowDescription;
+    private PropertyInfo? _roomMapUiInstance;
 
     private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
@@ -158,6 +159,7 @@ internal sealed class RuntimeBridge
         _resultSuggestion = _resultType?.GetField("suggestion", BindingFlags.Public | BindingFlags.Instance);
         InitializeWavePulseContract();
         InitializeWaveFunctionOptionFlowContract();
+        InitializeMapAnimationContract();
         _liveEnemyThreatReader.Initialize();
         MissingMembers = missing;
         IsAvailable = missing.Count == 0;
@@ -422,6 +424,56 @@ internal sealed class RuntimeBridge
         }
     }
 
+    public bool TryGetMapOpenAnimationProgress(
+        out bool openAnimationObserved,
+        out bool completed,
+        out float normalizedTime)
+    {
+        openAnimationObserved = false;
+        completed = false;
+        normalizedTime = 0f;
+        if (_roomMapUiInstance == null) return false;
+
+        try
+        {
+            object? map = _roomMapUiInstance.GetValue(null, null);
+            if (map is not Component component ||
+                component.gameObject == null ||
+                !component.gameObject.activeInHierarchy)
+            {
+                return false;
+            }
+
+            Animator? animator = component.GetComponent<Animator>();
+            if (animator == null || !animator.isActiveAndEnabled || animator.layerCount <= 0)
+            {
+                return false;
+            }
+
+            int openStateHash = Animator.StringToHash("Open");
+            bool inTransition = animator.IsInTransition(0);
+            AnimatorStateInfo current = animator.GetCurrentAnimatorStateInfo(0);
+            bool currentIsOpen = current.IsName("Open") || current.shortNameHash == openStateHash;
+            AnimatorStateInfo next = inTransition
+                ? animator.GetNextAnimatorStateInfo(0)
+                : default;
+            bool nextIsOpen = inTransition &&
+                              (next.IsName("Open") || next.shortNameHash == openStateHash);
+
+            openAnimationObserved = currentIsOpen || nextIsOpen;
+            normalizedTime = nextIsOpen ? next.normalizedTime : current.normalizedTime;
+            completed = currentIsOpen && !inTransition && current.normalizedTime >= 1f;
+            return true;
+        }
+        catch
+        {
+            openAnimationObserved = false;
+            completed = false;
+            normalizedTime = 0f;
+            return false;
+        }
+    }
+
     private void InitializeWavePulseContract()
     {
         Type? waveType = FindType("MetroTD.RoomSystem.WaveDurationController");
@@ -456,6 +508,14 @@ internal sealed class RuntimeBridge
         _waveFunctionOptionFlowDescription = runtimeType?.GetProperty(
             "PendingFlowDescription",
             BindingFlags.Public | BindingFlags.Instance);
+    }
+
+    private void InitializeMapAnimationContract()
+    {
+        Type? mapType = FindType("MetroTD.RoomSystem.RoomMapUI");
+        _roomMapUiInstance = mapType?.GetProperty(
+            "Instance",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
     }
 
     private JObject AdaptRuntimeResult(object result)

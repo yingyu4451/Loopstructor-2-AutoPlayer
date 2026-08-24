@@ -13,6 +13,7 @@ internal sealed class NativeSelectionHighlighter
 {
     private const string BorderObjectName = "Loopstructor.AutoPlayer.SelectionBorder";
     private const float BorderThickness = 2f;
+    private const float BorderInset = 2f;
     private static readonly Color BorderColor = new Color32(0x79, 0xD5, 0x3B, 0xFF);
     private GameObject? _borderRoot;
     private string _targetKey = string.Empty;
@@ -63,8 +64,8 @@ internal sealed class NativeSelectionHighlighter
             rootRect.SetParent(targetRect, false);
             rootRect.anchorMin = Vector2.zero;
             rootRect.anchorMax = Vector2.one;
-            rootRect.offsetMin = Vector2.zero;
-            rootRect.offsetMax = Vector2.zero;
+            rootRect.offsetMin = new Vector2(BorderInset, BorderInset);
+            rootRect.offsetMax = new Vector2(-BorderInset, -BorderInset);
             rootRect.localScale = Vector3.one;
             Type? layoutElementType = AccessTools.TypeByName("UnityEngine.UI.LayoutElement");
             PropertyInfo? ignoreLayoutProperty = layoutElementType == null

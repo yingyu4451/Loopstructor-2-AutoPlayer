@@ -111,7 +111,10 @@ internal sealed class AutoPlayController
     private const float NormalEventAppearanceGraceSeconds = 1f;
     private const float EventOptionGenerationDelaySeconds = 3.25f;
     private const float RepairPanelAnimationSeconds = 1.5f;
-    private const float RecordingObservationDelaySeconds = 0.75f;
+    private const float SelectionPreviewObservationSeconds = 1f;
+    private const float RewardCollectionObservationSeconds = 0.75f;
+    private const float MapOpenAnimationFallbackSeconds = 1.55f;
+    private const float MapOpenAnimationPollSeconds = 0.1f;
     private const float RewardObjectAppearanceGraceSeconds = 1.25f;
     private const float RewardObjectAppearancePollSeconds = 0.1f;
     private const float MergeSettlementObservationSeconds = 0.75f;
@@ -203,6 +206,7 @@ internal sealed class AutoPlayController
     private float _selectionPreviewReadyAt = -1f;
     private bool _mapPreviewOpenPending;
     private float _mapPreviewOpenRequestedAt = -1f;
+    private bool _mapPreviewOpenAnimationObserved;
     private AutomationAction? _deferredFrontEndAction;
     private AutomationAction? _deferredNormalEventAction;
     private bool _deferredNormalEventChoosingOption;
@@ -1415,35 +1419,74 @@ internal sealed class AutoPlayController
     {
         if (!routeSelectionOutstanding)
         {
-            _mapPreviewOpenPending = false;
-            _mapPreviewOpenRequestedAt = -1f;
-            return false;
-        }
-
-        if (mapOpen)
-        {
-            _mapPreviewOpenPending = false;
-            _mapPreviewOpenRequestedAt = -1f;
+            ResetMapPreviewOpenWait();
             return false;
         }
 
         float now = Time.realtimeSinceStartup;
         if (_mapPreviewOpenPending)
         {
-            if (_mapPreviewOpenRequestedAt >= 0f &&
-                now - _mapPreviewOpenRequestedAt < RecordingObservationDelaySeconds)
+            if (!mapOpen)
             {
+                ResetMapPreviewOpenWait();
                 InvalidateFullWaveQueryCache();
-                ScheduleContinuationFrame();
-                SetStage(AutomationStage.SelectingRoute, "已打开游戏原生地图，正在等待地图节点生成并重新读取状态。");
+                ScheduleNormalPoll();
+                SetStage(AutomationStage.SelectingRoute, "地图在预览完成前关闭；已取消本次预览，稍后重新读取路线状态。");
                 return true;
             }
 
-            _mapPreviewOpenPending = false;
-            _mapPreviewOpenRequestedAt = -1f;
+            float elapsed = Math.Max(0f, now - _mapPreviewOpenRequestedAt);
+            bool animationReadable = _bridge.TryGetMapOpenAnimationProgress(
+                out bool animationObserved,
+                out bool animationCompleted,
+                out float normalizedTime);
+            bool animationObservedBefore = _mapPreviewOpenAnimationObserved;
+            bool animationReady = MapOpenAnimationPolicy.IsReady(
+                animationReadable,
+                animationObserved,
+                animationObservedBefore,
+                animationCompleted,
+                elapsed,
+                MapOpenAnimationFallbackSeconds);
+            _mapPreviewOpenAnimationObserved |= animationObserved;
+            if (!animationReady)
+            {
+                InvalidateFullWaveQueryCache();
+                ScheduleMapOpenAnimationPoll();
+                string progress = animationReadable && _mapPreviewOpenAnimationObserved
+                    ? $"（{Math.Min(100f, Math.Max(0f, normalizedTime * 100f)):0}%）"
+                    : string.Empty;
+                SetStage(AutomationStage.SelectingRoute, "游戏原生地图正在播放打开动画" + progress + "；动画结束后再显示目标节点。");
+                return true;
+            }
+
+            ResetMapPreviewOpenWait();
             InvalidateFullWaveQueryCache();
-            ScheduleNormalPoll();
-            SetStage(AutomationStage.SelectingRoute, "游戏原生地图尚未确认打开；本轮不会盲选节点，稍后重新查询并重试。");
+            ScheduleContinuationFrame();
+            SetStage(AutomationStage.SelectingRoute, "游戏原生地图打开动画已结束；正在重新读取节点并准备 1 秒绿色边框预览。");
+            return true;
+        }
+
+        if (mapOpen)
+        {
+            bool animationReadable = _bridge.TryGetMapOpenAnimationProgress(
+                out bool animationObserved,
+                out bool animationCompleted,
+                out _);
+            if (animationReadable && animationCompleted)
+            {
+                return false;
+            }
+
+            _mapPreviewOpenPending = true;
+            _mapPreviewOpenRequestedAt = now;
+            _mapPreviewOpenAnimationObserved = animationObserved;
+            ScheduleMapOpenAnimationPoll();
+            SetStage(
+                AutomationStage.SelectingRoute,
+                animationReadable && animationObserved
+                    ? "检测到地图仍在播放打开动画；动画结束后再显示目标节点。"
+                    : "地图已开始打开，正在等待 Animator 进入 Open 状态；不会提前选择节点。");
             return true;
         }
 
@@ -1468,10 +1511,27 @@ internal sealed class AutoPlayController
 
         _mapPreviewOpenPending = true;
         _mapPreviewOpenRequestedAt = now;
+        _mapPreviewOpenAnimationObserved = false;
         InvalidateFullWaveQueryCache();
-        ScheduleContinuationFrame();
-        SetStage(AutomationStage.SelectingRoute, "游戏原生地图已打开；下一帧重新读取节点并显示绿色边框。");
+        ScheduleMapOpenAnimationPoll();
+        SetStage(AutomationStage.SelectingRoute, "游戏原生地图已开始打开；等待原生过渡动画结束后再显示绿色边框。");
         return true;
+    }
+
+    private void ResetMapPreviewOpenWait()
+    {
+        _mapPreviewOpenPending = false;
+        _mapPreviewOpenRequestedAt = -1f;
+        _mapPreviewOpenAnimationObserved = false;
+    }
+
+    private void ScheduleMapOpenAnimationPoll()
+    {
+        float pollAt = Time.realtimeSinceStartup + MapOpenAnimationPollSeconds;
+        if (_nextTickAt <= Time.realtimeSinceStartup || _nextTickAt > pollAt)
+        {
+            _nextTickAt = pollAt;
+        }
     }
 
     private static bool HasMapNode(JObject mapState, string propertyName) =>
@@ -2373,7 +2433,7 @@ internal sealed class AutoPlayController
                 "observation",
                 _options.SkipStory
                     ? "已识别新版普通事件剧情面板；跳过剧情已开启，将在真实跳过按钮可用后立即操作。"
-                    : "已识别新版普通事件剧情面板；开波重试已停止，等待每段文字动画结束后保留 0.75 秒观察时间。");
+                    : "已识别新版普通事件剧情面板；开波重试已停止，等待每段文字动画结束后保留 1 秒观察时间。");
             MarkProgress();
         }
 
@@ -2462,14 +2522,14 @@ internal sealed class AutoPlayController
         if (!string.Equals(fingerprint, _normalEventFingerprint, StringComparison.Ordinal))
         {
             _normalEventFingerprint = fingerprint;
-            _normalEventActionReadyAt = now + RecordingObservationDelaySeconds;
+            _normalEventActionReadyAt = now + SelectionPreviewObservationSeconds;
             _nextTickAt = Math.Max(_nextTickAt, _normalEventActionReadyAt);
             SetStage(
                 AutomationStage.ManagingEvent,
-                "普通事件" + storyProgress + "已完整显示，保留 0.75 秒观察时间后再继续。");
+                "普通事件" + storyProgress + "已完整显示，保留 1 秒观察时间后再继续。");
             AddTimeline(
                 "observation",
-                "普通事件" + storyProgress + "动画已结束；将在 0.75 秒观察时间结束后操作。");
+                "普通事件" + storyProgress + "动画已结束；将在 1 秒观察时间结束后操作。");
             MarkProgress();
             return true;
         }
@@ -2479,7 +2539,7 @@ internal sealed class AutoPlayController
             _nextTickAt = Math.Max(_nextTickAt, _normalEventActionReadyAt);
             SetStage(
                 AutomationStage.ManagingEvent,
-                "普通事件" + storyProgress + "保持显示，正在等待 0.75 秒观察时间结束。");
+                "普通事件" + storyProgress + "保持显示，正在等待 1 秒观察时间结束。");
             return true;
         }
 
@@ -6900,7 +6960,7 @@ internal sealed class AutoPlayController
         if (!string.Equals(_selectionPreviewFingerprint, fingerprint, StringComparison.Ordinal))
         {
             _selectionPreviewFingerprint = fingerprint;
-            _selectionPreviewReadyAt = now + RecordingObservationDelaySeconds;
+            _selectionPreviewReadyAt = now + SelectionPreviewObservationSeconds;
             ShowSelectionHighlight(owner, fingerprint, target);
             _nextTickAt = Math.Max(_nextTickAt, _selectionPreviewReadyAt);
             SetStage(action.Stage, detail);
@@ -6959,8 +7019,7 @@ internal sealed class AutoPlayController
         _selectionHighlightFingerprint = string.Empty;
         _selectionPreviewFingerprint = string.Empty;
         _selectionPreviewReadyAt = -1f;
-        _mapPreviewOpenPending = false;
-        _mapPreviewOpenRequestedAt = -1f;
+        ResetMapPreviewOpenWait();
     }
 
     private static NativeSelectionTarget? BuildInstanceSelectionTarget(
@@ -7902,7 +7961,7 @@ internal sealed class AutoPlayController
 
             if (_rewardObjectsReadyAt < 0f)
             {
-                _rewardObjectsReadyAt = now + RecordingObservationDelaySeconds;
+                _rewardObjectsReadyAt = now + RewardCollectionObservationSeconds;
                 _nextTickAt = Math.Max(_nextTickAt, _rewardObjectsReadyAt);
                 SetStage(AutomationStage.ManagingRewards, "奖励物品出现动画已结束，保留 0.75 秒观察时间后再收取。");
                 AddTimeline("observation", "奖励物品出现动画已结束；将在 0.75 秒观察时间结束后收取。");
@@ -7949,7 +8008,7 @@ internal sealed class AutoPlayController
             fingerprint,
             rewardUiTransient,
             Time.realtimeSinceStartup,
-            RecordingObservationDelaySeconds);
+            SelectionPreviewObservationSeconds);
         if (observation.FingerprintChanged)
         {
             if (!string.Equals(_rewardVehicleContextFingerprint, fingerprint, StringComparison.Ordinal))
@@ -7976,8 +8035,8 @@ internal sealed class AutoPlayController
         {
             ShowRewardSelectionHighlight(rewardResult);
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
-            SetStage(AutomationStage.ManagingRewards, "奖励选项已完整出现，保留 0.75 秒观察时间后再选择。");
-            AddTimeline("observation", "奖励选项已稳定显示；将在 0.75 秒观察时间结束后选择。");
+            SetStage(AutomationStage.ManagingRewards, "奖励选项已完整出现，保留 1 秒观察时间后再选择。");
+            AddTimeline("observation", "奖励选项已稳定显示；将在 1 秒观察时间结束后选择。");
             MarkProgress();
             return true;
         }
@@ -7986,7 +8045,7 @@ internal sealed class AutoPlayController
         {
             ShowRewardSelectionHighlight(rewardResult);
             _nextTickAt = Math.Max(_nextTickAt, _rewardOptionsReadyAt);
-            SetStage(AutomationStage.ManagingRewards, "奖励选项保持显示，正在等待 0.75 秒观察时间结束。");
+            SetStage(AutomationStage.ManagingRewards, "奖励选项保持显示，正在等待 1 秒观察时间结束。");
             return true;
         }
 
@@ -8015,10 +8074,10 @@ internal sealed class AutoPlayController
         {
             _eventOptionsFingerprint = fingerprint;
             ShowEventSelectionHighlight(eventResult, panel, fingerprint);
-            _eventOptionSelectionReadyAt = Time.realtimeSinceStartup + RecordingObservationDelaySeconds;
+            _eventOptionSelectionReadyAt = Time.realtimeSinceStartup + SelectionPreviewObservationSeconds;
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
-            SetStage(AutomationStage.ManagingEvent, panelName + "已完整出现，保留 0.75 秒观察时间后再选择。");
-            AddTimeline("observation", panelName + "已稳定显示；将在 0.75 秒观察时间结束后选择。");
+            SetStage(AutomationStage.ManagingEvent, panelName + "已完整出现，保留 1 秒观察时间后再选择。");
+            AddTimeline("observation", panelName + "已稳定显示；将在 1 秒观察时间结束后选择。");
             MarkProgress();
             return true;
         }
@@ -8027,7 +8086,7 @@ internal sealed class AutoPlayController
         {
             ShowEventSelectionHighlight(eventResult, panel, fingerprint);
             _nextTickAt = Math.Max(_nextTickAt, _eventOptionSelectionReadyAt);
-            SetStage(AutomationStage.ManagingEvent, panelName + "保持显示，正在等待 0.75 秒观察时间结束。");
+            SetStage(AutomationStage.ManagingEvent, panelName + "保持显示，正在等待 1 秒观察时间结束。");
             return true;
         }
 

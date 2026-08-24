@@ -46,12 +46,21 @@ public sealed class PluginRuntimeHostContractTests
             IsCall("Loopstructor.AutoPlayer.Core.MapRouteSelectionPolicy", "IsSelectionOutstanding"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "InvalidateFullWaveQueryCache"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleContinuationFrame"));
+        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleMapOpenAnimationPoll"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleNormalPoll"));
         Assert.Contains(LoadedStrings(show), value => value == "UnityEngine.UI.Image");
         Assert.Contains(LoadedStrings(show), value => value == "raycastTarget");
 
         FieldDefinition thickness = highlighter.Fields.Single(field => field.Name == "BorderThickness");
         Assert.Equal(2f, thickness.Constant);
+        FieldDefinition inset = highlighter.Fields.Single(field => field.Name == "BorderInset");
+        Assert.Equal(2f, inset.Constant);
+        FieldDefinition previewSeconds = controller.Fields.Single(field => field.Name == "SelectionPreviewObservationSeconds");
+        Assert.Equal(1f, previewSeconds.Constant);
+        FieldDefinition collectionSeconds = controller.Fields.Single(field => field.Name == "RewardCollectionObservationSeconds");
+        Assert.Equal(0.75f, collectionSeconds.Constant);
+        FieldDefinition mapFallbackSeconds = controller.Fields.Single(field => field.Name == "MapOpenAnimationFallbackSeconds");
+        Assert.Equal(1.55f, mapFallbackSeconds.Constant);
         MethodDefinition initializeBorderColor = RequireMethod(highlighter, ".cctor");
         Assert.Contains(Calls(initializeBorderColor), call => call.DeclaringType.FullName == "UnityEngine.Color32");
         Assert.Contains(initializeBorderColor.Body.Instructions, instruction => IsLoadedInteger(instruction, 0x79));
@@ -63,6 +72,18 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition initializeBridgeContract = RequireMethod(bridge, ".cctor");
         Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "uiClickMapButton");
         Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "UiClickMapButton");
+        MethodDefinition mapAnimation = RequireMethod(bridge, "TryGetMapOpenAnimationProgress");
+        Assert.Contains(Calls(ensureMapOpen), IsCall(BridgeType, "TryGetMapOpenAnimationProgress"));
+        Assert.Contains(
+            Calls(ensureMapOpen),
+            IsCall("Loopstructor.AutoPlayer.Core.MapOpenAnimationPolicy", "IsReady"));
+        Assert.Contains(Calls(mapAnimation), call =>
+            call.DeclaringType.FullName == "UnityEngine.Animator" &&
+            call.Name == "GetCurrentAnimatorStateInfo");
+        Assert.Contains(Calls(mapAnimation), call =>
+            call.DeclaringType.FullName == "UnityEngine.Animator" &&
+            call.Name == "IsInTransition");
+        Assert.Single(LoadedStrings(ensureMapOpen), value => value == "uiClickMapButton");
 
         MethodDefinition drawOverlay = RequireMethod(RequireType(assembly, SessionType), "DrawOverlay");
         Assert.DoesNotContain(Calls(drawOverlay), IsCall(ControllerType, "ShowSelectionHighlight"));
@@ -263,7 +284,7 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(handler), value => value == "queryUiInteractables");
         Assert.Contains(
             LoadedStrings(handler),
-            value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
+            value => value.Contains("1 秒观察时间", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -392,7 +413,7 @@ public sealed class PluginRuntimeHostContractTests
             bridge,
             "InvokeLightweightWaveFunctionSelection");
 
-        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(rewardWait), value => value.Contains("1 秒观察时间", StringComparison.Ordinal));
         Assert.Contains(
             LoadedStrings(rewardWait),
             value => value.Contains("出现动画仍在播放", StringComparison.Ordinal));
@@ -411,13 +432,13 @@ public sealed class PluginRuntimeHostContractTests
             LoadedStrings(rewardWait),
             value => value.Contains("奖励物品已完整出现", StringComparison.Ordinal));
         Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "BuildRewardObjectsFingerprint"));
-        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("0.75 秒观察时间", StringComparison.Ordinal));
+        Assert.Contains(LoadedStrings(eventWait), value => value.Contains("1 秒观察时间", StringComparison.Ordinal));
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1.25f) < 0.001f);
         Assert.Contains(rewardWait.Body.Instructions, instruction =>
             instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 0.75f) < 0.001f);
         Assert.Contains(eventWait.Body.Instructions, instruction =>
-            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 0.75f) < 0.001f);
+            instruction.OpCode.Code == Code.Ldc_R4 && Math.Abs((float)instruction.Operand - 1f) < 0.001f);
         Instruction[] tickInstructions = RequireMethod(controller, "TickInGame").Body.Instructions.ToArray();
         int rewardObservation = FindCall(tickInstructions, ControllerType, "TryWaitForRewardOptions");
         int contextualDecision = FindCall(tickInstructions, ControllerType, "DecideObservedReward");
