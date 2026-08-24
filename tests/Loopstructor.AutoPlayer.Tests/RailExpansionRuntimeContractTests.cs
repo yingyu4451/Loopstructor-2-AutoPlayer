@@ -432,6 +432,7 @@ public sealed class RailExpansionRuntimeContractTests
         MethodDefinition beginRollback = RequireMethod(
             controller,
             "BeginSpecialStationMoveRollbackVerificationIfInactive");
+        MethodDefinition finishCommitted = RequireMethod(controller, "FinishCommittedSpecialStationMove");
 
         Assert.Contains(steps.Fields, field => field.Name == "VerifySpecialStationMoveRollbackRail");
         Assert.Contains(steps.Fields, field => field.Name == "VerifySpecialStationMoveRollbackResult");
@@ -444,6 +445,19 @@ public sealed class RailExpansionRuntimeContractTests
         Assert.Contains("currentMoveInteraction.active", LoadedStrings(beginRollback));
         Assert.Contains("queryRail", LoadedStrings(maintain));
         Assert.Contains("queryCatapults", LoadedStrings(maintain));
+        Assert.Contains(
+            Calls(maintain),
+            call => call.DeclaringType.FullName == ControllerType && call.Name == finishCommitted.Name);
+        Assert.Contains(
+            finishCommitted.Body.Instructions,
+            instruction =>
+                (instruction.Operand is FieldReference field &&
+                 field.Name == "_defenseSpecialMoveConfirmationAccepted") ||
+                (instruction.Operand is MethodReference method &&
+                 method.Name == "Reset"));
+        Assert.DoesNotContain(
+            Calls(finishCommitted),
+            call => call.DeclaringType.FullName == ControllerType && call.Name == "FaultRequiringProcessRestart");
     }
 
     [Theory]

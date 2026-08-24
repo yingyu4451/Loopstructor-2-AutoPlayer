@@ -313,6 +313,7 @@ internal sealed class AutoPlayController
     private int _defenseSpecialMoveInteractionInstanceId;
     private double _defenseSpecialMovePredictedCycleSeconds;
     private bool _defenseSpecialMoveCancelRequested;
+    private bool _defenseSpecialMoveConfirmationAccepted;
     private bool _defenseBattleSpecialMoveOnly;
     private readonly HashSet<string> _defenseRailMaintenanceActionFingerprints =
         new(StringComparer.Ordinal);
@@ -3869,8 +3870,11 @@ internal sealed class AutoPlayController
                 string moveActionFingerprint = BuildDefenseRailMoveActionFingerprint(
                     _defenseSpecialMoveCandidate,
                     moveGrid);
-                if (_defenseRailMaintenanceActionFingerprints.Contains(
-                        moveActionFingerprint))
+                string movePairFingerprint = BuildDefenseRailMovePairFingerprint(
+                    _defenseSpecialMoveCandidate,
+                    moveGrid);
+                if (_defenseRailMaintenanceActionFingerprints.Contains(moveActionFingerprint) ||
+                    _defenseRailMaintenanceActionFingerprints.Contains(movePairFingerprint))
                 {
                     ScheduleDefenseMaintenanceStep(
                         "相同布局下的同一移动候选已经评估或提交过；继续检查下一个目标格。");
@@ -4161,6 +4165,8 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
+                _defenseSpecialMoveConfirmationAccepted =
+                    confirmMoveDisposition == RuntimeResultDisposition.Success;
                 _defenseMaintenanceStep = DefenseMaintenanceStep.VerifySpecialStationMoved;
                 ScheduleDefenseMaintenanceStep("移动确认已锁定；后续只读验证站点归属和回转周期。");
                 return true;
@@ -4172,7 +4178,17 @@ internal sealed class AutoPlayController
                             Time.realtimeSinceStartup,
                             RewardSelectionSettlementTimeoutSeconds))
                     {
-                        FaultRequiringProcessRestart("能量/特殊弹射点移动后无法读取轨道状态。");
+                        if (_defenseSpecialMoveConfirmationAccepted)
+                        {
+                            FinishCommittedSpecialStationMove(new RailInsertionVerification
+                            {
+                                Detail = "确认移动后暂时无法读取轨道状态。"
+                            });
+                        }
+                        else
+                        {
+                            FaultRequiringProcessRestart("能量/特殊弹射点移动后无法读取轨道状态。");
+                        }
                     }
                     else
                     {
@@ -4193,7 +4209,17 @@ internal sealed class AutoPlayController
                             Time.realtimeSinceStartup,
                             RewardSelectionSettlementTimeoutSeconds))
                     {
-                        FaultRequiringProcessRestart("能量/特殊弹射点移动后无法读取站点状态。");
+                        if (_defenseSpecialMoveConfirmationAccepted)
+                        {
+                            FinishCommittedSpecialStationMove(new RailInsertionVerification
+                            {
+                                Detail = "确认移动后暂时无法读取站点状态。"
+                            });
+                        }
+                        else
+                        {
+                            FaultRequiringProcessRestart("能量/特殊弹射点移动后无法读取站点状态。");
+                        }
                     }
                     else
                     {
@@ -4210,6 +4236,7 @@ internal sealed class AutoPlayController
                     _defenseSpecialMoveGrid);
                 if (moveVerification.Verified)
                 {
+                    RememberCommittedSpecialStationMove();
                     _defenseStructuralMutationGuard.Reset();
                     ContinueDefenseRailOptimization(
                         $"能量/特殊弹射点移动完成；回转周期由 " +
@@ -4226,6 +4253,12 @@ internal sealed class AutoPlayController
                     _defenseStructuralVerificationAttempts++;
                     _defenseMaintenanceStep = DefenseMaintenanceStep.VerifySpecialStationMoved;
                     ScheduleDefenseMaintenanceStep("能量/特殊弹射点尚未到达目标格，继续只读对账。");
+                    return true;
+                }
+
+                if (_defenseSpecialMoveConfirmationAccepted || moveVerification.MoveObserved)
+                {
+                    FinishCommittedSpecialStationMove(moveVerification);
                     return true;
                 }
 
@@ -5514,6 +5547,7 @@ internal sealed class AutoPlayController
         _defenseSpecialMoveInteractionInstanceId = 0;
         _defenseSpecialMovePredictedCycleSeconds = 0d;
         _defenseSpecialMoveCancelRequested = false;
+        _defenseSpecialMoveConfirmationAccepted = false;
         _defenseFreshMovableStationRetryAttempts = 0;
         _defenseMoveGridInitializationRetryAttempts = 0;
         _defenseStructuralVerificationAttempts = 0;
@@ -5646,6 +5680,45 @@ internal sealed class AutoPlayController
             targetGrid.X,
             targetGrid.Y);
 
+    private string BuildDefenseRailMovePairFingerprint(
+        RailStationMoveCandidate candidate,
+        AutoPlayerGrid targetGrid)
+    {
+        string source = candidate.CurrentGrid.X + "," + candidate.CurrentGrid.Y;
+        string target = targetGrid.X + "," + targetGrid.Y;
+        string first = string.CompareOrdinal(source, target) <= 0 ? source : target;
+        string second = string.CompareOrdinal(source, target) <= 0 ? target : source;
+        return string.Join(
+            "|",
+            "move-pair",
+            candidate.RailInternalId,
+            candidate.StationFingerprint,
+            first,
+            second);
+    }
+
+    private void RememberCommittedSpecialStationMove()
+    {
+        if (_defenseSpecialMoveCandidate == null || _defenseSpecialMoveGrid == null) return;
+        AutoPlayerGrid target = new(
+            _defenseSpecialMoveGrid["x"]?.Value<int>() ?? _defenseSpecialMoveCandidate.CurrentGrid.X,
+            _defenseSpecialMoveGrid["y"]?.Value<int>() ?? _defenseSpecialMoveCandidate.CurrentGrid.Y);
+        _defenseRailMaintenanceActionFingerprints.Add(
+            BuildDefenseRailMoveActionFingerprint(_defenseSpecialMoveCandidate, target));
+        _defenseRailMaintenanceActionFingerprints.Add(
+            BuildDefenseRailMovePairFingerprint(_defenseSpecialMoveCandidate, target));
+    }
+
+    private void FinishCommittedSpecialStationMove(RailInsertionVerification verification)
+    {
+        RememberCommittedSpecialStationMove();
+        _defenseStructuralMutationGuard.Reset();
+        string detail = verification.StructureValid
+            ? verification.Detail + " 已保留游戏实际结果并结束本轮轨道调整，后续布局变化时会重新评估。"
+            : verification.Detail + " 确认命令已经成功，无法再取消；已停止本轮结构写入并继续正常游玩。";
+        FinishDefenseMaintenance(detail, warning: true);
+    }
+
     private string BuildDefenseRailInsertionActionFingerprint(
         RailInsertionPreviewScore score) =>
         string.Join(
@@ -5767,6 +5840,7 @@ internal sealed class AutoPlayController
         _defenseSpecialMovePredictedCycleSeconds = 0d;
         _defenseBattleSpecialMoveOnly = false;
         _defenseSpecialMoveCancelRequested = false;
+        _defenseSpecialMoveConfirmationAccepted = false;
         _defenseFreshMovableStationRetryAttempts = 0;
         _defenseMoveGridInitializationRetryAttempts = 0;
         _defenseStructuralVerificationAttempts = 0;

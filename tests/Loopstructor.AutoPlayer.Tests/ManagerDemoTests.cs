@@ -137,6 +137,15 @@ public sealed class ManagerDemoTests
     }
 
     [Fact]
+    public void Parse_RestartedAfterUpdate_EnablesArtifactCleanup()
+    {
+        ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[] { "--restarted-after-update" });
+
+        Assert.True(options.RestartedAfterUpdate);
+        Assert.False(options.DemoMode);
+    }
+
+    [Fact]
     public void Parse_DemoCheatWindow_AllowsSixthTab()
     {
         ManagerLaunchOptions options = ManagerLaunchOptions.Parse(new[]

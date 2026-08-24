@@ -1,12 +1,16 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using Loopstructor.AutoPlayer.Updater.Models;
 
 namespace Loopstructor.AutoPlayer.Updater.Services;
 
 public sealed class TransactionalInstaller
 {
+    private const string RollbackPrefix = ".LoopstructorAutoPlayer-rollback-";
+    private const string LegacyBackupPrefix = ".LoopstructorAutoPlayer-backup-";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -68,15 +72,15 @@ public sealed class TransactionalInstaller
 
         PreserveConfiguration(target, staging);
         string transactionId = Guid.NewGuid().ToString("N");
-        string backup = Path.Combine(
+        string rollback = Path.Combine(
             targetParent,
-            ".LoopstructorAutoPlayer-backup-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + transactionId[..8]);
+            RollbackPrefix + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + transactionId[..8]);
         UpdateTransactionJournal journal = new()
         {
             TransactionId = transactionId,
             TargetRoot = target,
             StagingRoot = staging,
-            BackupRoot = backup,
+            BackupRoot = rollback,
             Version = expectedVersion,
             Phase = "prepared",
             UpdatedAtUtc = DateTime.UtcNow
@@ -84,22 +88,29 @@ public sealed class TransactionalInstaller
         WriteJournal(journal);
         ReportProgressSafely(progress, UpdateInstallPhase.Prepared);
 
+        bool newReleaseValidated = false;
         try
         {
-            Directory.Move(target, backup);
-            UpdatePhase(journal, "backup-created");
+            Directory.Move(target, rollback);
+            UpdatePhase(journal, "rollback-created");
             ReportProgressSafely(progress, UpdateInstallPhase.BackupCreated);
             Directory.Move(staging, target);
             UpdatePhase(journal, "installed");
             ReportProgressSafely(progress, UpdateInstallPhase.Installed);
             _validator.Validate(target, expectedVersion, validateTargetSafety: true);
+            newReleaseValidated = true;
             ReportProgressSafely(progress, UpdateInstallPhase.Validated);
-            UpdatePhase(journal, "complete");
-            DeleteJournal();
-            return backup;
+            CompleteCommittedTransaction(journal);
+            return string.Empty;
         }
         catch (Exception applyError)
         {
+            if (newReleaseValidated)
+            {
+                TryMarkCleanupPending(journal);
+                return string.Empty;
+            }
+
             Exception? rollbackError = null;
             bool previousReleaseUnchanged = false;
             try
@@ -177,8 +188,15 @@ public sealed class TransactionalInstaller
         ValidateJournalPaths(journal);
         if (TryValidate(target, journal.Version))
         {
+            if (Directory.Exists(journal.BackupRoot) && !TryDeleteDirectory(journal.BackupRoot))
+            {
+                UpdatePhase(journal, "cleanup-pending");
+                throw new IOException("新版已经安装成功，但临时回滚目录尚未清理完成。请重新运行更新器重试清理。");
+            }
+
+            CleanupLegacyBackups(target);
             DeleteJournal();
-            return "已恢复一项在事务日志完成前已经安装成功的更新。";
+            return "已完成一项在事务日志结束前已经安装成功的更新，并清理临时回滚目录。";
         }
 
         if (Directory.Exists(journal.BackupRoot))
@@ -218,14 +236,7 @@ public sealed class TransactionalInstaller
 
         if (Directory.Exists(journal.TargetRoot))
         {
-            string parent = Directory.GetParent(journal.TargetRoot)!.FullName;
-            string failed = Path.Combine(parent, ".LoopstructorAutoPlayer-failed-" + journal.TransactionId[..8]);
-            if (Directory.Exists(failed))
-            {
-                failed += "-" + Guid.NewGuid().ToString("N")[..6];
-            }
-
-            Directory.Move(journal.TargetRoot, failed);
+            Directory.Delete(journal.TargetRoot, recursive: true);
         }
 
         Directory.Move(journal.BackupRoot, journal.TargetRoot);
@@ -238,12 +249,106 @@ public sealed class TransactionalInstaller
                         ?? throw new InvalidDataException("事务日志中的目标没有父目录。");
         string backup = ReleasePackageValidator.NormalizeRoot(journal.BackupRoot);
         string staging = ReleasePackageValidator.NormalizeRoot(journal.StagingRoot);
+        string backupName = Path.GetFileName(backup);
         if (!string.Equals(Directory.GetParent(backup)?.FullName, parent, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(Directory.GetParent(staging)?.FullName, parent, StringComparison.OrdinalIgnoreCase)
-            || !Path.GetFileName(backup).StartsWith(".LoopstructorAutoPlayer-backup-", StringComparison.Ordinal)
+            || (!IsGeneratedTransactionDirectoryName(backupName, RollbackPrefix)
+                && !IsGeneratedTransactionDirectoryName(backupName, LegacyBackupPrefix))
             || !Path.GetFileName(staging).StartsWith(".LoopstructorAutoPlayer-staging-", StringComparison.Ordinal))
         {
             throw new InvalidDataException("更新事务日志包含不安全的路径。");
+        }
+    }
+
+    private void CompleteCommittedTransaction(UpdateTransactionJournal journal)
+    {
+        UpdatePhase(journal, "validated");
+        if (!TryDeleteDirectory(journal.BackupRoot))
+        {
+            UpdatePhase(journal, "cleanup-pending");
+            return;
+        }
+
+        CleanupLegacyBackups(journal.TargetRoot);
+        UpdatePhase(journal, "complete");
+        DeleteJournal();
+    }
+
+    private void CleanupLegacyBackups(string targetRoot)
+    {
+        string target = ReleasePackageValidator.NormalizeRoot(targetRoot);
+        string parent = Directory.GetParent(target)?.FullName
+                        ?? throw new InvalidOperationException("更新目标没有父目录。");
+        foreach (string candidate in Directory.EnumerateDirectories(
+                     parent,
+                     LegacyBackupPrefix + "*",
+                     SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                string full = ReleasePackageValidator.NormalizeRoot(candidate);
+                if (!string.Equals(Directory.GetParent(full)?.FullName, parent, StringComparison.OrdinalIgnoreCase)
+                    || !IsGeneratedTransactionDirectoryName(Path.GetFileName(full), LegacyBackupPrefix))
+                {
+                    continue;
+                }
+
+                _validator.Validate(full, validateTargetSafety: true);
+                _ = TryDeleteDirectory(full);
+            }
+            catch
+            {
+                // Only updater-authored, structurally valid legacy backups are eligible for cleanup.
+            }
+        }
+    }
+
+    private static bool IsGeneratedTransactionDirectoryName(string name, string prefix)
+    {
+        if (!name.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        string suffix = name[prefix.Length..];
+        if (suffix.Length != 24 || suffix[8] != '-' || suffix[15] != '-') return false;
+        return DateTime.TryParseExact(
+                   suffix[..15],
+                   "yyyyMMdd-HHmmss",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out _) &&
+               suffix[16..].All(character => Uri.IsHexDigit(character));
+    }
+
+    private static bool TryDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path)) return true;
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            try
+            {
+                Directory.Delete(path, recursive: true);
+                return true;
+            }
+            catch (IOException) when (attempt < 3)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (UnauthorizedAccessException) when (attempt < 3)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+
+        return !Directory.Exists(path);
+    }
+
+    private void TryMarkCleanupPending(UpdateTransactionJournal journal)
+    {
+        try
+        {
+            UpdatePhase(journal, "cleanup-pending");
+        }
+        catch
+        {
+            // The validated release remains authoritative even when cleanup journaling fails.
         }
     }
 

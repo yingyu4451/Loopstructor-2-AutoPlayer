@@ -446,7 +446,7 @@ internal static class Program
             }
 
             replacementStarted = true;
-            string backup = await Task.Run(
+            _ = await Task.Run(
                 () => installer.Apply(
                     stagingRoot,
                     options.TargetRoot,
@@ -462,7 +462,7 @@ internal static class Program
                 Message = selectedDelta is null
                     ? $"AutoPlayer 已通过完整安装包更新到 {update.Manifest.Version}。"
                     : $"AutoPlayer 已通过增量更新包更新到 {update.Manifest.Version}。",
-                BackupDirectory = backup,
+                BackupDirectory = string.Empty,
                 UsedIncrementalUpdate = selectedDelta is not null
             };
             if (options.RestartManager)
@@ -507,7 +507,7 @@ internal static class Program
         (int percent, string message) = phase switch
         {
             UpdateInstallPhase.Prepared => (92, "更新事务已准备完成。"),
-            UpdateInstallPhase.BackupCreated => (94, "当前版本已安全备份。"),
+            UpdateInstallPhase.BackupCreated => (94, "已建立更新失败时使用的临时回滚点。"),
             UpdateInstallPhase.Installed => (97, "新版文件已完成替换。"),
             UpdateInstallPhase.Validated => (98, "新版文件校验通过。"),
             _ => (92, "正在安装更新...")
@@ -574,10 +574,6 @@ internal static class Program
         }
 
         Console.WriteLine(result.Success ? result.Message : "更新失败：" + result.Message);
-        if (!string.IsNullOrWhiteSpace(result.BackupDirectory))
-        {
-            Console.WriteLine("上一版本备份：" + result.BackupDirectory);
-        }
     }
 
     internal static string GetUserFacingFailureMessage(

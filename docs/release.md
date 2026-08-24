@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.25
+.\scripts\package.ps1 -Version 0.6.26
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.25 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.26 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.25-win-x64.zip
-Loopstructor.AutoPlayer-0.6.25-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.24-to-0.6.25-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.24-to-0.6.25-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.26-win-x64.zip
+Loopstructor.AutoPlayer-0.6.26-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.25-to-0.6.26-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.25-to-0.6.26-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.25-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.26-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.25",
+  "version": "0.6.26",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.25-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.26-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 64969988,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.24",
-      "assetName": "Loopstructor.AutoPlayer-0.6.24-to-0.6.25-win-x64.delta.zip",
+      "fromVersion": "0.6.25",
+      "assetName": "Loopstructor.AutoPlayer-0.6.25-to-0.6.26-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2391960
     }
@@ -159,7 +159,7 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 9. 增量更新在空 staging 中复制当前安装的未变文件、写入增量文件并自然排除已删除文件；
 10. staging 根存在目标版 `autoplayer-release.json`，且全部文件通过目标版 `checksums.sha256` 和完整发布包结构校验。
 
-验证完成后退出管理器，再由独立 Updater 使用现有事务安装器替换工具目录。更新开始提交前会再次核对基准版本；任何验证或替换失败都保留当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
+验证完成后退出管理器，再由独立 Updater 使用事务安装器替换工具目录。更新开始提交前会再次核对基准版本；旧目录只作为隐藏临时回滚点存在，新版完整校验成功后立即删除，不保留可供手动降级的副本。任何验证或替换失败都会恢复当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
 
 当前 Updater 只处理 schema 2 和当前固定包装目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，包含旧 `updater/` 兼容目录的发布包会被拒绝；旧目录版本需要手动安装当前发布包。`v0.5.3` 是首个支持增量更新的客户端，因此 `v0.5.2 → v0.5.3` 仍需完整下载一次；安装 `v0.5.3` 后，后续相邻版本才会选择增量包。跳过版本时使用完整包，不串联多个历史增量。
 
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.25
-git push origin v0.6.25
+git tag v0.6.26
+git push origin v0.6.26
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

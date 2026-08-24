@@ -181,6 +181,9 @@ public sealed class RailExpansionPlannerTests
             JObject.FromObject(new { x = 5, y = 5 }));
 
         Assert.True(verification.Verified);
+        Assert.True(verification.MoveObserved);
+        Assert.True(verification.StructureValid);
+        Assert.True(verification.Beneficial);
 
         JObject wrongRail = Result(new
         {

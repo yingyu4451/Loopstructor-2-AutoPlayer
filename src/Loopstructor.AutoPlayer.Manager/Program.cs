@@ -1,4 +1,5 @@
 using Loopstructor.AutoPlayer.Manager.Models;
+using Loopstructor.AutoPlayer.Manager.Services;
 using Loopstructor.AutoPlayer.Manager.UI;
 using System.Windows;
 using System.Windows.Threading;
@@ -11,6 +12,11 @@ internal static class Program
     private static int Main(string[] args)
     {
         ManagerLaunchOptions options = ManagerLaunchOptions.Parse(args);
+        if (options.RestartedAfterUpdate)
+        {
+            LegacyUpdateArtifactCleaner.CleanupAfterUpdate(DistributionLayout.Locate().Root);
+        }
+
         System.Windows.Application application = new()
         {
             ShutdownMode = ShutdownMode.OnMainWindowClose

@@ -190,7 +190,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.25-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.26-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -211,7 +211,7 @@ Loopstructor 2.AutoPlayer/
 
 schema 2 更新清单始终指向完整 Release ZIP，并可通过 `deltaAssets` 列出精确基准版本对应的文件级增量包。协议版本保持为 2，使旧 Updater 忽略扩展字段并继续使用完整包。新版 Updater 只有在当前 marker 版本与 `fromVersion` 精确一致、当前安装校验通过且增量更小时才选择增量；没有匹配项、跳过版本或旧客户端时使用完整包。
 
-增量 ZIP 使用固定的 `Loopstructor 2.AutoPlayer.delta/` 顶层目录，包含目标版 `checksums.sha256` 和 `files/` 下发生变化或新增的文件。Updater 不原地覆盖安装目录，而是在空 staging 中按目标校验目录复制本地未变文件、写入增量文件，已删除文件自然不会进入新版。完整校验 staging 后仍调用原有事务目录替换、备份和回滚逻辑。`v0.5.3` 是首个支持该流程的客户端，因此从 `v0.5.2` 升级到 `v0.5.3` 仍会完整下载一次，后续相邻版本才使用增量。
+增量 ZIP 使用固定的 `Loopstructor 2.AutoPlayer.delta/` 顶层目录，包含目标版 `checksums.sha256` 和 `files/` 下发生变化或新增的文件。Updater 不原地覆盖安装目录，而是在空 staging 中按目标校验目录复制本地未变文件、写入增量文件，已删除文件自然不会进入新版。完整校验 staging 后以整目录事务切换正式安装；旧目录仅作为更新失败时的隐藏临时回滚点，新版校验成功后立即删除，不长期保存旧版本。`v0.5.3` 是首个支持增量流程的客户端，因此从 `v0.5.2` 升级到 `v0.5.3` 仍会完整下载一次，后续相邻版本才使用增量。
 
 完整包验证要求压缩包只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。更新只接受当前目录结构：Updater 必须位于 `manager/Loopstructor.AutoPlayer.Updater.exe`，发布根不能包含旧 `updater/` 兼容目录。
 

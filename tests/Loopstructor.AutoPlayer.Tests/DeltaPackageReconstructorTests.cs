@@ -45,9 +45,12 @@ public sealed class DeltaPackageReconstructorTests
 
         Assert.True(File.Exists(Path.Combine(current, "autoplayer-update.json")));
         Assert.False(File.Exists(Path.Combine(current, "obsolete.dat")));
-        Assert.True(File.Exists(Path.Combine(backup, "obsolete.dat")));
+        Assert.Equal(string.Empty, backup);
         Assert.Equal("0.5.3", ReleasePackageValidator.ReadMarker(current).Version);
-        Assert.Equal("0.5.2", ReleasePackageValidator.ReadMarker(backup).Version);
+        Assert.Empty(Directory.GetDirectories(
+            fixture.Root,
+            ".LoopstructorAutoPlayer-rollback-*",
+            SearchOption.TopDirectoryOnly));
     }
 
     [Fact]

@@ -48,6 +48,8 @@ try
     VerifyReleasePackageExtraction(verificationRoot);
     VerifyWrappedReleaseTransaction(verificationRoot);
     VerifyTransactionalReplacement(verificationRoot);
+    VerifyCommittedRecoveryCleanup(verificationRoot);
+    VerifyLegacyBackupCleanup(verificationRoot);
     VerifyInterruptedRecovery(verificationRoot);
     VerifyPreparedWindowRecovery(verificationRoot);
     VerifyInvalidInstallRollback(verificationRoot);
@@ -428,7 +430,13 @@ static void VerifyTransactionalReplacement(string root)
     CreateRelease(staging, "0.2.0");
     string backup = installer.Apply(staging, target, "0.2.0");
     Require(ReadReleaseVersion(target) == "0.2.0", "new release moved into target");
-    Require(ReadReleaseVersion(backup) == "0.1.0", "previous release retained as backup");
+    Require(string.IsNullOrEmpty(backup), "successful transaction does not retain a backup path");
+    Require(
+        Directory.GetDirectories(root, ".LoopstructorAutoPlayer-rollback-*", SearchOption.TopDirectoryOnly).Length == 0,
+        "successful transaction removes the temporary rollback root");
+    Require(
+        Directory.GetDirectories(root, ".LoopstructorAutoPlayer-backup-*", SearchOption.TopDirectoryOnly).Length == 0,
+        "successful transaction does not retain legacy backups");
     Require(File.Exists(Path.Combine(target, "autoplayer-update.json")), "update configuration preserved");
     Require(!File.Exists(installer.JournalPath), "completed transaction journal removed");
 }
@@ -437,7 +445,7 @@ static void VerifyInterruptedRecovery(string root)
 {
     string target = Path.Combine(root, "recovery-release");
     CreateRelease(target, "0.3.0");
-    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-backup-recovery");
+    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-rollback-20260824-120000-12345678");
     string staging = Path.Combine(root, ".LoopstructorAutoPlayer-staging-recovery");
     Directory.Move(target, backup);
     Directory.CreateDirectory(staging);
@@ -449,7 +457,7 @@ static void VerifyInterruptedRecovery(string root)
         BackupRoot = backup,
         StagingRoot = staging,
         Version = "0.5.2",
-        Phase = "backup-created",
+        Phase = "rollback-created",
         UpdatedAtUtc = DateTime.UtcNow
     };
     File.WriteAllText(journalPath, JsonSerializer.Serialize(journal));
@@ -460,11 +468,54 @@ static void VerifyInterruptedRecovery(string root)
     Require(!File.Exists(journalPath), "recovery journal removed");
 }
 
+static void VerifyCommittedRecoveryCleanup(string root)
+{
+    string target = Path.Combine(root, "committed-release");
+    CreateRelease(target, "0.4.0");
+    string rollback = Path.Combine(root, ".LoopstructorAutoPlayer-rollback-20260824-120003-00112233");
+    CreateRelease(rollback, "0.3.0");
+    string staging = Path.Combine(root, ".LoopstructorAutoPlayer-staging-committed");
+    Directory.CreateDirectory(staging);
+    string journalPath = Path.Combine(root, "committed-transaction.json");
+    File.WriteAllText(journalPath, JsonSerializer.Serialize(new UpdateTransactionJournal
+    {
+        TransactionId = "0011223344556677",
+        TargetRoot = target,
+        BackupRoot = rollback,
+        StagingRoot = staging,
+        Version = "0.4.0",
+        Phase = "installed",
+        UpdatedAtUtc = DateTime.UtcNow
+    }));
+
+    string message = new TransactionalInstaller(journalPath: journalPath).RecoverIncomplete(target);
+    Require(message.Contains("清理临时回滚目录", StringComparison.Ordinal), "committed recovery reports rollback cleanup");
+    Require(ReadReleaseVersion(target) == "0.4.0", "committed recovery keeps the installed release");
+    Require(!Directory.Exists(rollback), "committed recovery removes the temporary rollback root");
+    Require(!File.Exists(journalPath), "committed recovery removes its journal");
+}
+
+static void VerifyLegacyBackupCleanup(string root)
+{
+    string target = Path.Combine(root, "legacy-cleanup-release");
+    CreateRelease(target, "0.4.0");
+    string legacy = Path.Combine(root, ".LoopstructorAutoPlayer-backup-20260824-120004-44556677");
+    CreateRelease(legacy, "0.3.0");
+    TransactionalInstaller installer = new(journalPath: Path.Combine(root, "legacy-cleanup-transaction.json"));
+    string staging = installer.CreateStagingRoot(target);
+    CreateRelease(staging, "0.5.0");
+
+    installer.Apply(staging, target, "0.5.0");
+
+    Require(ReadReleaseVersion(target) == "0.5.0", "legacy cleanup transaction installs the new release");
+    Require(!Directory.Exists(legacy), "strictly named legacy backup is removed after a valid update");
+}
+
 static void VerifyInvalidInstallRollback(string root)
 {
     string target = Path.Combine(root, "invalid-release");
     CreateRelease(target, "0.5.2");
-    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-backup-invalid");
+    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-rollback-20260824-120001-abcdef00");
     string staging = Path.Combine(root, ".LoopstructorAutoPlayer-staging-invalid");
     Directory.Move(target, backup);
     Directory.CreateDirectory(target);
@@ -486,15 +537,15 @@ static void VerifyInvalidInstallRollback(string root)
     installer.RecoverIncomplete(target);
     Require(ReadReleaseVersion(target) == "0.5.2", "invalid installed release rolled back");
     Require(!File.Exists(journalPath), "rollback journal removed");
-    Require(Directory.GetDirectories(root, ".LoopstructorAutoPlayer-failed-*", SearchOption.TopDirectoryOnly).Length > 0,
-        "invalid installed release retained for diagnostics");
+    Require(Directory.GetDirectories(root, ".LoopstructorAutoPlayer-failed-*", SearchOption.TopDirectoryOnly).Length == 0,
+        "invalid installed release is removed instead of retained outside the application root");
 }
 
 static void VerifyPreparedWindowRecovery(string root)
 {
     string target = Path.Combine(root, "prepared-release");
     CreateRelease(target, "0.7.0");
-    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-backup-prepared");
+    string backup = Path.Combine(root, ".LoopstructorAutoPlayer-rollback-20260824-120002-fedcba98");
     string staging = Path.Combine(root, ".LoopstructorAutoPlayer-staging-prepared");
     Directory.Move(target, backup);
     CreateRelease(staging, "0.8.0");

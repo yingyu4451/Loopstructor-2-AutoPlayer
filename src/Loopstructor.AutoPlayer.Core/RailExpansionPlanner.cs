@@ -55,6 +55,8 @@ public sealed class RailInsertionVerification
 {
     public bool Verified { get; set; }
     public bool Beneficial { get; set; }
+    public bool MoveObserved { get; set; }
+    public bool StructureValid { get; set; }
     public bool Pending { get; set; }
     public string Detail { get; set; } = string.Empty;
     public double ObservedLoopCycleSeconds { get; set; }
@@ -478,23 +480,38 @@ public sealed class RailExpansionPlanner
         bool sameCoverageAndFaster =
             RailLayoutStrategyPlanner.CompareCoverage(observedLayout, baselineLayout) == 0 &&
             observedLayout.TriggerRate > baselineLayout.TriggerRate + 0.000001d;
-        if (targetStation == null ||
-            sourceGridStillOccupied ||
-            ReadInt(targetStation["catapultInstanceId"], ReadInt(targetStation["instanceId"], 0)) ==
-            candidate.StationCatapultInstanceId ||
-            ReadInt(targetStation["gameObjectInstanceId"], 0) == candidate.StationGameObjectInstanceId ||
-            ReadInt(targetStation["linePointInstanceId"], 0) == candidate.StationLinePointInstanceId ||
-            currentCount != candidate.StationCount ||
-            currentRail["isLegalPlayerLoop"]?.Value<bool>() != true ||
-            !TryReadPositiveDouble(currentRail["loopCycleSeconds"], out double observedCycle) ||
-            (!coverageImproved && !sameCoverageAndFaster))
+        bool moveObserved = targetStation != null &&
+                            !sourceGridStillOccupied &&
+                            ReadInt(targetStation["catapultInstanceId"], ReadInt(targetStation["instanceId"], 0)) !=
+                            candidate.StationCatapultInstanceId &&
+                            ReadInt(targetStation["gameObjectInstanceId"], 0) != candidate.StationGameObjectInstanceId &&
+                            ReadInt(targetStation["linePointInstanceId"], 0) != candidate.StationLinePointInstanceId &&
+                            currentCount == candidate.StationCount;
+        double observedCycle = 0d;
+        bool structureValid = moveObserved &&
+                              currentRail["isLegalPlayerLoop"]?.Value<bool>() == true &&
+                              TryReadPositiveDouble(currentRail["loopCycleSeconds"], out observedCycle);
+        bool beneficial = coverageImproved || sameCoverageAndFaster;
+        if (!structureValid || !beneficial)
         {
-            return Failure("弹射点移动后未保持同一合法闭环，或四向覆盖与真实触发率均未改善。");
+            return new RailInsertionVerification
+            {
+                MoveObserved = moveObserved,
+                StructureValid = structureValid,
+                Beneficial = false,
+                Detail = !structureValid
+                    ? "已提交弹射点移动，但尚未证明站点保持在同一合法闭环。"
+                    : "弹射点移动已经落地，但四向覆盖与真实触发率没有达到预测收益。",
+                ObservedLoopCycleSeconds = structureValid ? observedCycle : 0d
+            };
         }
 
         return new RailInsertionVerification
         {
             Verified = true,
+            Beneficial = true,
+            MoveObserved = true,
+            StructureValid = true,
             Detail = "已验证弹射点仍属于同一合法闭环，且四向覆盖或真实触发率已改善。",
             ObservedLoopCycleSeconds = observedCycle
         };

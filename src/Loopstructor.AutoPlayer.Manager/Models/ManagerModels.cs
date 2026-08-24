@@ -5,6 +5,7 @@ namespace Loopstructor.AutoPlayer.Manager.Models;
 
 public sealed class ManagerLaunchOptions
 {
+    public bool RestartedAfterUpdate { get; private set; }
     public bool DemoMode { get; private set; }
     public bool DemoRestartRequired { get; private set; }
     public bool DemoCheatWindow { get; private set; }
@@ -23,6 +24,9 @@ public sealed class ManagerLaunchOptions
             string current = args[index];
             switch (current.ToLowerInvariant())
             {
+                case "--restarted-after-update":
+                    result.RestartedAfterUpdate = true;
+                    break;
                 case "--demo":
                     result.DemoMode = true;
                     break;
