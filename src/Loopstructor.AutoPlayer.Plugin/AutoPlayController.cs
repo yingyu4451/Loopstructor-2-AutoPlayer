@@ -8117,11 +8117,13 @@ internal sealed class AutoPlayController
             option["disposableEnum"]?.ToString() ?? string.Empty,
             option["superModuleEnum"]?.ToString() ?? string.Empty,
             option["effectiveFetters"]?.ToString(Newtonsoft.Json.Formatting.None) ?? string.Empty,
-            option["buttonActive"]?.ToString() ?? string.Empty)));
+            option["buttonActive"]?.ToString() ?? string.Empty,
+            option["canAcquire"]?.ToString() ?? string.Empty)));
 
     private static bool RewardSelectionNeedsVehicleContext(JArray options) => options
         .OfType<JObject>()
         .Where(option => option["buttonActive"]?.Value<bool>() != false)
+        .Where(option => option["canAcquire"]?.Value<bool>() != false)
         .Where(option => option["index"]?.Type == JTokenType.Integer && option["index"]!.Value<int>() >= 0)
         .Count(option => string.Equals(
             option["rewardKind"]?.Value<string>(),

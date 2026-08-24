@@ -259,6 +259,11 @@ internal sealed class RuntimeBridge
                 return InvokeLightweightRewardSelection(arguments);
             }
 
+            if (string.Equals(command, "skipReward", StringComparison.OrdinalIgnoreCase))
+            {
+                return InvokeLightweightRewardSkip(arguments);
+            }
+
             if (string.Equals(command, "collectRewardObject", StringComparison.OrdinalIgnoreCase))
             {
                 if (RewardUiRuntimeFallback.TryCollectRewardObject(arguments, out JObject rewardCollection))
@@ -732,6 +737,13 @@ internal sealed class RuntimeBridge
             : LightweightContractUnavailable(
                 "chooseRewardOption",
                 "轻量奖励选择反射契约不可用；本次未点击，并已阻止回落到原生 MCP 写命令。");
+
+    private static JObject InvokeLightweightRewardSkip(JObject? arguments) =>
+        RewardUiRuntimeFallback.TrySkipCurrentOpportunity(arguments, out JObject result)
+            ? result
+            : LightweightContractUnavailable(
+                "skipReward",
+                "轻量奖励跳过反射契约不可用；本次未跳过，并已阻止回落到原生 MCP 写命令。");
 
     private static JObject InvokeLightweightMergeQuery() =>
         MergeUiRuntimeFallback.TryQueryAutomationState(out JObject result)

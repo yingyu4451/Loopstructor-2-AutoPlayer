@@ -23,6 +23,8 @@ internal static class RewardUiRuntimeFallback
     private const string RazorRewardTypeName = "MetroTD.RewardSystem.RazorReward";
     private const string PotionRewardTypeName = "MetroTD.RewardSystem.PotionReward";
     private const string SuperModuleRewardTypeName = "MetroTD.RewardSystem.SuperModuleReward";
+    private const string DisposableManagerTypeName = "MetroTD.DisposableSystem.DisposableManager";
+    private const string SuperModuleManagerTypeName = "MetroTD.SuperModuleSystem.SuperModuleManager";
     private const string MapConfigControllerTypeName = "MetroTD.RoomSystem.LoopstructorMapCfgController";
     private const string ResultSource = "pluginReflection:RewardUI:light";
 
@@ -124,6 +126,15 @@ internal static class RewardUiRuntimeFallback
             return true;
         }
 
+        if (!target.CanAcquire)
+        {
+            string reason = string.IsNullOrWhiteSpace(target.UnavailableReason)
+                ? "游戏当前不允许领取该奖励。"
+                : target.UnavailableReason;
+            result = SelectionError("指定奖励当前不可领取：" + reason, before.State);
+            return true;
+        }
+
         bool invocationStarted = false;
         try
         {
@@ -153,6 +164,79 @@ internal static class RewardUiRuntimeFallback
             result = Error(
                 "\u5956\u52b1\u9009\u62e9\u8c03\u7528\u5931\u8d25\uff1a" + Unwrap(exception).Message,
                 failureState);
+            return true;
+        }
+    }
+
+    internal static bool TrySkipCurrentOpportunity(JObject? arguments, out JObject result)
+    {
+        result = null!;
+        if (!TryGetContract(out ReflectionContract contract))
+        {
+            return false;
+        }
+
+        RewardSnapshot before;
+        try
+        {
+            before = BuildSnapshot(contract);
+        }
+        catch (Exception exception)
+        {
+            result = Error(
+                "跳过奖励前无法读取界面状态：" + Unwrap(exception).Message,
+                new JObject { ["source"] = ResultSource });
+            return true;
+        }
+
+        if (!TryReadPhaseToken(arguments, out string phaseToken))
+        {
+            result = SelectionError("跳过奖励必须提供当前 phaseToken。", before.State);
+            return true;
+        }
+
+        if (!before.PanelOpen || !string.Equals(before.PhaseToken, phaseToken, StringComparison.Ordinal))
+        {
+            result = SelectionError("奖励阶段已经变化，拒绝跳过过期的奖励机会。", before.State);
+            return true;
+        }
+
+        if (!before.CanSkip)
+        {
+            result = SelectionError("当前奖励机会不可跳过，或奖励界面仍在切换。", before.State);
+            return true;
+        }
+
+        Component? panel = TryGetRegisteredComponent(contract.PanelInstance);
+        if (panel == null)
+        {
+            result = SelectionError("奖励面板已经不可用，本次未执行跳过。", before.State);
+            return true;
+        }
+
+        bool invocationStarted = false;
+        try
+        {
+            invocationStarted = true;
+            contract.PanelSkipHandle.Invoke(panel, null);
+            RewardSnapshot after = BuildSnapshot(contract);
+            after.State["invocationStarted"] = true;
+            after.State["skippedPhaseToken"] = phaseToken;
+            result = Success("当前奖励均不可领取，已跳过本次可选奖励。", after.State);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            JObject failureState = before.State;
+            if (invocationStarted)
+            {
+                failureState["outcomeUnknown"] = true;
+                failureState["needsReconciliation"] = true;
+                failureState["uncertaintyOrigin"] = "rewardSkipException";
+                failureState["invocationStarted"] = true;
+            }
+
+            result = Error("跳过奖励调用失败：" + Unwrap(exception).Message, failureState);
             return true;
         }
     }
@@ -347,6 +431,9 @@ internal static class RewardUiRuntimeFallback
         string currentQueueItemType = currentQueueItem == null
             ? string.Empty
             : contract.QueueItemType.GetValue(currentQueueItem)?.ToString() ?? string.Empty;
+        bool currentQueueMandatory = currentQueueItem == null ||
+                                     contract.QueueItemMandatory.GetValue(currentQueueItem) is not bool mandatory ||
+                                     mandatory;
         int queueCount = panel != null && contract.PanelQueue.GetValue(panel) is ICollection queue
             ? queue.Count
             : 0;
@@ -370,6 +457,8 @@ internal static class RewardUiRuntimeFallback
             out bool spawnerAvailable);
         bool optionsPending = panelOpen && (options.Count == 0 || !mutexAvailable);
         bool rewardObjectsPending = !panelOpen && !spawnerAvailable;
+        bool canSkip = panelOpen && currentQueueItem != null && !currentQueueMandatory &&
+                       !busy && !refresh && !finished;
         JObject state = new()
         {
             ["panelOpen"] = panelOpen,
@@ -380,6 +469,8 @@ internal static class RewardUiRuntimeFallback
             ["queueCount"] = queueCount,
             ["currentQueueIdentity"] = currentQueueIdentity,
             ["currentQueueItemType"] = currentQueueItemType,
+            ["currentQueueMandatory"] = currentQueueMandatory,
+            ["canSkip"] = canSkip,
             ["refresh"] = refresh,
             ["finished"] = finished,
             ["busy"] = busy,
@@ -402,6 +493,7 @@ internal static class RewardUiRuntimeFallback
             finished,
             mutexAvailable,
             busy,
+            canSkip,
             options);
     }
 
@@ -450,6 +542,13 @@ internal static class RewardUiRuntimeFallback
         bool isVehicle = reward != null && contract.RazorRewardType.IsInstanceOfType(reward);
         bool isDisposable = reward != null && contract.PotionRewardType.IsInstanceOfType(reward);
         bool isSuperModule = reward != null && contract.SuperModuleRewardType.IsInstanceOfType(reward);
+        DetermineAvailability(
+            contract,
+            reward,
+            isDisposable,
+            isSuperModule,
+            out bool canAcquire,
+            out string unavailableReason);
         string rewardKind = isVehicle
             ? "vehicle"
             : isDisposable
@@ -478,6 +577,8 @@ internal static class RewardUiRuntimeFallback
             ["instanceId"] = item.GetInstanceID(),
             ["type"] = item.GetType().Name,
             ["buttonActive"] = buttonActive,
+            ["canAcquire"] = canAcquire,
+            ["unavailableReason"] = NullableString(string.IsNullOrWhiteSpace(unavailableReason) ? null : unavailableReason),
             ["rewardKind"] = rewardKind,
             ["rewardType"] = NullableString(reward?.GetType().Name),
             ["rewardName"] = NullableString(reward is UnityEngine.Object rewardObject ? rewardObject.name : null),
@@ -498,7 +599,101 @@ internal static class RewardUiRuntimeFallback
             ["source"] = ResultSource
         };
 
-        return new RewardOptionSnapshot(item, index, item.GetInstanceID(), buttonActive, state);
+        return new RewardOptionSnapshot(
+            item,
+            index,
+            item.GetInstanceID(),
+            buttonActive,
+            canAcquire,
+            unavailableReason,
+            state);
+    }
+
+    private static void DetermineAvailability(
+        ReflectionContract contract,
+        object? reward,
+        bool isDisposable,
+        bool isSuperModule,
+        out bool canAcquire,
+        out string unavailableReason)
+    {
+        canAcquire = true;
+        unavailableReason = string.Empty;
+        if (reward == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (isDisposable)
+            {
+                if (!TryGetRegisteredObject(contract.DisposableManagerInstance, out object? manager) ||
+                    manager == null)
+                {
+                    canAcquire = false;
+                    unavailableReason = "道具管理器尚未初始化。";
+                    return;
+                }
+
+                object? disposableEnum = contract.PotionDisposable.GetValue(reward);
+                if (disposableEnum == null)
+                {
+                    canAcquire = false;
+                    unavailableReason = "道具奖励缺少枚举配置。";
+                    return;
+                }
+
+                object?[] templateArguments = { disposableEnum, null };
+                bool templateFound = contract.DisposableTryGetTemplate.Invoke(manager, templateArguments) is bool found && found;
+                object? template = templateArguments[1];
+                if (!templateFound || template == null)
+                {
+                    canAcquire = false;
+                    unavailableReason = "游戏没有提供该道具的运行时模板。";
+                    return;
+                }
+
+                canAcquire = contract.DisposableCanAdd.Invoke(manager, new[] { reward, template }) is bool allowed && allowed;
+                if (!canAcquire)
+                {
+                    unavailableReason = "支援栏位已满，且该道具不能堆叠或立即使用。";
+                }
+
+                return;
+            }
+
+            if (isSuperModule &&
+                contract.SuperModuleAllowRepeated.GetValue(reward) is bool allowRepeated &&
+                !allowRepeated)
+            {
+                if (!TryGetRegisteredObject(contract.SuperModuleManagerInstance, out object? manager) || manager == null)
+                {
+                    canAcquire = false;
+                    unavailableReason = "遗物管理器尚未初始化。";
+                    return;
+                }
+
+                object? target = contract.SuperModule.GetValue(reward);
+                if (contract.SuperModuleGetCurrentAll.Invoke(manager, null) is IEnumerable current)
+                {
+                    foreach (object? held in current)
+                    {
+                        if (Equals(held, target))
+                        {
+                            canAcquire = false;
+                            unavailableReason = "该遗物已经持有，且不允许重复获取。";
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            canAcquire = false;
+            unavailableReason = "无法安全验证奖励可领取性：" + Unwrap(exception).Message;
+        }
     }
 
     private static JObject? BuildFetterState(ReflectionContract contract, object? fetter)
@@ -715,6 +910,14 @@ internal static class RewardUiRuntimeFallback
         return !string.IsNullOrWhiteSpace(phaseToken) && itemInstanceId != 0 && index >= 0;
     }
 
+    private static bool TryReadPhaseToken(JObject? arguments, out string phaseToken)
+    {
+        phaseToken = arguments?["phaseToken"]?.Type == JTokenType.String
+            ? arguments["phaseToken"]!.Value<string>() ?? string.Empty
+            : string.Empty;
+        return !string.IsNullOrWhiteSpace(phaseToken);
+    }
+
     private static bool TryReadRewardObjectIdentity(JObject? arguments, out int instanceId)
     {
         instanceId = 0;
@@ -753,6 +956,8 @@ internal static class RewardUiRuntimeFallback
         Type? razorRewardType = FindType(RazorRewardTypeName);
         Type? potionRewardType = FindType(PotionRewardTypeName);
         Type? superModuleRewardType = FindType(SuperModuleRewardTypeName);
+        Type? disposableManagerType = FindType(DisposableManagerTypeName);
+        Type? superModuleManagerType = FindType(SuperModuleManagerTypeName);
         Type? mapConfigControllerType = FindType(MapConfigControllerTypeName);
 
         PropertyInfo? panelInstance = FindStaticProperty(panelType, "Instance");
@@ -764,6 +969,8 @@ internal static class RewardUiRuntimeFallback
         FieldInfo? panelRefresh = FindInstanceField(panelType, "m_refresh");
         FieldInfo? panelFinished = FindInstanceField(panelType, "m_currentQueueItemFinished");
         FieldInfo? queueItemType = FindInstanceField(panelCurrentQueueItem?.FieldType, "itemType");
+        FieldInfo? queueItemMandatory = FindInstanceField(panelCurrentQueueItem?.FieldType, "isMandatory");
+        MethodInfo? panelSkipHandle = FindInstanceMethod(panelType, "SkipHandle");
 
         FieldInfo? itemReward = FindInstanceField(itemType, "m_reward");
         FieldInfo? itemMoney = FindInstanceField(itemType, "m_money");
@@ -792,6 +999,11 @@ internal static class RewardUiRuntimeFallback
         FieldInfo? potionAssignedDisposable = FindInstanceField(potionRewardType, "assignDisposableEnum");
         FieldInfo? superModule = FindInstanceField(superModuleRewardType, "superModuleEnum");
         FieldInfo? superModuleAllowRepeated = FindInstanceField(superModuleRewardType, "allowRepeatedAcquire");
+        PropertyInfo? disposableManagerInstance = FindStaticProperty(disposableManagerType, "Instance");
+        MethodInfo? disposableTryGetTemplate = FindInstanceMethod(disposableManagerType, "TryGetDisposableTemplate", 2);
+        MethodInfo? disposableCanAdd = FindInstanceMethod(disposableManagerType, "CanAdd", 2);
+        PropertyInfo? superModuleManagerInstance = FindStaticProperty(superModuleManagerType, "Instance");
+        MethodInfo? superModuleGetCurrentAll = FindInstanceMethod(superModuleManagerType, "GetCurrentAll");
 
         PropertyInfo? mapConfigInstance = FindStaticProperty(mapConfigControllerType, "Instance");
         PropertyInfo? mapConfigCurrent = FindInstanceProperty(mapConfigControllerType, "CurrentCfg");
@@ -803,13 +1015,17 @@ internal static class RewardUiRuntimeFallback
             panelInstance == null || panelIsOpen == null || panelIsActive == null ||
             panelRewardContent == null || panelQueue == null || panelCurrentQueueItem == null ||
             panelRefresh == null || panelFinished == null || queueItemType == null ||
+            queueItemMandatory == null || panelSkipHandle == null ||
             itemReward == null || itemMoney == null || itemButton == null || buttonActive == null ||
             clickEvent == null || mutexInstance == null || mutexBusy == null ||
             spawnerInstance == null || spawnerRewardObjects == null || rewardRare == null ||
             razorVehicleType == null || razorInitFetter == null || razorCarryInitFetter == null ||
             fetterEnum == null || fetterLevel == null || fetterCount == null ||
             potionDisposable == null || potionAssignedDisposable == null || superModule == null ||
-            superModuleAllowRepeated == null || mapConfigInstance == null || mapConfigCurrent == null ||
+            superModuleAllowRepeated == null || disposableManagerInstance == null ||
+            disposableTryGetTemplate == null || disposableCanAdd == null ||
+            superModuleManagerInstance == null || superModuleGetCurrentAll == null ||
+            mapConfigInstance == null || mapConfigCurrent == null ||
             mapRewardVehicleGetFetter == null)
         {
             contract = null!;
@@ -818,13 +1034,15 @@ internal static class RewardUiRuntimeFallback
 
         _contract = new ReflectionContract(
             panelInstance, panelIsOpen, panelIsActive, panelRewardContent, panelQueue,
-            panelCurrentQueueItem, panelRefresh, panelFinished, queueItemType,
+            panelCurrentQueueItem, panelRefresh, panelFinished, queueItemType, queueItemMandatory, panelSkipHandle,
             itemType, itemReward, itemMoney, itemButton, buttonActive, clickEvent,
             mutexInstance, mutexBusy, spawnerInstance, spawnerRewardObjects, rewardObjectType,
             rewardObjectButton, rewardButtonPointEnter, rewardButtonLeftPointDown, rewardButtonLeftPointUp,
             rewardRare, razorRewardType, razorVehicleType, razorInitFetter, razorCarryInitFetter,
             fetterEnum, fetterLevel, fetterCount, potionRewardType, potionDisposable,
             potionAssignedDisposable, superModuleRewardType, superModule, superModuleAllowRepeated,
+            disposableManagerInstance, disposableTryGetTemplate, disposableCanAdd,
+            superModuleManagerInstance, superModuleGetCurrentAll,
             mapConfigInstance, mapConfigCurrent, mapRewardVehicleGetFetter);
         contract = _contract;
         return true;
@@ -919,6 +1137,24 @@ internal static class RewardUiRuntimeFallback
         return null;
     }
 
+    private static MethodInfo? FindInstanceMethod(Type? type, string name, int parameterCount)
+    {
+        const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        for (Type? current = type; current != null; current = current.BaseType)
+        {
+            MethodInfo? method = current.GetMethods(Flags)
+                .FirstOrDefault(candidate =>
+                    string.Equals(candidate.Name, name, StringComparison.Ordinal) &&
+                    candidate.GetParameters().Length == parameterCount);
+            if (method != null)
+            {
+                return method;
+            }
+        }
+
+        return null;
+    }
+
     private static JToken NullableString(string? value) => value == null
         ? JValue.CreateNull()
         : new JValue(value);
@@ -956,6 +1192,7 @@ internal static class RewardUiRuntimeFallback
             bool finished,
             bool mutexAvailable,
             bool busy,
+            bool canSkip,
             List<RewardOptionSnapshot> options)
         {
             State = state;
@@ -965,6 +1202,7 @@ internal static class RewardUiRuntimeFallback
             Finished = finished;
             MutexAvailable = mutexAvailable;
             Busy = busy;
+            CanSkip = canSkip;
             Options = options;
         }
 
@@ -975,17 +1213,27 @@ internal static class RewardUiRuntimeFallback
         public bool Finished { get; }
         public bool MutexAvailable { get; }
         public bool Busy { get; }
+        public bool CanSkip { get; }
         public List<RewardOptionSnapshot> Options { get; }
     }
 
     private sealed class RewardOptionSnapshot
     {
-        public RewardOptionSnapshot(Component item, int index, int instanceId, bool buttonActive, JObject state)
+        public RewardOptionSnapshot(
+            Component item,
+            int index,
+            int instanceId,
+            bool buttonActive,
+            bool canAcquire,
+            string unavailableReason,
+            JObject state)
         {
             Item = item;
             Index = index;
             InstanceId = instanceId;
             ButtonActive = buttonActive;
+            CanAcquire = canAcquire;
+            UnavailableReason = unavailableReason;
             State = state;
         }
 
@@ -993,6 +1241,8 @@ internal static class RewardUiRuntimeFallback
         public int Index { get; }
         public int InstanceId { get; }
         public bool ButtonActive { get; }
+        public bool CanAcquire { get; }
+        public string UnavailableReason { get; }
         public JObject State { get; }
     }
 
@@ -1028,6 +1278,8 @@ internal static class RewardUiRuntimeFallback
             FieldInfo panelRefresh,
             FieldInfo panelFinished,
             FieldInfo queueItemType,
+            FieldInfo queueItemMandatory,
+            MethodInfo panelSkipHandle,
             Type rewardItemType,
             FieldInfo itemReward,
             FieldInfo itemMoney,
@@ -1057,6 +1309,11 @@ internal static class RewardUiRuntimeFallback
             Type superModuleRewardType,
             FieldInfo superModule,
             FieldInfo superModuleAllowRepeated,
+            PropertyInfo disposableManagerInstance,
+            MethodInfo disposableTryGetTemplate,
+            MethodInfo disposableCanAdd,
+            PropertyInfo superModuleManagerInstance,
+            MethodInfo superModuleGetCurrentAll,
             PropertyInfo mapConfigInstance,
             PropertyInfo mapConfigCurrent,
             FieldInfo mapRewardVehicleGetFetter)
@@ -1070,6 +1327,8 @@ internal static class RewardUiRuntimeFallback
             PanelRefresh = panelRefresh;
             PanelFinished = panelFinished;
             QueueItemType = queueItemType;
+            QueueItemMandatory = queueItemMandatory;
+            PanelSkipHandle = panelSkipHandle;
             RewardItemType = rewardItemType;
             ItemReward = itemReward;
             ItemMoney = itemMoney;
@@ -1099,6 +1358,11 @@ internal static class RewardUiRuntimeFallback
             SuperModuleRewardType = superModuleRewardType;
             SuperModule = superModule;
             SuperModuleAllowRepeated = superModuleAllowRepeated;
+            DisposableManagerInstance = disposableManagerInstance;
+            DisposableTryGetTemplate = disposableTryGetTemplate;
+            DisposableCanAdd = disposableCanAdd;
+            SuperModuleManagerInstance = superModuleManagerInstance;
+            SuperModuleGetCurrentAll = superModuleGetCurrentAll;
             MapConfigInstance = mapConfigInstance;
             MapConfigCurrent = mapConfigCurrent;
             MapRewardVehicleGetFetter = mapRewardVehicleGetFetter;
@@ -1113,6 +1377,8 @@ internal static class RewardUiRuntimeFallback
         public FieldInfo PanelRefresh { get; }
         public FieldInfo PanelFinished { get; }
         public FieldInfo QueueItemType { get; }
+        public FieldInfo QueueItemMandatory { get; }
+        public MethodInfo PanelSkipHandle { get; }
         public Type RewardItemType { get; }
         public FieldInfo ItemReward { get; }
         public FieldInfo ItemMoney { get; }
@@ -1142,6 +1408,11 @@ internal static class RewardUiRuntimeFallback
         public Type SuperModuleRewardType { get; }
         public FieldInfo SuperModule { get; }
         public FieldInfo SuperModuleAllowRepeated { get; }
+        public PropertyInfo DisposableManagerInstance { get; }
+        public MethodInfo DisposableTryGetTemplate { get; }
+        public MethodInfo DisposableCanAdd { get; }
+        public PropertyInfo SuperModuleManagerInstance { get; }
+        public MethodInfo SuperModuleGetCurrentAll { get; }
         public PropertyInfo MapConfigInstance { get; }
         public PropertyInfo MapConfigCurrent { get; }
         public FieldInfo MapRewardVehicleGetFetter { get; }

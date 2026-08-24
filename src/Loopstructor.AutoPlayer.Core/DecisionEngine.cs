@@ -191,7 +191,30 @@ public sealed class DecisionEngine
                 return new AutomationAction("chooseRewardOption", JObject.FromObject(new { index = index.Value }), AutomationStage.ManagingRewards, $"选择奖励选项 {index.Value}。");
             }
 
-            return AutomationAction.Wait(AutomationStage.ManagingRewards, "奖励选项仍在显示，但当前没有可点击的有效选项。");
+            bool hasAcquirableOption = options.OfType<JObject>().Any(option =>
+                option["buttonActive"]?.Value<bool>() != false &&
+                option["canAcquire"]?.Value<bool>() != false &&
+                option["index"]?.Type == JTokenType.Integer &&
+                option["index"]!.Value<int>() >= 0);
+            string phaseToken = state["phaseToken"]?.Value<string>() ?? string.Empty;
+            if (!hasAcquirableOption &&
+                state["canSkip"]?.Value<bool>() == true &&
+                !string.IsNullOrWhiteSpace(phaseToken))
+            {
+                return new AutomationAction(
+                    "skipReward",
+                    JObject.FromObject(new { phaseToken }),
+                    AutomationStage.ManagingRewards,
+                    "当前奖励均不可领取，跳过本次可选奖励。");
+            }
+
+            return AutomationAction.Wait(
+                AutomationStage.ManagingRewards,
+                hasAcquirableOption
+                    ? "奖励选项仍在显示，但当前没有可安全定位的有效选项。"
+                    : state["currentQueueMandatory"]?.Value<bool>() == true
+                        ? "当前奖励均不可领取，但该奖励机会是强制选择，正在等待容量或状态变化。"
+                        : "当前奖励均不可领取，且游戏当前不允许跳过，正在等待状态变化。");
         }
 
         return AutomationAction.Wait(AutomationStage.ManagingRewards, "等待奖励动画或队列处理完成。");
@@ -389,6 +412,7 @@ public sealed class DecisionEngine
     {
         JObject[] candidates = options.OfType<JObject>()
             .Where(option => option["buttonActive"]?.Value<bool>() != false)
+            .Where(option => option["canAcquire"]?.Value<bool>() != false)
             .Where(option => option["index"]?.Type == JTokenType.Integer && option["index"]!.Value<int>() >= 0)
             .ToArray();
         if (candidates.Length == 0)

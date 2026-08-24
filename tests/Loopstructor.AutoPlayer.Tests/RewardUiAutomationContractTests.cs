@@ -20,6 +20,7 @@ public sealed class RewardUiAutomationContractTests
 
         int queryRoute = FindCall(instructions, BridgeType, "InvokeLightweightRewardQuery");
         int selectionRoute = FindCall(instructions, BridgeType, "InvokeLightweightRewardSelection");
+        int skipRoute = FindCall(instructions, BridgeType, "InvokeLightweightRewardSkip");
         int collectionRoute = FindCall(instructions, FallbackType, "TryCollectRewardObject");
         int nativeLookup = FindCall(
             instructions,
@@ -28,20 +29,26 @@ public sealed class RewardUiAutomationContractTests
 
         Assert.True(queryRoute >= 0 && queryRoute < nativeLookup);
         Assert.True(selectionRoute >= 0 && selectionRoute < nativeLookup);
+        Assert.True(skipRoute >= 0 && skipRoute < nativeLookup);
         Assert.True(collectionRoute >= 0 && collectionRoute < nativeLookup);
         Assert.Contains("queryReward", LoadedStrings(invoke));
         Assert.Contains("chooseRewardOption", LoadedStrings(invoke));
+        Assert.Contains("skipReward", LoadedStrings(invoke));
         Assert.Contains("collectRewardObject", LoadedStrings(invoke));
         Assert.Contains(Calls(invoke), IsCall(BridgeType, "LightweightContractUnavailable"));
 
         MethodDefinition query = RequireMethod(bridge, "InvokeLightweightRewardQuery");
         MethodDefinition selection = RequireMethod(bridge, "InvokeLightweightRewardSelection");
+        MethodDefinition skip = RequireMethod(bridge, "InvokeLightweightRewardSkip");
         Assert.Contains(Calls(query), IsCall(FallbackType, "TryQueryState"));
         Assert.Contains(Calls(selection), IsCall(FallbackType, "TryChooseOption"));
+        Assert.Contains(Calls(skip), IsCall(FallbackType, "TrySkipCurrentOpportunity"));
         Assert.Contains(Calls(query), IsCall(BridgeType, "LightweightContractUnavailable"));
         Assert.Contains(Calls(selection), IsCall(BridgeType, "LightweightContractUnavailable"));
+        Assert.Contains(Calls(skip), IsCall(BridgeType, "LightweightContractUnavailable"));
         Assert.DoesNotContain(Calls(query), call => call.Name == "TryGetValue");
         Assert.DoesNotContain(Calls(selection), call => call.Name == "TryGetValue");
+        Assert.DoesNotContain(Calls(skip), call => call.Name == "TryGetValue");
 
         MethodDefinition unavailable = RequireMethod(bridge, "LightweightContractUnavailable");
         string[] unavailableStrings = LoadedStrings(unavailable).ToArray();
@@ -69,6 +76,11 @@ public sealed class RewardUiAutomationContractTests
         Assert.Contains("m_instance", LoadedStrings(contract));
         Assert.Contains("m_reward", LoadedStrings(contract));
         Assert.Contains("initFetterModuleData", LoadedStrings(contract));
+        Assert.Contains("isMandatory", LoadedStrings(contract));
+        Assert.Contains("SkipHandle", LoadedStrings(contract));
+        Assert.Contains("TryGetDisposableTemplate", LoadedStrings(contract));
+        Assert.Contains("CanAdd", LoadedStrings(contract));
+        Assert.Contains("GetCurrentAll", LoadedStrings(contract));
         Assert.Contains(Calls(snapshot), IsCall(FallbackType, "TryGetRegisteredComponent"));
         Assert.Contains(Calls(snapshot), IsCall(FallbackType, "TryGetRegisteredObject"));
         Assert.Contains(Calls(contract), IsCall(FallbackType, "FindStaticField"));
@@ -103,6 +115,7 @@ public sealed class RewardUiAutomationContractTests
         Instruction[] instructions = choose.Body.Instructions.ToArray();
         int mutexAvailable = FindCall(instructions, FallbackType + "/RewardSnapshot", "get_MutexAvailable");
         int busy = FindCall(instructions, FallbackType + "/RewardSnapshot", "get_Busy");
+        int canAcquire = FindCall(instructions, FallbackType + "/RewardOptionSnapshot", "get_CanAcquire");
         int click = FindCall(instructions, "System.Reflection.MethodBase", "Invoke");
 
         Assert.Contains("phaseToken", LoadedStrings(readSelection));
@@ -110,6 +123,7 @@ public sealed class RewardUiAutomationContractTests
         Assert.Contains("index", LoadedStrings(readSelection));
         Assert.True(mutexAvailable >= 0 && mutexAvailable < click);
         Assert.True(busy >= 0 && busy < click);
+        Assert.True(canAcquire >= 0 && canAcquire < click);
         Assert.Equal(
             1,
             Calls(choose).Count(call =>
@@ -136,6 +150,23 @@ public sealed class RewardUiAutomationContractTests
         Assert.Contains("rewardClickException", LoadedStrings(choose));
         Assert.DoesNotContain("statePolluted", LoadedStrings(choose));
         Assert.DoesNotContain("needsReset", LoadedStrings(choose));
+    }
+
+    [Fact]
+    public void RewardSkip_RequiresCurrentPhaseAndInvokesPanelOnce()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition fallback = RequireType(assembly, FallbackType);
+        MethodDefinition skip = RequireMethod(fallback, "TrySkipCurrentOpportunity");
+        MethodDefinition readPhase = RequireMethod(fallback, "TryReadPhaseToken");
+
+        Assert.Contains("phaseToken", LoadedStrings(readPhase));
+        Assert.Contains(Calls(skip), IsCall(FallbackType + "/RewardSnapshot", "get_CanSkip"));
+        Assert.Equal(
+            1,
+            Calls(skip).Count(call =>
+                call.DeclaringType.FullName == "System.Reflection.MethodBase" && call.Name == "Invoke"));
+        Assert.Contains("rewardSkipException", LoadedStrings(skip));
     }
 
     [Fact]

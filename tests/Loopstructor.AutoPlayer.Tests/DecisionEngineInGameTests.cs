@@ -177,6 +177,50 @@ public sealed class DecisionEngineInGameTests
     }
 
     [Fact]
+    public void RewardSelection_SkipsBlockedOptionAndChoosesAvailableAlternative()
+    {
+        JObject reward = RewardOptions(
+            new { index = 0, buttonActive = true, canAcquire = false, rewardKind = "vehicle", rewardRare = "epic" },
+            new { index = 1, buttonActive = true, canAcquire = true, rewardKind = "money", rewardRare = "normal" });
+
+        AutomationAction action = new DecisionEngine().DecideReward(reward);
+
+        Assert.Equal("chooseRewardOption", action.Command);
+        Assert.Equal(1, action.Arguments.Value<int>("index"));
+    }
+
+    [Fact]
+    public void RewardSelection_WhenAllOptionsBlocked_SkipsOptionalOpportunity()
+    {
+        JObject reward = RewardOptionsWithState(
+            "phase-17",
+            canSkip: true,
+            currentQueueMandatory: false,
+            new { index = 0, buttonActive = true, canAcquire = false, rewardKind = "disposable" },
+            new { index = 1, buttonActive = true, canAcquire = false, rewardKind = "superModule" });
+
+        AutomationAction action = new DecisionEngine().DecideReward(reward);
+
+        Assert.Equal("skipReward", action.Command);
+        Assert.Equal("phase-17", action.Arguments.Value<string>("phaseToken"));
+    }
+
+    [Fact]
+    public void RewardSelection_WhenAllOptionsBlockedAndMandatory_WaitsSafely()
+    {
+        JObject reward = RewardOptionsWithState(
+            "phase-18",
+            canSkip: false,
+            currentQueueMandatory: true,
+            new { index = 0, buttonActive = true, canAcquire = false, rewardKind = "disposable" });
+
+        AutomationAction action = new DecisionEngine().DecideReward(reward);
+
+        Assert.Equal("wait", action.Command);
+        Assert.Contains("强制选择", action.Reason);
+    }
+
+    [Fact]
     public void RewardSelection_WithVehicleContext_PrefersImmediateSameTypeMerge()
     {
         JObject reward = RewardOptions(
@@ -939,6 +983,25 @@ public sealed class DecisionEngineInGameTests
             state = new
             {
                 activeRewardObjectCount = 0,
+                options
+            }
+        }
+    });
+
+    private static JObject RewardOptionsWithState(
+        string phaseToken,
+        bool canSkip,
+        bool currentQueueMandatory,
+        params object[] options) => JObject.FromObject(new
+    {
+        data = new
+        {
+            state = new
+            {
+                activeRewardObjectCount = 0,
+                phaseToken,
+                canSkip,
+                currentQueueMandatory,
                 options
             }
         }
