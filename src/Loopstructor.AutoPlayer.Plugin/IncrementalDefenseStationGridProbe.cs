@@ -38,15 +38,27 @@ internal sealed class IncrementalDefenseStationGridProbe
     public bool TryInitializePlacement(
         string disposableEnum,
         JObject? catapultResult,
-        out string error) =>
-        TryInitialize(
+        out string error,
+        bool? placementIsAttribute = null)
+    {
+        if (!_candidateReader.TryReadSpacingRules(out StationSpacingRules spacingRules, out error))
+        {
+            Reset();
+            _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.TransientUnavailable;
+            return false;
+        }
+        return TryInitialize(
             disposableEnum,
             candidates => DefenseStationGridRanker.RankPlacement(
                 disposableEnum,
                 candidates,
-                catapultResult),
+                catapultResult,
+                spacingRules,
+                placementIsAttribute),
             validateCandidates: true,
             out error);
+    }
 
     public bool TryInitializeMove(
         string disposableEnum,
@@ -67,11 +79,36 @@ internal sealed class IncrementalDefenseStationGridProbe
     public bool TryInitializeMove(
         RailStationMoveCandidate candidate,
         out string error) =>
-        TryInitialize(
+        TryInitializeExistingMove(candidate, out error);
+
+    private bool TryInitializeExistingMove(RailStationMoveCandidate candidate, out string error)
+    {
+        if (candidate == null || string.IsNullOrWhiteSpace(candidate.StationDisposableEnum))
+        {
+            Reset();
+            error = "缺少站点道具枚举。";
+            _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.NoBeneficialCandidate;
+            return false;
+        }
+        if (!_candidateReader.TryReadSpacingRules(out StationSpacingRules spacingRules, out error))
+        {
+            Reset();
+            _contractError = error;
+            InitializationFailure = DefenseStationGridProbeInitializationFailure.TransientUnavailable;
+            return false;
+        }
+
+        candidate.SpacingRules = spacingRules;
+        return TryInitialize(
             candidate.StationDisposableEnum,
             candidates => DefenseStationGridRanker.RankExistingStationMove(candidates, candidate),
             validateCandidates: false,
             out error);
+    }
+
+    public bool TryReadSpacingRules(out StationSpacingRules rules, out string error) =>
+        _candidateReader.TryReadSpacingRules(out rules, out error);
 
     public IncrementalGridProbeResult ProbeNext()
     {

@@ -46,9 +46,30 @@ public sealed class RailLayoutScore
     public double LoopCycleSeconds { get; set; }
     public double TriggerRate { get; set; }
     public double DefenseUtility { get; set; }
+    public bool SpacingRulesKnown { get; set; }
+    public IReadOnlyList<double> AdjacentSpacingSurpluses { get; set; } = Array.Empty<double>();
 
     public bool CoversAllQuadrants => CoveredQuadrants >= 4;
     public bool HasNoLargeBlindArc => IsValid && MaxAngularGapDegrees <= 90.001d;
+}
+
+/// <summary>Current scene spacing rules read from MapPosManager.</summary>
+public readonly struct StationSpacingRules
+{
+    public StationSpacingRules(double ordinaryMinimum, double energyMinimum)
+    {
+        OrdinaryMinimum = ordinaryMinimum;
+        EnergyMinimum = energyMinimum;
+    }
+
+    public double OrdinaryMinimum { get; }
+    public double EnergyMinimum { get; }
+    public bool IsKnown => OrdinaryMinimum > 0d && EnergyMinimum > 0d &&
+                           !double.IsNaN(OrdinaryMinimum) && !double.IsInfinity(OrdinaryMinimum) &&
+                           !double.IsNaN(EnergyMinimum) && !double.IsInfinity(EnergyMinimum);
+
+    public double MinimumFor(bool leftIsAttribute, bool rightIsAttribute) =>
+        leftIsAttribute && rightIsAttribute ? EnergyMinimum : OrdinaryMinimum;
 }
 
 public sealed class RailLoopPointCandidate
@@ -78,11 +99,35 @@ public static class RailLayoutStrategyPlanner
         IEnumerable<RailLayoutPoint>? points,
         int stationCount,
         double loopCycleSeconds)
+        => EvaluateCore(points, null, stationCount, loopCycleSeconds, default);
+
+    public static RailLayoutScore EvaluateWithSpacing(
+        IEnumerable<RailLayoutPoint>? points,
+        IEnumerable<bool>? isAttribute,
+        int stationCount,
+        double loopCycleSeconds,
+        StationSpacingRules spacingRules)
+        => EvaluateCore(points, isAttribute, stationCount, loopCycleSeconds, spacingRules);
+
+    private static RailLayoutScore EvaluateCore(
+        IEnumerable<RailLayoutPoint>? points,
+        IEnumerable<bool>? isAttribute,
+        int stationCount,
+        double loopCycleSeconds,
+        StationSpacingRules spacingRules)
     {
-        RailLayoutPoint[] source = points?
-            .Where(IsFinite)
-            .Distinct()
-            .ToArray() ?? Array.Empty<RailLayoutPoint>();
+        RailLayoutPoint[] rawPoints = points?.ToArray() ?? Array.Empty<RailLayoutPoint>();
+        bool[] rawKinds = isAttribute?.ToArray() ?? Array.Empty<bool>();
+        List<RailLayoutPoint> uniquePoints = new();
+        List<bool> uniqueKinds = new();
+        for (int index = 0; index < rawPoints.Length; index++)
+        {
+            RailLayoutPoint point = rawPoints[index];
+            if (!IsFinite(point) || uniquePoints.Contains(point)) continue;
+            uniquePoints.Add(point);
+            uniqueKinds.Add(index < rawKinds.Length && rawKinds[index]);
+        }
+        RailLayoutPoint[] source = uniquePoints.ToArray();
         if (source.Length < 3 || stationCount < 1 || !IsPositiveFinite(loopCycleSeconds))
         {
             return new RailLayoutScore();
@@ -118,6 +163,10 @@ public static class RailLayoutStrategyPlanner
             StationCount = stationCount,
             LoopCycleSeconds = loopCycleSeconds,
             TriggerRate = stationCount / loopCycleSeconds,
+            SpacingRulesKnown = spacingRules.IsKnown && uniqueKinds.Count == source.Length,
+            AdjacentSpacingSurpluses = spacingRules.IsKnown && uniqueKinds.Count == source.Length
+                ? CalculateSpacingSurpluses(source, uniqueKinds, spacingRules)
+                : Array.Empty<double>(),
             DefenseUtility = CalculateDefenseUtility(
                 stationCount / loopCycleSeconds,
                 coveredQuadrants,
@@ -242,10 +291,22 @@ public static class RailLayoutStrategyPlanner
 
         int comparison = CompareCoverage(left, right);
         if (comparison != 0) return comparison;
-        comparison = CompareDescending(left.TriggerRate, right.TriggerRate, Epsilon);
-        if (comparison != 0) return comparison;
-        comparison = CompareAscending(left.LoopCycleSeconds, right.LoopCycleSeconds, Epsilon);
-        if (comparison != 0) return comparison;
+        if (left.SpacingRulesKnown && right.SpacingRulesKnown)
+        {
+            comparison = CompareSpacingLayer(left, right);
+            if (comparison != 0) return comparison;
+            comparison = CompareAscending(left.LoopCycleSeconds, right.LoopCycleSeconds, Epsilon);
+            if (comparison != 0) return comparison;
+            comparison = CompareDescending(left.TriggerRate, right.TriggerRate, Epsilon);
+            if (comparison != 0) return comparison;
+        }
+        else
+        {
+            comparison = CompareDescending(left.TriggerRate, right.TriggerRate, Epsilon);
+            if (comparison != 0) return comparison;
+            comparison = CompareAscending(left.LoopCycleSeconds, right.LoopCycleSeconds, Epsilon);
+            if (comparison != 0) return comparison;
+        }
         comparison = CompareAscending(left.AverageRadius, right.AverageRadius, Epsilon);
         if (comparison != 0) return comparison;
         comparison = CompareAscending(left.RadiusVariance, right.RadiusVariance, 0.001d);
@@ -255,6 +316,21 @@ public static class RailLayoutStrategyPlanner
         comparison = CompareAscending(left.MaxAngularGapDegrees, right.MaxAngularGapDegrees, 0.001d);
         if (comparison != 0) return comparison;
         return CompareDescending(left.DefenseUtility, right.DefenseUtility, Epsilon);
+    }
+
+    private static int CompareSpacingLayer(RailLayoutScore left, RailLayoutScore right)
+    {
+        if (!left.SpacingRulesKnown || !right.SpacingRulesKnown) return 0;
+        int count = Math.Min(left.AdjacentSpacingSurpluses.Count, right.AdjacentSpacingSurpluses.Count);
+        for (int index = 0; index < count; index++)
+        {
+            int comparison = CompareAscending(
+                left.AdjacentSpacingSurpluses[index],
+                right.AdjacentSpacingSurpluses[index],
+                Epsilon);
+            if (comparison != 0) return comparison;
+        }
+        return left.AdjacentSpacingSurpluses.Count.CompareTo(right.AdjacentSpacingSurpluses.Count);
     }
 
     /// <summary>
@@ -425,6 +501,25 @@ public static class RailLayoutStrategyPlanner
             length += Math.Sqrt(x * x + y * y);
         }
         return length;
+    }
+
+    private static IReadOnlyList<double> CalculateSpacingSurpluses(
+        IReadOnlyList<RailLayoutPoint> points,
+        IReadOnlyList<bool> isAttribute,
+        StationSpacingRules rules)
+    {
+        List<double> surpluses = new(points.Count);
+        for (int index = 0; index < points.Count; index++)
+        {
+            int next = (index + 1) % points.Count;
+            double x = points[index].X - points[next].X;
+            double y = points[index].Y - points[next].Y;
+            double distance = Math.Sqrt(x * x + y * y);
+            double minimum = rules.MinimumFor(isAttribute[index], isAttribute[next]);
+            surpluses.Add(Math.Max(0d, distance - minimum));
+        }
+        surpluses.Sort((left, right) => right.CompareTo(left));
+        return surpluses;
     }
 
     private static int Quadrant(RailLayoutPoint point)

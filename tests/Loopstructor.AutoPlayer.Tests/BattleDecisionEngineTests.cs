@@ -6,6 +6,55 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class BattleDecisionEngineTests
 {
     [Fact]
+    public void DiscoverMovableStationDisposables_UsesRuntimeBehaviorWithoutEnumWhitelist()
+    {
+        JObject disposable = Result(new
+        {
+            items = new object[]
+            {
+                new
+                {
+                    disposableEnum = "FutureYinYangStation",
+                    count = 2,
+                    index = 7,
+                    active = true,
+                    buttonActive = true,
+                    interactionType = "GridChooseInteraction",
+                    itemInstanceId = 901,
+                    effectFacts = new
+                    {
+                        effectKind = "createStationWithBuiltInBuff",
+                        stationKind = "CommonCatapult",
+                        canAlwaysMove = true,
+                        buffIdentity = "SpeedCycle"
+                    }
+                },
+                new
+                {
+                    disposableEnum = "NotMovable",
+                    count = 1,
+                    index = 8,
+                    active = true,
+                    buttonActive = true,
+                    interactionType = "GridChooseInteraction",
+                    itemInstanceId = 902,
+                    effectFacts = new
+                    {
+                        stationKind = "CommonCatapult",
+                        canAlwaysMove = false
+                    }
+                }
+            }
+        });
+
+        RuntimeSpecialStationDisposable station = Assert.Single(
+            new BattleDecisionEngine().DiscoverMovableStationDisposables(disposable));
+        Assert.Equal("FutureYinYangStation", station.DisposableEnum);
+        Assert.Equal("CommonCatapult", station.StationKind);
+        Assert.Equal(2, station.Count);
+    }
+
+    [Fact]
     public void Decide_DoesNotTouchPreviewThatWasNotStartedByAutoPlay()
     {
         JObject disposable = Result(new
@@ -861,7 +910,9 @@ public sealed class BattleDecisionEngineTests
             {
                 itemInstanceId = 711,
                 disposableEnum = "FreePoint_Attribute",
-                interactionInstanceId = 901
+                interactionInstanceId = 901,
+                stationKind = "AttributeCatapult",
+                effectIdentity = "SpeedCycle"
             }),
             AutomationStage.PreparingDefense,
             "test");
@@ -877,6 +928,8 @@ public sealed class BattleDecisionEngineTests
         Assert.Equal(5, action.Arguments.SelectToken("grid.x")?.Value<int>());
         Assert.Equal(-2, action.Arguments.SelectToken("grid.y")?.Value<int>());
         Assert.Null(action.Arguments["interactionInstanceId"]);
+        Assert.Null(action.Arguments["stationKind"]);
+        Assert.Null(action.Arguments["effectIdentity"]);
     }
 
     [Fact]

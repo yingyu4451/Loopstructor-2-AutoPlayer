@@ -77,9 +77,11 @@ public sealed class RailStationMoveCandidate
     public string StationDisposableEnum { get; set; } = string.Empty;
     public string StationFingerprint { get; set; } = string.Empty;
     public bool StationIsAttribute { get; set; }
+    public StationSpacingRules SpacingRules { get; set; }
     public AutoPlayerGrid CurrentGrid { get; set; }
     public IReadOnlyList<AutoPlayerGrid> NeighborGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
     public IReadOnlyList<AutoPlayerGrid> OrderedStationGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
+    public IReadOnlyList<bool> OrderedStationKinds { get; set; } = Array.Empty<bool>();
 }
 
 /// <summary>
@@ -204,7 +206,8 @@ public sealed class RailExpansionPlanner
 
     public IReadOnlyList<RailStationMoveCandidate> BuildExistingSpecialMoveCandidates(
         JObject? railResult,
-        JObject? catapultResult)
+        JObject? catapultResult,
+        StationSpacingRules spacingRules = default)
     {
         JObject railState = State(railResult);
         List<JObject> rails = (railState["rails"] as JArray)?.OfType<JObject>().ToList()
@@ -270,6 +273,13 @@ public sealed class RailExpansionPlanner
             {
                 continue;
             }
+            IReadOnlyList<bool> orderedStationKinds = ReadRailStationKinds(rail);
+            if (orderedStationKinds.Count != orderedStationGrids.Count)
+            {
+                orderedStationKinds = orderedStationGrids
+                    .Select((grid, index) => index == 0)
+                    .ToArray();
+            }
 
             result.Add(new RailStationMoveCandidate
             {
@@ -288,9 +298,11 @@ public sealed class RailExpansionPlanner
                 StationDisposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
                 StationFingerprint = BuildStationFingerprint(station),
                 StationIsAttribute = isAttribute,
+                SpacingRules = spacingRules,
                 CurrentGrid = currentGrid,
                 NeighborGrids = neighbors,
-                OrderedStationGrids = orderedStationGrids
+                OrderedStationGrids = orderedStationGrids,
+                OrderedStationKinds = orderedStationKinds
             });
         }
 
@@ -319,10 +331,12 @@ public sealed class RailExpansionPlanner
     }
 
     public RailLayoutScore ScoreCurrentLayout(RailStationMoveCandidate candidate) =>
-        RailLayoutStrategyPlanner.Evaluate(
+        RailLayoutStrategyPlanner.EvaluateWithSpacing(
             candidate.OrderedStationGrids.Select(ToLayoutPoint),
+            candidate.OrderedStationKinds,
             candidate.StationCount,
-            candidate.CurrentLoopCycleSeconds);
+            candidate.CurrentLoopCycleSeconds,
+            candidate.SpacingRules);
 
     public RailLayoutScore ScoreMovedLayout(RailStationMoveCandidate candidate, AutoPlayerGrid targetGrid)
     {
@@ -330,10 +344,12 @@ public sealed class RailExpansionPlanner
         IReadOnlyList<AutoPlayerGrid> moved = candidate.OrderedStationGrids
             .Select(grid => grid.Equals(candidate.CurrentGrid) ? targetGrid : grid)
             .ToArray();
-        return RailLayoutStrategyPlanner.Evaluate(
+        return RailLayoutStrategyPlanner.EvaluateWithSpacing(
             moved.Select(ToLayoutPoint),
+            candidate.OrderedStationKinds,
             candidate.StationCount,
-            predictedCycle);
+            predictedCycle,
+            candidate.SpacingRules);
     }
 
     /// <summary>
@@ -946,6 +962,12 @@ public sealed class RailExpansionPlanner
         return endpoints.Distinct().ToList();
     }
 
+    private static IReadOnlyList<bool> ReadRailStationKinds(JObject rail) =>
+        (((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>()
+            .Select(item => item["isAttribute"]?.Value<bool>() == true)
+            .ToArray()) ?? Array.Empty<bool>();
+
     private static RailLayoutScore? TryBuildCandidateLayout(
         RailInsertionCandidate candidate,
         JObject? previewResult,
@@ -1203,7 +1225,9 @@ public static class DefenseStationGridRanker
     public static IReadOnlyList<AutoPlayerGrid> RankPlacement(
         string disposableEnum,
         IEnumerable<AutoPlayerGrid>? candidates,
-        JObject? catapultResult)
+        JObject? catapultResult,
+        StationSpacingRules spacingRules = default,
+        bool? placementIsAttribute = null)
     {
         List<AutoPlayerGrid> source = candidates?.Distinct().ToList() ?? new List<AutoPlayerGrid>();
         JObject state = catapultResult?.SelectToken("data.state") as JObject
@@ -1212,6 +1236,8 @@ public static class DefenseStationGridRanker
                         ?? new JObject();
         List<JObject> points = (state["catapults"] as JArray)?.OfType<JObject>().ToList()
                                ?? new List<JObject>();
+        bool targetIsAttribute = placementIsAttribute ??
+                                 string.Equals(disposableEnum, "FreePoint_Attribute", StringComparison.Ordinal);
         List<(double X, double Y)> anchors;
         if (string.Equals(disposableEnum, "FreePoint", StringComparison.Ordinal))
         {
@@ -1257,8 +1283,9 @@ public static class DefenseStationGridRanker
         else
         {
             anchors = points
-                .Where(point => point["isAttribute"]?.Value<bool>() != true)
-                .Where(IsAvailable)
+                .Where(point => targetIsAttribute
+                    ? point["isAttribute"]?.Value<bool>() != true && IsAvailable(point)
+                    : point["active"]?.Value<bool>() != false)
                 .Select(point => ReadGrid(point["grid"] as JObject))
                 .Where(grid => grid.HasValue)
                 .Select(grid => grid!.Value)
@@ -1269,11 +1296,22 @@ public static class DefenseStationGridRanker
             .Select(grid => new
             {
                 Grid = grid,
+                Layout = RailLayoutStrategyPlanner.EvaluateEstimated(
+                    anchors.Select(anchor => new RailLayoutPoint(anchor.X, anchor.Y))
+                        .Append(new RailLayoutPoint(grid.X, grid.Y))),
+                SpacingSurplus = spacingRules.IsKnown
+                    ? NearestLegalSpacingSurplus(grid, targetIsAttribute, points, spacingRules)
+                    : 0d,
                 Distance = anchors.Count == 0
                     ? (double)grid.X * grid.X + (double)grid.Y * grid.Y
                     : anchors.Min(anchor => DistanceSquared(grid.X, grid.Y, anchor.X, anchor.Y))
             })
-            .OrderBy(item => item.Distance)
+            .Where(item => item.SpacingSurplus >= -0.000001d)
+            .OrderBy(
+                item => item.Layout,
+                Comparer<RailLayoutScore>.Create(RailLayoutStrategyPlanner.CompareCoverage))
+            .ThenBy(item => item.SpacingSurplus)
+            .ThenBy(item => item.Distance)
             .ThenBy(item => item.Grid.X)
             .ThenBy(item => item.Grid.Y)
             .Select(item => item.Grid)
@@ -1373,6 +1411,29 @@ public static class DefenseStationGridRanker
         double dx = x1 - x2;
         double dy = y1 - y2;
         return dx * dx + dy * dy;
+    }
+
+    private static double NearestLegalSpacingSurplus(
+        AutoPlayerGrid grid,
+        bool targetIsAttribute,
+        IEnumerable<JObject> points,
+        StationSpacingRules rules)
+    {
+        double best = double.PositiveInfinity;
+        foreach (JObject point in points.Where(item => item["active"]?.Value<bool>() != false))
+        {
+            (double X, double Y)? existing = ReadGrid(point["grid"] as JObject);
+            if (!existing.HasValue) continue;
+            double minimum = rules.MinimumFor(targetIsAttribute, point["isAttribute"]?.Value<bool>() == true);
+            double distance = Math.Sqrt(DistanceSquared(
+                grid.X,
+                grid.Y,
+                existing.Value.X,
+                existing.Value.Y));
+            if (distance + 0.000001d < minimum) return -1d;
+            best = Math.Min(best, distance - minimum);
+        }
+        return double.IsPositiveInfinity(best) ? 0d : best;
     }
 
     private static int ReadInt(JToken? token, int fallback) =>

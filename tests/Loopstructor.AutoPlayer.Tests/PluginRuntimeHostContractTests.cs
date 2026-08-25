@@ -823,77 +823,29 @@ public sealed class PluginRuntimeHostContractTests
     }
 
     [Fact]
-    public void BattleTrainMovement_RequeriesCurrentState_VerifiesArrival_AndContinuesWithStableIdentity()
+    public void ActiveBattle_ForbidsDirectTrainWrites_AndRunsStationMaintenance()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
         MethodDefinition tactics = RequireMethod(controller, "RunBattleTacticStep");
-        MethodDefinition beginCycle = RequireMethod(controller, "BeginBattleTacticCycle");
-        Instruction[] instructions = tactics.Body.Instructions.ToArray();
+        string[] tacticStrings = LoadedStrings(tactics).ToArray();
+        Assert.DoesNotContain("moveTrainToLine", tacticStrings);
+        Assert.DoesNotContain("moveVehicleInTrain", tacticStrings);
+        Assert.Contains(tactics.Body.Instructions, instruction =>
+            instruction.Operand is MethodReference call && call.Name == "TryBeginBattleSpecialStationMaintenance");
 
-        Assert.Contains(
-            controller.Fields,
-            field => field.Name == "_battleTrainIdentitiesMovedThisWave" &&
-                     field.FieldType.FullName == "System.Collections.Generic.HashSet`1<System.Int32>");
-        Assert.DoesNotContain(controller.Fields, field => field.Name == "_battleTrainIndexesMovedThisWave");
+        MethodDefinition safety = RequireMethod(controller, "IsForbiddenActiveBattleTrainMutation");
+        string[] safetyStrings = LoadedStrings(safety).ToArray();
+        Assert.Contains("moveTrainToLine", safetyStrings);
+        Assert.Contains("moveVehicleInTrain", safetyStrings);
+        Assert.Contains("placeVehicleOnLine", safetyStrings);
 
-        int verifyArrival = FindCall(instructions, ControllerType, "DidTrainReachMovementTarget");
-        int executeMovement = FindLastCallBefore(
-            instructions,
-            ControllerType,
-            "TryExecuteActiveBattleAction",
-            verifyArrival);
-        int latestRailQuery = FindLastLoadedStringBefore(instructions, "queryRail", executeMovement);
-        int latestTrainQuery = FindLastLoadedStringBefore(instructions, "queryTrain", executeMovement);
-        Assert.True(
-            latestRailQuery >= 0 && latestRailQuery < latestTrainQuery && latestTrainQuery < executeMovement,
-            "MoveTrain must refresh rail and train state immediately before committing movement.");
-        Assert.True(
-            instructions.Count(instruction => instruction.OpCode.Code == Code.Ldstr &&
-                                              string.Equals(instruction.Operand as string, "queryRail", StringComparison.Ordinal)) >= 2,
-            "The movement commit path must re-query rail after the earlier planning query.");
-        Assert.True(
-            instructions.Count(instruction => instruction.OpCode.Code == Code.Ldstr &&
-                                              string.Equals(instruction.Operand as string, "queryTrain", StringComparison.Ordinal)) >= 2,
-            "The movement commit path must re-query train after the earlier planning query.");
-
-        Assert.True(
-            executeMovement >= 0 && executeMovement < verifyArrival,
-            "A successful movement result must be verified against the requested target before bookkeeping.");
-
-        int loadStableIdentity = FindLoadedString(instructions, "trainIdentity");
-        int rememberMovedTrain = Array.FindIndex(
-            instructions,
-            verifyArrival + 1,
-            instruction => instruction.Operand is MethodReference call &&
-                           call.DeclaringType.FullName == "System.Collections.Generic.HashSet`1<System.Int32>" &&
-                           call.Name == "Add");
-        Assert.True(
-            loadStableIdentity >= 0 && loadStableIdentity < verifyArrival && verifyArrival < rememberMovedTrain,
-            "Only a verified move may record the stable train identity as already dispatched this wave.");
-
-        int clearThreatSnapshot = FindFieldStore(instructions, "_battleThreats", rememberMovedTrain + 1);
-        int continueWithThreatQuery = FindFieldStore(instructions, "_battleTacticStep", clearThreatSnapshot + 1);
-        Assert.True(clearThreatSnapshot > rememberMovedTrain);
-        Assert.Equal(Code.Ldnull, PreviousMeaningfulInstruction(instructions, clearThreatSnapshot).OpCode.Code);
-        Assert.True(continueWithThreatQuery > clearThreatSnapshot);
-        Assert.Equal(0, ReadLoadedInt32(PreviousMeaningfulInstruction(instructions, continueWithThreatQuery)));
-        Assert.Contains(
-            tactics.Body.Instructions,
-            instruction => instruction.OpCode.Code == Code.Ldc_R4 &&
-                           Math.Abs((float)instruction.Operand - 1f) < 0.001f);
-        Assert.DoesNotContain(
-            tactics.Body.Instructions,
-            instruction => instruction.OpCode.Code == Code.Ldc_R4 &&
-                           Math.Abs((float)instruction.Operand - 12f) < 0.001f);
-
-        Instruction[] beginInstructions = beginCycle.Body.Instructions.ToArray();
-        int cycleThreatClear = FindFieldStore(beginInstructions, "_battleThreats");
-        int cycleThreatQuery = FindFieldStore(beginInstructions, "_battleTacticStep", cycleThreatClear + 1);
-        Assert.True(cycleThreatClear >= 0);
-        Assert.Equal(Code.Ldnull, PreviousMeaningfulInstruction(beginInstructions, cycleThreatClear).OpCode.Code);
-        Assert.True(cycleThreatQuery > cycleThreatClear);
-        Assert.Equal(0, ReadLoadedInt32(PreviousMeaningfulInstruction(beginInstructions, cycleThreatQuery)));
+        MethodDefinition guardedMutation = RequireMethod(controller, "IssueGuardedDefenseMutation");
+        MethodDefinition execute = RequireMethod(controller, "ExecuteWithResult");
+        MethodDefinition activeExecute = RequireMethod(controller, "TryExecuteActiveBattleAction");
+        Assert.Contains(Calls(guardedMutation), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
+        Assert.Contains(Calls(execute), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
+        Assert.Contains(Calls(activeExecute), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
     }
 
     [Fact]

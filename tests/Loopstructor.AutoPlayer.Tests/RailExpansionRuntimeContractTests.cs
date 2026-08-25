@@ -23,6 +23,7 @@ public sealed class RailExpansionRuntimeContractTests
         string[] values = LoadedStrings(initializer).ToArray();
 
         Assert.Contains("insertPointFromLine", values);
+        Assert.Contains("deleteLinePoint", values);
         Assert.Contains("InsertPointFromLine", values);
         Assert.Contains("queryMovableStationState", values);
         Assert.Contains("QueryMovableStationState", values);
@@ -214,7 +215,7 @@ public sealed class RailExpansionRuntimeContractTests
     }
 
     [Fact]
-    public void BattleOnlyMaintenance_ExitsBeforeOrdinaryInsertionPlanning()
+    public void BattleOnlyMaintenance_UsesStationPlacementOrRebuildBeforeOrdinaryInsertionPlanning()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         MethodDefinition maintain = RequireMethod(
@@ -241,10 +242,11 @@ public sealed class RailExpansionRuntimeContractTests
             instruction => instruction.Operand is FieldReference field &&
                            field.Name == "_defenseBattleSpecialMoveOnly");
         Assert.Contains(
-            battleGate,
-            instruction => instruction.Operand is MethodReference call &&
-                           call.DeclaringType.FullName == ControllerType &&
-                           call.Name == "FinishDefenseMaintenance");
+            LoadedStrings(maintain),
+            value => value == "__runtime_movable_station__");
+        Assert.Contains(
+            LoadedStrings(maintain),
+            value => value == "deleteLinePoint");
     }
 
     [Fact]

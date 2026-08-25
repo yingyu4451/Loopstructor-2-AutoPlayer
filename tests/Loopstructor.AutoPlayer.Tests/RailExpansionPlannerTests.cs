@@ -338,6 +338,28 @@ public sealed class RailExpansionPlannerTests
     }
 
     [Fact]
+    public void PlacementRanking_UsesLegalMinimumSpacingLayerBeforeCoordinateOrder()
+    {
+        JObject catapults = Result(new
+        {
+            catapults = new object[]
+            {
+                AvailablePoint(100, isAttribute: false, 0, 0, "FreePoint")
+            }
+        });
+
+        IReadOnlyList<AutoPlayerGrid> ranked = DefenseStationGridRanker.RankPlacement(
+            "FutureMovableRelay",
+            new[] { new AutoPlayerGrid(4, 0), new AutoPlayerGrid(2, 0), new AutoPlayerGrid(1, 0) },
+            catapults,
+            new StationSpacingRules(2d, 5d),
+            placementIsAttribute: false);
+
+        Assert.Equal(new AutoPlayerGrid(2, 0), ranked[0]);
+        Assert.DoesNotContain(new AutoPlayerGrid(1, 0), ranked);
+    }
+
+    [Fact]
     public void StructuralGuard_ArmsAndAdvancesEachWriteStageOnlyOnce()
     {
         PendingDefenseMutationGuard guard = new();

@@ -83,6 +83,7 @@ internal sealed class RuntimeBridge
         ("previewRailPath", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "PreviewRailPath"),
         ("drawRailPath", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "DrawRailPath"),
         ("insertPointFromLine", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "InsertPointFromLine"),
+        ("deleteLinePoint", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "DeleteLinePoint"),
         ("queryMovableStationState", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "QueryMovableStationState"),
         ("startStationMove", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "StartStationMove"),
         ("confirmStationMoveGrid", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "ConfirmStationMoveGrid"),

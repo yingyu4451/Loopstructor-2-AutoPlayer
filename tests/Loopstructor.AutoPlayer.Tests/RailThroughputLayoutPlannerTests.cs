@@ -55,6 +55,23 @@ public sealed class RailThroughputLayoutPlannerTests
     }
 
     [Fact]
+    public void CompareForDefense_WithRuntimeRules_ChoosesMinimumSpacingLayerBeforeCycle()
+    {
+        RailLayoutPoint[] compact = { Point(0, 2), Point(2, 0), Point(0, -2), Point(-2, 0) };
+        RailLayoutPoint[] wide = { Point(0, 4), Point(4, 0), Point(0, -4), Point(-4, 0) };
+        bool[] kinds = { true, false, false, false };
+        StationSpacingRules rules = new(1.4d, 5d);
+        RailLayoutScore compactSlow = RailLayoutStrategyPlanner.EvaluateWithSpacing(
+            compact, kinds, 4, 8d, rules);
+        RailLayoutScore wideFast = RailLayoutStrategyPlanner.EvaluateWithSpacing(
+            wide, kinds, 4, 4d, rules);
+
+        Assert.True(compactSlow.SpacingRulesKnown);
+        Assert.True(compactSlow.AdjacentSpacingSurpluses[0] < wideFast.AdjacentSpacingSurpluses[0]);
+        Assert.True(RailLayoutStrategyPlanner.CompareForDefense(compactSlow, wideFast) < 0);
+    }
+
+    [Fact]
     public void Evaluate_MaximumBlindArcIsHardUntilEveryDirectionIsCovered()
     {
         RailLayoutScore skewed = RailLayoutStrategyPlanner.Evaluate(

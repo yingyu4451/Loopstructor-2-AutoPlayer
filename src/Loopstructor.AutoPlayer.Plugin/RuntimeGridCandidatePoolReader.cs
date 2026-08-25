@@ -16,6 +16,8 @@ internal sealed class RuntimeGridCandidatePoolReader
     private PropertyInfo? _mapPosManagerInstance;
     private PropertyInfo? _catapultRingPosition;
     private PropertyInfo? _energyCatapultRingPosition;
+    private PropertyInfo? _ordinaryMinimumSpacing;
+    private PropertyInfo? _energyMinimumSpacing;
 
     public bool TryRead(out IReadOnlyList<AutoPlayerGrid> candidates, out string error)
     {
@@ -54,11 +56,45 @@ internal sealed class RuntimeGridCandidatePoolReader
         }
     }
 
+    public bool TryReadSpacingRules(out StationSpacingRules rules, out string error)
+    {
+        rules = default;
+        try
+        {
+            if (!TryResolveContract(out error)) return false;
+            object? manager = _mapPosManagerInstance!.GetValue(null, null);
+            if (manager == null)
+            {
+                error = "MapPosManager.Instance 尚未初始化。";
+                return false;
+            }
+
+            double ordinary = Convert.ToDouble(_ordinaryMinimumSpacing!.GetValue(manager, null));
+            double energy = Convert.ToDouble(_energyMinimumSpacing!.GetValue(manager, null));
+            rules = new StationSpacingRules(ordinary, energy);
+            if (!rules.IsKnown)
+            {
+                error = "MapPosManager 返回了无效的弹射点最小间距。";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = "读取弹射点最小间距失败：" + Unwrap(ex).Message;
+            return false;
+        }
+    }
+
     private bool TryResolveContract(out string error)
     {
         if (_mapPosManagerInstance != null &&
             _catapultRingPosition != null &&
-            _energyCatapultRingPosition != null)
+            _energyCatapultRingPosition != null &&
+            _ordinaryMinimumSpacing != null &&
+            _energyMinimumSpacing != null)
         {
             error = string.Empty;
             return true;
@@ -74,13 +110,22 @@ internal sealed class RuntimeGridCandidatePoolReader
         PropertyInfo? energyRings = mapPosManager?.GetProperty(
             "EnergyCatapultRingPosition",
             BindingFlags.Public | BindingFlags.Instance);
-        if (mapPosManager == null || instance == null || catapultRings == null || energyRings == null)
+        PropertyInfo? ordinaryMinimum = mapPosManager?.GetProperty(
+            "minDisAwayStation",
+            BindingFlags.Public | BindingFlags.Instance);
+        PropertyInfo? energyMinimum = mapPosManager?.GetProperty(
+            "minEnergyDisAwayStation",
+            BindingFlags.Public | BindingFlags.Instance);
+        if (mapPosManager == null || instance == null || catapultRings == null || energyRings == null ||
+            ordinaryMinimum == null || energyMinimum == null)
         {
             List<string> missing = new();
             if (mapPosManager == null) missing.Add("MapPosManager");
             if (instance == null) missing.Add("MapPosManager.Instance");
             if (catapultRings == null) missing.Add("MapPosManager.CatapultRingPosition");
             if (energyRings == null) missing.Add("MapPosManager.EnergyCatapultRingPosition");
+            if (ordinaryMinimum == null) missing.Add("MapPosManager.minDisAwayStation");
+            if (energyMinimum == null) missing.Add("MapPosManager.minEnergyDisAwayStation");
             error = "缺少候选格运行时成员：" + string.Join("、", missing);
             return false;
         }
@@ -88,6 +133,8 @@ internal sealed class RuntimeGridCandidatePoolReader
         _mapPosManagerInstance = instance;
         _catapultRingPosition = catapultRings;
         _energyCatapultRingPosition = energyRings;
+        _ordinaryMinimumSpacing = ordinaryMinimum;
+        _energyMinimumSpacing = energyMinimum;
         error = string.Empty;
         return true;
     }

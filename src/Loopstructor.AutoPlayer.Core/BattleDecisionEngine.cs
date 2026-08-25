@@ -30,6 +30,17 @@ public sealed class DefenseExpansionRailVerification
     public JObject? Rail { get; set; }
 }
 
+public sealed class RuntimeSpecialStationDisposable
+{
+    public string DisposableEnum { get; set; } = string.Empty;
+    public string StationKind { get; set; } = string.Empty;
+    public string EffectIdentity { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public int Index { get; set; }
+    public JObject ItemIdentity { get; set; } = new();
+    public bool IsAttribute => string.Equals(StationKind, "AttributeCatapult", StringComparison.Ordinal);
+}
+
 /// <summary>
 /// Chooses one ordinary player action from already queried runtime state.
 /// This policy is deliberately stateless; the caller owns polling and the disposable phase transition.
@@ -641,18 +652,18 @@ public sealed class BattleDecisionEngine
 
     public int CountAvailableExpansionStations(JObject? catapultResult, string disposableEnum)
     {
-        bool attribute = string.Equals(
-            disposableEnum,
-            ExpansionAttributeDisposableEnum,
-            StringComparison.Ordinal);
+        List<JObject> matching = AvailableExpansionPoints(catapultResult)
+            .Where(item => string.Equals(
+                item["recycleDisposableEnum"]?.Value<string>(),
+                disposableEnum,
+                StringComparison.Ordinal))
+            .ToList();
+        if (matching.Count > 0) return matching.Count;
+        bool attribute = string.Equals(disposableEnum, ExpansionAttributeDisposableEnum, StringComparison.Ordinal);
         return AvailableExpansionPoints(catapultResult).Count(item =>
             attribute
                 ? item["isAttribute"]?.Value<bool>() == true
-                : item["isAttribute"]?.Value<bool>() != true &&
-                  string.Equals(
-                      item["recycleDisposableEnum"]?.Value<string>(),
-                      disposableEnum,
-                      StringComparison.Ordinal));
+                : false);
     }
 
     public string RequiredExpansionDisposable(JObject? catapultResult)
@@ -710,7 +721,6 @@ public sealed class BattleDecisionEngine
         JObject? disposableResult,
         string disposableEnum)
     {
-        if (!IsExpansionStationDisposable(disposableEnum)) return null;
         JObject state = State(disposableResult);
         if (state["isInPreview"]?.Value<bool>() == true)
         {
@@ -836,7 +846,6 @@ public sealed class BattleDecisionEngine
 
     public int ReadExpansionInteractionId(JObject? disposableResult, string disposableEnum)
     {
-        if (!IsExpansionStationDisposable(disposableEnum)) return 0;
         JObject state = State(disposableResult);
         return state["isInPreview"]?.Value<bool>() == true
                && string.Equals(
@@ -863,7 +872,6 @@ public sealed class BattleDecisionEngine
         string disposableEnum,
         bool requireGridInteraction)
     {
-        if (!IsExpansionStationDisposable(disposableEnum)) return false;
         JObject state = State(disposableResult);
         if (interactionInstanceId == 0 ||
             state["isInPreview"]?.Value<bool>() != true ||
@@ -963,7 +971,6 @@ public sealed class BattleDecisionEngine
         JObject? selectedGrid,
         string disposableEnum)
     {
-        if (!IsExpansionStationDisposable(disposableEnum)) return null;
         if (itemIdentityAction == null ||
             selectedGrid == null ||
             !string.Equals(itemIdentityAction.Command, "useDisposable", StringComparison.OrdinalIgnoreCase) ||
@@ -981,6 +988,10 @@ public sealed class BattleDecisionEngine
 
         JObject arguments = (JObject)itemIdentityAction.Arguments.DeepClone();
         arguments.Remove("interactionInstanceId");
+        // These values are AutoPlayer-only placement verification metadata. The
+        // game's native confirmation command must receive only its own schema.
+        arguments.Remove("stationKind");
+        arguments.Remove("effectIdentity");
         arguments["disposableEnum"] = disposableEnum;
         arguments["grid"] = selectedGrid.DeepClone();
         return new AutomationAction(
@@ -992,15 +1003,93 @@ public sealed class BattleDecisionEngine
                 : "按背包道具的稳定身份在单次玩家等价命令中打开并确认普通弹射点。");
     }
 
-    private static bool IsExpansionStationDisposable(string disposableEnum) =>
-        string.Equals(disposableEnum, ExpansionAttributeDisposableEnum, StringComparison.Ordinal) ||
-        string.Equals(disposableEnum, ExpansionCommonDisposableEnum, StringComparison.Ordinal);
+    public IReadOnlyList<RuntimeSpecialStationDisposable> DiscoverMovableStationDisposables(
+        JObject? disposableResult)
+    {
+        JObject state = State(disposableResult);
+        return ((state["items"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            .Where(item => item["active"]?.Value<bool>() != false &&
+                           item["buttonActive"]?.Value<bool>() != false &&
+                           ReadInt(item["count"], 0) > 0 &&
+                           string.Equals(item["interactionType"]?.Value<string>(),
+                               "GridChooseInteraction", StringComparison.Ordinal) &&
+                           item.SelectToken("effectFacts.canAlwaysMove")?.Value<bool>() == true &&
+                           (string.Equals(item.SelectToken("effectFacts.stationKind")?.Value<string>(),
+                                "AttributeCatapult", StringComparison.Ordinal) ||
+                            string.Equals(item.SelectToken("effectFacts.stationKind")?.Value<string>(),
+                                "CommonCatapult", StringComparison.Ordinal)))
+            .Select(item => new RuntimeSpecialStationDisposable
+            {
+                DisposableEnum = item["disposableEnum"]?.Value<string>() ?? string.Empty,
+                StationKind = item.SelectToken("effectFacts.stationKind")?.Value<string>() ?? string.Empty,
+                EffectIdentity = item.SelectToken("effectFacts.buffIdentity")?.Value<string>() ??
+                                 item.SelectToken("effectFacts.buffFlag")?.Value<string>() ?? string.Empty,
+                Count = ReadInt(item["count"], 0),
+                Index = ReadInt(item["index"], int.MaxValue),
+                ItemIdentity = BuildIdentity(item, preferItemInstanceId: true)
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.DisposableEnum) && item.ItemIdentity.HasValues)
+            .OrderBy(item => SpecialStationNeedRank(item.EffectIdentity))
+            .ThenByDescending(item => item.IsAttribute)
+            .ThenBy(item => item.Index)
+            .ThenBy(item => item.DisposableEnum, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public AutomationAction? DecideMovableStationDisposableUse(
+        JObject? disposableResult,
+        bool requireAttribute,
+        bool requireCommon = false)
+    {
+        IEnumerable<RuntimeSpecialStationDisposable> candidates =
+            DiscoverMovableStationDisposables(disposableResult)
+            .Where(item => !requireAttribute || item.IsAttribute)
+            .Where(item => !requireCommon || !item.IsAttribute);
+        // An existing loop normally needs a movable relay before it needs a second origin. Keep
+        // the runtime effect-priority order inside the same station kind, but never hard-code an enum.
+        if (!requireAttribute && !requireCommon)
+        {
+            candidates = candidates.OrderBy(item => item.IsAttribute ? 1 : 0);
+        }
+        RuntimeSpecialStationDisposable? selected = candidates.FirstOrDefault();
+        if (selected == null) return null;
+        JObject arguments = (JObject)selected.ItemIdentity.DeepClone();
+        arguments["disposableEnum"] = selected.DisposableEnum;
+        arguments["stationKind"] = selected.StationKind;
+        arguments["effectIdentity"] = selected.EffectIdentity;
+        return new AutomationAction(
+            "useDisposable",
+            arguments,
+            AutomationStage.PreparingDefense,
+            $"使用运行时发现的可移动特殊{(selected.IsAttribute ? "始发" : "中继")}站 " +
+            selected.DisposableEnum + "。");
+    }
+
+    public static bool IsMovableStationDisposable(JObject item) =>
+        string.Equals(item["interactionType"]?.Value<string>(), "GridChooseInteraction", StringComparison.Ordinal) &&
+        item.SelectToken("effectFacts.canAlwaysMove")?.Value<bool>() == true &&
+        (string.Equals(item.SelectToken("effectFacts.stationKind")?.Value<string>(),
+             "AttributeCatapult", StringComparison.Ordinal) ||
+         string.Equals(item.SelectToken("effectFacts.stationKind")?.Value<string>(),
+             "CommonCatapult", StringComparison.Ordinal));
+
+    private static int SpecialStationNeedRank(string effectIdentity)
+    {
+        string value = effectIdentity ?? string.Empty;
+        if (ContainsAny(value, "Capacity", "Launch", "Start", "容量", "发车", "始发")) return 0;
+        if (ContainsAny(value, "Speed", "Energy", "Trigger", "Cycle", "速度", "能量", "触发", "回转")) return 1;
+        return 2;
+    }
+
+    private static bool ContainsAny(string value, params string[] needles) =>
+        needles.Any(needle => value.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0);
 
     private static AutomationAction? DecideDisposableUse(JObject disposable)
     {
         JObject? item = (disposable["items"] as JArray)?
             .OfType<JObject>()
             .Where(IsUsableDisposable)
+            .Where(item => !IsMovableStationDisposable(item))
             .OrderByDescending(DisposableScore)
             .ThenBy(item => ReadInt(item["index"], int.MaxValue))
             .FirstOrDefault();

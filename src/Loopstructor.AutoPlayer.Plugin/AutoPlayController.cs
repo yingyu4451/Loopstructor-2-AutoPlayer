@@ -24,10 +24,6 @@ internal sealed class AutoPlayController
         CancelDisposable,
         VerifyDisposableCancellation,
         QueryRail,
-        QueryTrain,
-        RefreshMoveRail,
-        RefreshMoveTrain,
-        MoveTrain,
         RunSpecialStationMaintenance,
         Complete
     }
@@ -45,6 +41,8 @@ internal sealed class AutoPlayController
         QueryRailExpansionCandidates,
         PreviewRailInsertionCandidate,
         SelectRailInsertion,
+        PreviewBattleSpecialRebuildCandidate,
+        SelectBattleSpecialRebuild,
         ProbeSpecialStationMoveGrid,
         QueryFreshMovableStation,
         QueryFreshMovableStationState,
@@ -58,6 +56,14 @@ internal sealed class AutoPlayController
         VerifySpecialStationMoveCancelled,
         VerifySpecialStationMoveRollbackRail,
         VerifySpecialStationMoveRollbackResult,
+        DisconnectRailForRebuild,
+        VerifyRailRebuildDisconnected,
+        PreviewRailRebuild,
+        DrawRailRebuild,
+        VerifyRailRebuild,
+        VerifyRailRebuildVehicles,
+        RecoverRailRebuild,
+        VerifyRailRebuildRecovery,
         InsertRailPoint,
         VerifyRailInsertion,
         QueryExpansionAttributeDisposable,
@@ -145,6 +151,7 @@ internal sealed class AutoPlayController
     private readonly DecisionEngine _decisionEngine = new();
     private readonly BattleDecisionEngine _battleDecisionEngine = new();
     private readonly RailExpansionPlanner _railExpansionPlanner = new();
+    private readonly RailRebuildTransactionPlanner _railRebuildPlanner = new();
     private readonly MergeAutomationPlanner _mergeAutomationPlanner = new();
     private readonly MergeMutationSettlementGuard _mergeMutationSettlementGuard = new();
     private readonly RewardObjectSettlementGuard _rewardObjectSettlementGuard = new();
@@ -319,6 +326,13 @@ internal sealed class AutoPlayController
     private bool _defenseSpecialMoveCancelRequested;
     private bool _defenseSpecialMoveConfirmationAccepted;
     private bool _defenseBattleSpecialMoveOnly;
+    private RailRebuildSnapshot? _defenseRailRebuildSnapshot;
+    private bool _defenseRailRebuildRecoveryAttempted;
+    private bool _defenseRailRebuildExplicitPollution;
+    private double _defenseRailRebuildPreviewCycleSeconds;
+    private IReadOnlyList<RailRebuildSnapshot> _defenseRailRebuildCandidates = Array.Empty<RailRebuildSnapshot>();
+    private readonly List<(RailRebuildSnapshot Snapshot, double Cycle)> _defenseRailRebuildScores = new();
+    private int _defenseRailRebuildCandidateIndex;
     private readonly HashSet<string> _defenseRailMaintenanceActionFingerprints =
         new(StringComparer.Ordinal);
     private string _defenseRailMaintenanceLayoutFingerprint = string.Empty;
@@ -3291,94 +3305,10 @@ internal sealed class AutoPlayController
                     return;
                 }
                 _battleRail = rail;
-                _battleTacticStep = BattleTacticStep.QueryTrain;
-                return;
-
-            case BattleTacticStep.QueryTrain:
-                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject train))
-                {
-                    _battleTacticStep = BattleTacticStep.Complete;
-                    return;
-                }
-                _battleTrain = train;
-                AutomationAction movement = _battleDecisionEngine.DecideTrainMovement(
-                    _battleThreats,
-                    _battleRail,
-                    _battleTrain,
-                    _battleTrainIdentitiesMovedThisWave);
-                if (!string.Equals(movement.Command, "wait", StringComparison.OrdinalIgnoreCase))
-                {
-                    _battleTacticStep = BattleTacticStep.RefreshMoveRail;
-                    return;
-                }
-                SetStage(AutomationStage.Battle, movement.Reason);
+                TryInvokeOptionalReadOnly("queryTrain", null, out _battleTrain);
                 _battleTacticStep = TryBeginBattleSpecialStationMaintenance()
                     ? BattleTacticStep.RunSpecialStationMaintenance
                     : BattleTacticStep.Complete;
-                return;
-
-            case BattleTacticStep.RefreshMoveRail:
-                if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject latestRail))
-                {
-                    _nextBattleTacticCycleAt = Time.realtimeSinceStartup + BattleTacticRetryDelaySeconds;
-                    _battleTacticStep = BattleTacticStep.Complete;
-                    return;
-                }
-                _battleRail = latestRail;
-                _battleTacticStep = BattleTacticStep.RefreshMoveTrain;
-                return;
-
-            case BattleTacticStep.RefreshMoveTrain:
-                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject latestTrain))
-                {
-                    _nextBattleTacticCycleAt = Time.realtimeSinceStartup + BattleTacticRetryDelaySeconds;
-                    _battleTacticStep = BattleTacticStep.Complete;
-                    return;
-                }
-                _battleTrain = latestTrain;
-
-                AutomationAction latestMovement = _battleDecisionEngine.DecideTrainMovement(
-                    _battleThreats,
-                    _battleRail,
-                    _battleTrain,
-                    _battleTrainIdentitiesMovedThisWave);
-                if (string.Equals(latestMovement.Command, "wait", StringComparison.OrdinalIgnoreCase))
-                {
-                    _battleTacticStep = BattleTacticStep.Complete;
-                    return;
-                }
-                _battlePendingAction = latestMovement;
-                _battleTacticStep = BattleTacticStep.MoveTrain;
-                return;
-
-            case BattleTacticStep.MoveTrain:
-                AutomationAction? move = _battlePendingAction;
-                _battlePendingAction = null;
-                if (move == null)
-                {
-                    _battleTacticStep = BattleTacticStep.Complete;
-                    return;
-                }
-
-                bool moved = TryExecuteActiveBattleAction(move, out JObject moveResult);
-                int trainIndex = move.Arguments["trainIndex"]?.Value<int?>() ?? -1;
-                int trainIdentity = move.Arguments["trainIdentity"]?.Value<int?>() ?? trainIndex;
-                if (moved && trainIdentity != -1 &&
-                    DidTrainReachMovementTarget(moveResult, _battleRail!, move))
-                {
-                    _battleTrainIdentitiesMovedThisWave.Add(trainIdentity);
-                    _battleThreats = null;
-                    _battleTacticStep = BattleTacticStep.QueryThreats;
-                    return;
-                }
-
-                if (moved)
-                {
-                    AddWarning("列车移动命令已返回成功，但返回状态未证明目标列车到达指定线段；本波不会把该列车标记为已调度。");
-                }
-
-                _nextBattleTacticCycleAt = Time.realtimeSinceStartup + BattleTacticRetryDelaySeconds;
-                _battleTacticStep = BattleTacticStep.Complete;
                 return;
 
             case BattleTacticStep.RunSpecialStationMaintenance:
@@ -3689,10 +3619,16 @@ internal sealed class AutoPlayController
                     _bridge.HasCommand("confirmStationMoveGrid") &&
                     _bridge.HasCommand("cancelDisposable"))
                 {
+                    StationSpacingRules spacingRules = default;
+                    if (!_defenseStationGridProbe.TryReadSpacingRules(out spacingRules, out string spacingError))
+                    {
+                        AddWarning("无法读取当前关卡弹射点最小间距；本轮不会用猜测间距移动站点：" + spacingError);
+                    }
                     foreach (RailStationMoveCandidate moveCandidate in
                              _railExpansionPlanner.BuildExistingSpecialMoveCandidates(
                                  expansionRailState,
-                                 _defenseCatapults))
+                                 _defenseCatapults,
+                                 spacingRules))
                     {
                         string moveCandidateFingerprint =
                             BuildDefenseRailMoveCandidateFingerprint(moveCandidate);
@@ -3729,6 +3665,31 @@ internal sealed class AutoPlayController
 
                 if (_defenseBattleSpecialMoveOnly)
                 {
+                    _defenseRailRebuildCandidates =
+                        _railRebuildPlanner.BuildSpecialInsertionCandidates(
+                            expansionRailState,
+                            _battleTrain,
+                            _defenseCatapults);
+                    if (_bridge.HasCommand("deleteLinePoint") &&
+                        _defenseRailRebuildCandidates.Count > 0)
+                    {
+                        _defenseRailRebuildScores.Clear();
+                        _defenseRailRebuildCandidateIndex = 0;
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate;
+                        ScheduleDefenseMaintenanceStep(
+                            $"发现 {_defenseRailRebuildCandidates.Count} 个特殊中继站玩家重连候选；将逐帧比较真实回转周期。");
+                        return true;
+                    }
+                    if (_bridge.HasCommand("queryDisposable") &&
+                        _bridge.HasCommand("confirmDisposableGrid") &&
+                        _bridge.HasCommand("cancelDisposable"))
+                    {
+                        _defensePlacementDisposableEnum = "__runtime_movable_station__";
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryExpansionAttributeDisposable;
+                        ScheduleDefenseMaintenanceStep(
+                            "已有可移动站点没有更优位置；正在从当前背包运行时行为发现可放置特殊站点。");
+                        return true;
+                    }
                     MarkDefenseRailMaintenanceStable();
                     FinishDefenseMaintenance("本波没有可安全改善周向覆盖或站点触发率 N/T 的能量/特殊弹射点。", warning: false);
                     return true;
@@ -3766,6 +3727,70 @@ internal sealed class AutoPlayController
                 _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailInsertionCandidate;
                 ScheduleDefenseMaintenanceStep(
                     $"准备逐帧预览 {_defenseRailInsertionCandidates.Count} 个扩轨候选。");
+                return true;
+
+            case DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate:
+                if (_defenseRailRebuildCandidateIndex >= _defenseRailRebuildCandidates.Count)
+                {
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.SelectBattleSpecialRebuild;
+                    ScheduleDefenseMaintenanceStep("特殊中继站重连候选预览完成；正在选择站点触发率严格改善的方案。");
+                    return true;
+                }
+                RailRebuildSnapshot battleRebuildCandidate =
+                    _defenseRailRebuildCandidates[_defenseRailRebuildCandidateIndex++];
+                AutomationAction battleRebuildPreview = _railRebuildPlanner.BuildPreviewAction(battleRebuildCandidate);
+                if (TryInvokeOptionalReadOnly(
+                        battleRebuildPreview.Command,
+                        battleRebuildPreview.Arguments,
+                        out JObject battleRebuildPreviewResult) &&
+                    _railRebuildPlanner.IsLegalPreview(
+                        battleRebuildPreviewResult,
+                        battleRebuildCandidate,
+                        out double battleRebuildCycle) &&
+                    ImprovesRailTriggerRate(battleRebuildCandidate, battleRebuildCycle))
+                {
+                    _defenseRailRebuildScores.Add((battleRebuildCandidate, battleRebuildCycle));
+                }
+                ScheduleDefenseMaintenanceStep(
+                    $"已预览 {_defenseRailRebuildCandidateIndex}/{_defenseRailRebuildCandidates.Count} 个特殊站点重连候选。");
+                return true;
+
+            case DefenseMaintenanceStep.SelectBattleSpecialRebuild:
+                (RailRebuildSnapshot Snapshot, double Cycle)? selectedBattleRebuild =
+                    _defenseRailRebuildScores
+                        .OrderBy(item => item.Cycle)
+                        .ThenByDescending(item => item.Snapshot.OrderedLinePointInstanceIds.Count / item.Cycle)
+                        .ThenBy(item => string.Join(",", item.Snapshot.OrderedLinePointInstanceIds))
+                        .Select(item => ((RailRebuildSnapshot Snapshot, double Cycle)?)item)
+                        .FirstOrDefault();
+                if (!selectedBattleRebuild.HasValue)
+                {
+                    _defenseRailRebuildCandidates = Array.Empty<RailRebuildSnapshot>();
+                    _defenseRailRebuildScores.Clear();
+                    if (_bridge.HasCommand("queryDisposable") &&
+                        _bridge.HasCommand("confirmDisposableGrid") &&
+                        _bridge.HasCommand("cancelDisposable"))
+                    {
+                        _defensePlacementDisposableEnum = "__runtime_movable_station__";
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryExpansionAttributeDisposable;
+                        ScheduleDefenseMaintenanceStep(
+                            "现有特殊站点没有触发率严格改善的重连方案；正在检查背包中的可移动特殊站点。");
+                        return true;
+                    }
+                    MarkDefenseRailMaintenanceStable();
+                    FinishDefenseMaintenance("本波没有站点触发率严格改善的特殊站点重连方案。", warning: false);
+                    return true;
+                }
+                _defenseRailRebuildSnapshot = selectedBattleRebuild.Value.Snapshot;
+                _defenseRailRebuildPreviewCycleSeconds = selectedBattleRebuild.Value.Cycle;
+                _defenseRailRebuildRecoveryAttempted = false;
+                _defenseRailRebuildExplicitPollution = false;
+                _defenseSpecialMoveCandidate = null;
+                _defenseRailRebuildCandidates = Array.Empty<RailRebuildSnapshot>();
+                _defenseRailRebuildScores.Clear();
+                _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
+                ScheduleDefenseMaintenanceStep(
+                    $"已选择特殊中继站重连，预测周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；下一帧从始发站断环。");
                 return true;
 
             case DefenseMaintenanceStep.PreviewRailInsertionCandidate:
@@ -3958,9 +3983,127 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseStationGridProbe.Reset();
+                if (_defenseBattleSpecialMoveOnly && _bridge.HasCommand("deleteLinePoint"))
+                {
+                    _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
+                        _defenseRailExpansionBaseline,
+                        _defenseSpecialMoveCandidate.RailInstanceId,
+                        _battleTrain);
+                    if (_defenseRailRebuildSnapshot == null)
+                    {
+                        _defenseRailMaintenanceActionFingerprints.Add(moveActionFingerprint);
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryRailExpansionCandidates;
+                        ScheduleDefenseMaintenanceStep(
+                            "无法为目标闭环建立始发站、站点顺序和车列身份快照；未断环，将检查其他候选。");
+                        return true;
+                    }
+
+                    _defenseRailRebuildRecoveryAttempted = false;
+                    _defenseRailRebuildExplicitPollution = false;
+                    _defenseRailRebuildPreviewCycleSeconds = 0d;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
+                    ScheduleDefenseMaintenanceStep(
+                        $"已预计算完整闭环；预测移动后回转周期 {_defenseSpecialMovePredictedCycleSeconds:0.###} 秒，" +
+                        "下一帧从始发站按玩家右键语义断环并缓存原车列。");
+                    return true;
+                }
+
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryFreshMovableStation;
                 ScheduleDefenseMaintenanceStep(
-                    $"预测移动后回转周期 {_defenseSpecialMovePredictedCycleSeconds:0.###} 秒；下一帧重新读取站点身份。");
+                    _defenseBattleSpecialMoveOnly
+                        ? "当前游戏构建没有始发站断环接口；已安全降级为战斗中只移动可移动特殊站点。"
+                        : $"预测移动后回转周期 {_defenseSpecialMovePredictedCycleSeconds:0.###} 秒；下一帧重新读取站点身份。");
+                return true;
+
+            case DefenseMaintenanceStep.DisconnectRailForRebuild:
+                if (_defenseRailRebuildSnapshot == null)
+                {
+                    ContinueDefenseRailOptimization("始发站重连快照已经失效；没有发送断环命令。");
+                    return true;
+                }
+
+                AutomationAction disconnectAction =
+                    _railRebuildPlanner.BuildDisconnectAction(_defenseRailRebuildSnapshot);
+                if (!IssueGuardedDefenseMutation(
+                        disconnectAction,
+                        "rail-rebuild-disconnect:" + _defenseRailRebuildSnapshot.RailInstanceId,
+                        out RuntimeResultDisposition disconnectDisposition,
+                        out JObject disconnectResult))
+                {
+                    return true;
+                }
+
+                if (disconnectDisposition == RuntimeResultDisposition.Failure)
+                {
+                    RailRebuildVerification rejectedDisconnect =
+                        _railRebuildPlanner.VerifyDisconnect(disconnectResult, _defenseRailRebuildSnapshot);
+                    _defenseRailRebuildExplicitPollution |= rejectedDisconnect.ExplicitStatePolluted;
+                    _defenseVerifiedRailResult = disconnectResult;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildDisconnected;
+                    ScheduleDefenseMaintenanceStep(
+                        "游戏拒绝了始发站断环；下一帧先确认原闭环是否仍在，未知结果不会继续移动站点。");
+                    return true;
+                }
+
+                RailRebuildVerification disconnectVerification =
+                    _railRebuildPlanner.VerifyDisconnect(disconnectResult, _defenseRailRebuildSnapshot);
+                _defenseRailRebuildExplicitPollution = disconnectVerification.ExplicitStatePolluted;
+                if (disconnectVerification.Verified)
+                {
+                    _defenseStructuralMutationGuard.Reset();
+                    _defenseMaintenanceStep = _defenseSpecialMoveCandidate == null
+                        ? DefenseMaintenanceStep.PreviewRailRebuild
+                        : DefenseMaintenanceStep.QueryFreshMovableStation;
+                    ScheduleDefenseMaintenanceStep(
+                        disconnectVerification.Detail +
+                        (_defenseSpecialMoveCandidate == null
+                            ? " 下一帧预览包含新特殊中继站的完整闭环。"
+                            : " 下一帧移动已规划的可移动站点。"));
+                    return true;
+                }
+
+                _defenseVerifiedRailResult = disconnectResult;
+                _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildDisconnected;
+                ScheduleDefenseMaintenanceStep(
+                    disconnectVerification.Detail +
+                    " 未取得完整车列缓存证明；后续只读确认并优先恢复原闭环，不会继续移动站点或重发断环命令。");
+                return true;
+
+            case DefenseMaintenanceStep.VerifyRailRebuildDisconnected:
+                if (_defenseRailRebuildSnapshot == null)
+                {
+                    FinishDefenseMaintenance("始发站重连快照已丢失，停止本轮维护。", warning: true);
+                    return true;
+                }
+                if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject disconnectedRails))
+                {
+                    ScheduleDefenseMaintenanceStep("正在只读等待原闭环清空，不会重发断环命令。");
+                    return true;
+                }
+                bool originalRailStillVisible = (State(disconnectedRails)["rails"] as JArray)?
+                    .OfType<JObject>()
+                    .Any(item => item["instanceId"]?.Value<int?>() ==
+                                 _defenseRailRebuildSnapshot.RailInstanceId) == true;
+                if (originalRailStillVisible)
+                {
+                    if (_defenseStructuralMutationGuard.HasTimedOut(
+                            Time.realtimeSinceStartup,
+                            RewardSelectionSettlementTimeoutSeconds))
+                    {
+                        _defenseStructuralMutationGuard.Reset();
+                        FinishDefenseMaintenance(
+                            "始发站断环没有在安全时限内形成可确认结果；命令不会重放，稍后重新读取当前防线。",
+                            warning: true);
+                    }
+                    else ScheduleDefenseMaintenanceStep("原闭环仍在退出动画中；继续只读等待。");
+                    return true;
+                }
+                _defenseStructuralMutationGuard.Reset();
+                _defenseRailRebuildRecoveryAttempted = true;
+                _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+                _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                ScheduleDefenseMaintenanceStep(
+                    "已确认旧轨消失，但没有取得原车列完整缓存证明；只按原站点顺序恢复闭环，不执行目标布局。");
                 return true;
 
             case DefenseMaintenanceStep.QueryFreshMovableStation:
@@ -3995,11 +4138,24 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
+                RailStationMoveCandidate? freshCandidate = _defenseSpecialMoveCandidate;
                 if (!_railExpansionPlanner.IsFreshMovableSpecial(
                         _defenseCatapults,
                         freshMovableState,
-                        _defenseSpecialMoveCandidate))
+                        freshCandidate))
                 {
+                    if (_defenseRailRebuildSnapshot != null && freshCandidate != null &&
+                        IsFreshDisconnectedMovableStation(
+                            _defenseCatapults,
+                            freshMovableState,
+                            freshCandidate))
+                    {
+                        _defenseFreshMovableStationRetryAttempts = 0;
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.StartSpecialStationMove;
+                        ScheduleDefenseMaintenanceStep(
+                            "已确认断环后的特殊站点身份稳定且 canMove=true；下一帧启动正式移动交互。");
+                        return true;
+                    }
                     HandleTransientFreshMovableStationMismatch();
                     return true;
                 }
@@ -4288,6 +4444,20 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
+                if (_defenseRailRebuildSnapshot != null &&
+                    TryRefreshDisconnectedStationAtTarget(
+                        movedCatapultState,
+                        _defenseSpecialMoveCandidate,
+                        _defenseSpecialMoveGrid,
+                        _defenseRailRebuildSnapshot))
+                {
+                    _defenseStructuralMutationGuard.Reset();
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                    ScheduleDefenseMaintenanceStep(
+                        "已确认断环后的特殊站点到达目标格；下一帧按原站点身份顺序预览重新闭环。");
+                    return true;
+                }
+
                 RailInsertionVerification moveVerification = _railExpansionPlanner.VerifyMove(
                     _defenseRailExpansionBaseline,
                     _defenseVerifiedRailResult,
@@ -4296,6 +4466,14 @@ internal sealed class AutoPlayController
                     _defenseSpecialMoveGrid);
                 if (moveVerification.Verified)
                 {
+                    if (_defenseRailRebuildSnapshot != null)
+                    {
+                        _defenseStructuralMutationGuard.Reset();
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                        ScheduleDefenseMaintenanceStep(
+                            "站点已到达目标格；下一帧按原站点顺序只读预览完整闭环。");
+                        return true;
+                    }
                     RememberCommittedSpecialStationMove();
                     _defenseStructuralMutationGuard.Reset();
                     ContinueDefenseRailOptimization(
@@ -4318,6 +4496,14 @@ internal sealed class AutoPlayController
 
                 if (_defenseSpecialMoveConfirmationAccepted || moveVerification.MoveObserved)
                 {
+                    if (_defenseRailRebuildSnapshot != null)
+                    {
+                        _defenseStructuralMutationGuard.Reset();
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                        ScheduleDefenseMaintenanceStep(
+                            moveVerification.Detail + " 站点移动已提交，继续以当前站点位置恢复合法闭环。");
+                        return true;
+                    }
                     FinishCommittedSpecialStationMove(moveVerification);
                     return true;
                 }
@@ -4455,6 +4641,204 @@ internal sealed class AutoPlayController
                     $" 正在继续只读对账（{_defenseStructuralVerificationAttempts}/{MaxDefenseExpansionVerificationAttempts}）。");
                 return true;
 
+            case DefenseMaintenanceStep.PreviewRailRebuild:
+                if (_defenseRailRebuildSnapshot == null)
+                {
+                    FinishDefenseMaintenance("缺少始发站重连快照，无法恢复闭环。", warning: true);
+                    return true;
+                }
+                AutomationAction rebuildPreviewAction =
+                    _railRebuildPlanner.BuildPreviewAction(_defenseRailRebuildSnapshot);
+                if (!TryInvokeOptionalReadOnly(
+                        rebuildPreviewAction.Command,
+                        rebuildPreviewAction.Arguments,
+                        out JObject rebuildPreview) ||
+                    !_railRebuildPlanner.IsLegalPreview(
+                        rebuildPreview,
+                        _defenseRailRebuildSnapshot,
+                        out _defenseRailRebuildPreviewCycleSeconds))
+                {
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                    ScheduleDefenseMaintenanceStep(
+                        "目标站点顺序未通过合法闭环预览；将按原顺序和当前合法位置恢复闭环。");
+                    return true;
+                }
+
+                if (!ImprovesRailTriggerRate(
+                        _defenseRailRebuildSnapshot,
+                        _defenseRailRebuildPreviewCycleSeconds) &&
+                    !_defenseRailRebuildRecoveryAttempted)
+                {
+                    AddWarning(
+                        $"目标闭环预测触发率未严格优于原回路（新周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒）；" +
+                        "仍会先恢复合法闭环，但不会把本方案记为收益。");
+                }
+                _defenseMaintenanceStep = DefenseMaintenanceStep.DrawRailRebuild;
+                ScheduleDefenseMaintenanceStep(
+                    $"闭环预览合法，预测回转周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；" +
+                    "下一帧从始发站依次连接并回到始发站。");
+                return true;
+
+            case DefenseMaintenanceStep.DrawRailRebuild:
+                if (_defenseRailRebuildSnapshot == null)
+                {
+                    FinishDefenseMaintenance("重连前始发站快照丢失，停止本轮维护。", warning: true);
+                    return true;
+                }
+                AutomationAction rebuildDrawAction =
+                    _railRebuildPlanner.BuildDrawAction(_defenseRailRebuildSnapshot);
+                if (!IssueGuardedDefenseMutation(
+                        rebuildDrawAction,
+                        "rail-rebuild-draw:" + _defenseRailRebuildSnapshot.OriginLinePointInstanceId + ":" +
+                        _defenseRailRebuildRecoveryAttempted,
+                        out RuntimeResultDisposition rebuildDrawDisposition,
+                        out JObject rebuildDrawResult))
+                {
+                    return true;
+                }
+                if (rebuildDrawDisposition == RuntimeResultDisposition.Failure)
+                {
+                    _defenseStructuralMutationGuard.Reset();
+                    _defenseRailRebuildExplicitPollution |=
+                        State(rebuildDrawResult)["statePolluted"]?.Value<bool>() == true;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                    ScheduleDefenseMaintenanceStep(
+                        "重新闭环被游戏明确拒绝；将只尝试一次安全恢复，不会重复当前绘制动作。");
+                    return true;
+                }
+                _defenseMaintenanceStep = _defenseRailRebuildRecoveryAttempted
+                    ? DefenseMaintenanceStep.VerifyRailRebuildRecovery
+                    : DefenseMaintenanceStep.VerifyRailRebuild;
+                ScheduleDefenseMaintenanceStep("重新闭环命令已锁定；下一帧只读验证轨道与原车列身份。");
+                return true;
+
+            case DefenseMaintenanceStep.VerifyRailRebuild:
+            case DefenseMaintenanceStep.VerifyRailRebuildRecovery:
+                if (_defenseRailRebuildSnapshot == null)
+                {
+                    FinishDefenseMaintenance("重连验证快照已丢失，停止本轮维护。", warning: true);
+                    return true;
+                }
+                if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject rebuiltRails))
+                {
+                    if (_defenseStructuralMutationGuard.HasTimedOut(
+                            Time.realtimeSinceStartup,
+                            RewardSelectionSettlementTimeoutSeconds))
+                    {
+                        _defenseStructuralMutationGuard.Reset();
+                        if (_defenseRailRebuildRecoveryAttempted)
+                            FinishDefenseMaintenance("恢复闭环后无法读取轨道；未报告 statePolluted，已停止本轮优化。", warning: true);
+                        else
+                        {
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                            ScheduleDefenseMaintenanceStep("目标闭环验证超时；将按原顺序只尝试一次安全恢复。");
+                        }
+                        return true;
+                    }
+                    ScheduleDefenseMaintenanceStep("正在只读等待重连后的轨道和原车列恢复。");
+                    return true;
+                }
+                _defenseVerifiedRailResult = rebuiltRails;
+                _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildVehicles;
+                ScheduleDefenseMaintenanceStep("已读取重连轨道；下一帧核对始发站恢复的原战车身份。");
+                return true;
+
+            case DefenseMaintenanceStep.VerifyRailRebuildVehicles:
+                if (_defenseRailRebuildSnapshot == null ||
+                    _defenseVerifiedRailResult == null)
+                {
+                    FinishDefenseMaintenance("车列恢复验证快照已丢失，停止本轮维护。", warning: true);
+                    return true;
+                }
+                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject rebuiltTrains))
+                {
+                    if (_defenseStructuralMutationGuard.HasTimedOut(
+                            Time.realtimeSinceStartup,
+                            RewardSelectionSettlementTimeoutSeconds))
+                    {
+                        _defenseStructuralMutationGuard.Reset();
+                        if (_defenseRailRebuildRecoveryAttempted)
+                            FinishDefenseMaintenance("恢复闭环后无法核对原战车身份；未报告 statePolluted，已停止本轮优化。", warning: true);
+                        else
+                        {
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                            ScheduleDefenseMaintenanceStep("原战车身份验证超时；将按原顺序只尝试一次安全恢复。");
+                        }
+                        return true;
+                    }
+                    ScheduleDefenseMaintenanceStep("正在读取重连后的车列与战车身份，不会重复绘制命令。");
+                    return true;
+                }
+                RailRebuildVerification rebuildVerification =
+                    _railRebuildPlanner.VerifyRestored(
+                        _defenseVerifiedRailResult,
+                        _defenseRailRebuildSnapshot,
+                        rebuiltTrains);
+                if (rebuildVerification.Verified)
+                {
+                    bool strictImprovement = ImprovesRailTriggerRate(
+                        _defenseRailRebuildSnapshot,
+                        rebuildVerification.LoopCycleSeconds);
+                    _defenseStructuralMutationGuard.Reset();
+                    RememberCommittedSpecialStationMove();
+                    ContinueDefenseRailOptimization(
+                        rebuildVerification.Detail +
+                        (strictImprovement
+                            ? $" 实测站点触发率严格改善，新周期为 {rebuildVerification.LoopCycleSeconds:0.###} 秒。"
+                            : " 实测站点触发率没有严格改善；已接受游戏当前合法状态并排除本动作指纹。"));
+                    return true;
+                }
+                if (rebuildVerification.Pending &&
+                    !_defenseStructuralMutationGuard.HasTimedOut(
+                        Time.realtimeSinceStartup,
+                        RewardSelectionSettlementTimeoutSeconds))
+                {
+                    ScheduleDefenseMaintenanceStep(rebuildVerification.Detail + " 不会重复绘制命令。");
+                    _defenseMaintenanceStep = _defenseRailRebuildRecoveryAttempted
+                        ? DefenseMaintenanceStep.VerifyRailRebuildRecovery
+                        : DefenseMaintenanceStep.VerifyRailRebuild;
+                    return true;
+                }
+                _defenseStructuralMutationGuard.Reset();
+                if (_defenseRailRebuildRecoveryAttempted)
+                {
+                    if (_defenseRailRebuildExplicitPollution)
+                    {
+                        FaultRequiringProcessRestart(
+                            rebuildVerification.Detail + " 运行时已明确报告 statePolluted，且原闭环恢复失败。");
+                    }
+                    else
+                    {
+                        FinishDefenseMaintenance(
+                            rebuildVerification.Detail +
+                            " 安全恢复未能收敛，但没有明确 statePolluted；已停止本轮优化，稍后按当前状态重算。",
+                            warning: true);
+                    }
+                    return true;
+                }
+                _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                ScheduleDefenseMaintenanceStep(
+                    rebuildVerification.Detail + " 将按原站点顺序只尝试一次恢复闭环。");
+                return true;
+
+            case DefenseMaintenanceStep.RecoverRailRebuild:
+                if (_defenseRailRebuildSnapshot == null || _defenseRailRebuildRecoveryAttempted)
+                {
+                    if (_defenseRailRebuildExplicitPollution)
+                        FaultRequiringProcessRestart("始发站重连明确污染且安全恢复已经失败。");
+                    else
+                        FinishDefenseMaintenance(
+                            "始发站重连未能恢复，但运行时没有明确 statePolluted；已停止本轮并等待下次只读重算。",
+                            warning: true);
+                    return true;
+                }
+                _defenseRailRebuildRecoveryAttempted = true;
+                _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+                _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                ScheduleDefenseMaintenanceStep(
+                    "正在按原站点身份顺序和当前合法位置预览恢复闭环；不会移动或传送车列。");
+                return true;
+
             case DefenseMaintenanceStep.QueryExpansionAttributeDisposable:
                 if (!TryInvokeOptionalReadOnly("queryDisposable", null, out JObject attributeDisposableState))
                 {
@@ -4462,11 +4846,64 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
-                _defenseAttributeUseAction = _battleDecisionEngine.DecideExpansionDisposableUse(
-                    attributeDisposableState,
-                    _defensePlacementDisposableEnum);
+                bool discoverAnyMovableStation = string.Equals(
+                    _defensePlacementDisposableEnum,
+                    "__runtime_movable_station__",
+                    StringComparison.Ordinal);
+                _defenseAttributeUseAction = discoverAnyMovableStation
+                    ? _battleDecisionEngine.DecideMovableStationDisposableUse(
+                        attributeDisposableState,
+                        requireAttribute: false)
+                    : _battleDecisionEngine.DecideExpansionDisposableUse(
+                        attributeDisposableState,
+                        _defensePlacementDisposableEnum);
+                string initiallyDiscoveredEnum = _defenseAttributeUseAction?
+                    .Arguments["disposableEnum"]?.Value<string>() ?? string.Empty;
+                if (discoverAnyMovableStation && !string.IsNullOrWhiteSpace(initiallyDiscoveredEnum))
+                {
+                    _defensePlacementDisposableEnum = initiallyDiscoveredEnum;
+                    _defensePlacementCountBefore =
+                        _battleDecisionEngine.CountAvailableExpansionStations(
+                            _defenseCatapults,
+                            initiallyDiscoveredEnum);
+                    _defenseAttributeCountBeforePlacement = _defensePlacementCountBefore;
+                    AddTimeline(
+                        "special-station",
+                        "从 queryDisposable 运行时行为发现可移动特殊站点道具 " + initiallyDiscoveredEnum +
+                        "，将按合法最小间距和闭环周期参与规划。");
+                }
                 if (_defenseAttributeUseAction == null)
                 {
+                    bool needAttribute = string.Equals(
+                        _defensePlacementDisposableEnum,
+                        "FreePoint_Attribute",
+                        StringComparison.Ordinal);
+                    _defenseAttributeUseAction = _battleDecisionEngine.DecideMovableStationDisposableUse(
+                        attributeDisposableState,
+                        requireAttribute: needAttribute,
+                        requireCommon: !needAttribute);
+                    string discoveredEnum = _defenseAttributeUseAction?
+                        .Arguments["disposableEnum"]?.Value<string>() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(discoveredEnum))
+                    {
+                        _defensePlacementDisposableEnum = discoveredEnum;
+                        _defensePlacementCountBefore =
+                            _battleDecisionEngine.CountAvailableExpansionStations(
+                                _defenseCatapults,
+                                discoveredEnum);
+                        _defenseAttributeCountBeforePlacement = _defensePlacementCountBefore;
+                        AddTimeline(
+                            "special-station",
+                            "从 queryDisposable 运行时行为发现可移动特殊站点道具 " + discoveredEnum +
+                            "，将按合法最小间距和闭环周期参与规划。");
+                    }
+                }
+                if (_defenseAttributeUseAction == null)
+                {
+                    if (discoverAnyMovableStation)
+                    {
+                        MarkDefenseRailMaintenanceStable();
+                    }
                     FinishDefenseMaintenance(
                         $"没有可用的 {_defensePlacementDisposableEnum} 弹射点道具，已结束本轮扩建。");
                     return true;
@@ -4475,7 +4912,13 @@ internal sealed class AutoPlayController
                 if (!_defenseStationGridProbe.TryInitializePlacement(
                         _defensePlacementDisposableEnum,
                         _defenseCatapults,
-                        out string expansionProbeError))
+                        out string expansionProbeError,
+                        _defenseAttributeUseAction?.Arguments["stationKind"]?.Value<string>() switch
+                        {
+                            "AttributeCatapult" => true,
+                            "CommonCatapult" => false,
+                            _ => null
+                        }))
                 {
                     FinishDefenseMaintenance(
                         "无法启动动力弹射点增量探测，已跳过本轮扩建：" + expansionProbeError,
@@ -4742,12 +5185,21 @@ internal sealed class AutoPlayController
                     HasAvailableExpansionStationAtGrid(
                         placedAttributeCatapults,
                         _defenseAttributeGrid,
-                        _defensePlacementDisposableEnum))
+                        _defensePlacementDisposableEnum,
+                        _defenseAttributeUseAction?.Arguments["stationKind"]?.Value<string>(),
+                        _defenseAttributeUseAction?.Arguments["effectIdentity"]?.Value<string>()))
                 {
+                    bool placedRuntimeSpecial = !string.IsNullOrWhiteSpace(
+                        _defenseAttributeUseAction?.Arguments["stationKind"]?.Value<string>());
                     ClearDefenseAttributePlacementState();
                     _defenseCatapults = placedAttributeCatapults;
-                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
-                    ScheduleDefenseMaintenanceStep("已验证新的未占用动力站，继续准备额外合法闭环。");
+                    _defenseMaintenanceStep = placedRuntimeSpecial && _defenseBattleSpecialMoveOnly
+                        ? DefenseMaintenanceStep.QueryRailExpansionCandidates
+                        : DefenseMaintenanceStep.QueryCatapults;
+                    ScheduleDefenseMaintenanceStep(
+                        placedRuntimeSpecial
+                            ? "已按站点类型、canMove 和运行时效果标签验证新特殊站点；下一帧重新计算防线。"
+                            : "已验证新的未占用动力站，继续准备额外合法闭环。");
                     return true;
                 }
 
@@ -5608,6 +6060,13 @@ internal sealed class AutoPlayController
         _defenseSpecialMovePredictedCycleSeconds = 0d;
         _defenseSpecialMoveCancelRequested = false;
         _defenseSpecialMoveConfirmationAccepted = false;
+        _defenseRailRebuildSnapshot = null;
+        _defenseRailRebuildRecoveryAttempted = false;
+        _defenseRailRebuildExplicitPollution = false;
+        _defenseRailRebuildPreviewCycleSeconds = 0d;
+        _defenseRailRebuildCandidates = Array.Empty<RailRebuildSnapshot>();
+        _defenseRailRebuildScores.Clear();
+        _defenseRailRebuildCandidateIndex = 0;
         _defenseFreshMovableStationRetryAttempts = 0;
         _defenseMoveGridInitializationRetryAttempts = 0;
         _defenseStructuralVerificationAttempts = 0;
@@ -5787,6 +6246,21 @@ internal sealed class AutoPlayController
             "insert",
             score.Candidate.Identity);
 
+    private static bool ImprovesRailTriggerRate(
+        RailRebuildSnapshot candidate,
+        double candidateCycleSeconds)
+    {
+        if (candidateCycleSeconds <= 0d || candidate.LoopCycleSeconds <= 0d) return false;
+        int originalStationCount = candidate.OriginalOrderedLinePointInstanceIds.Count;
+        if (originalStationCount == 0)
+        {
+            originalStationCount = Math.Max(1, candidate.OrderedLinePointInstanceIds.Count - 1);
+        }
+        double originalRate = originalStationCount / candidate.LoopCycleSeconds;
+        double candidateRate = candidate.OrderedLinePointInstanceIds.Count / candidateCycleSeconds;
+        return candidateRate > originalRate + 0.000001d;
+    }
+
     private static string GridFingerprint(JObject? grid) =>
         (grid?["x"]?.ToString(Newtonsoft.Json.Formatting.None) ?? "?") + "," +
         (grid?["y"]?.ToString(Newtonsoft.Json.Formatting.None) ?? "?");
@@ -5901,6 +6375,13 @@ internal sealed class AutoPlayController
         _defenseBattleSpecialMoveOnly = false;
         _defenseSpecialMoveCancelRequested = false;
         _defenseSpecialMoveConfirmationAccepted = false;
+        _defenseRailRebuildSnapshot = null;
+        _defenseRailRebuildRecoveryAttempted = false;
+        _defenseRailRebuildExplicitPollution = false;
+        _defenseRailRebuildPreviewCycleSeconds = 0d;
+        _defenseRailRebuildCandidates = Array.Empty<RailRebuildSnapshot>();
+        _defenseRailRebuildScores.Clear();
+        _defenseRailRebuildCandidateIndex = 0;
         _defenseFreshMovableStationRetryAttempts = 0;
         _defenseMoveGridInitializationRetryAttempts = 0;
         _defenseStructuralVerificationAttempts = 0;
@@ -5980,6 +6461,12 @@ internal sealed class AutoPlayController
     {
         disposition = RuntimeResultDisposition.Failure;
         result = new JObject();
+        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        {
+            AddWarning(blockedDetail);
+            SetStage(AutomationStage.Battle, blockedDetail);
+            return false;
+        }
         if (_defenseStructuralMutationGuard.IsArmed)
         {
             if (!_defenseStructuralMutationGuard.IsPreparedFor(action, mutationIdentity))
@@ -6552,6 +7039,12 @@ internal sealed class AutoPlayController
     private bool TryExecuteActiveBattleAction(AutomationAction action, out JObject result)
     {
         result = new JObject();
+        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        {
+            AddWarning(blockedDetail);
+            SetStage(AutomationStage.Battle, blockedDetail);
+            return false;
+        }
         if (_bridge.TryGetWavePulse(out bool pulseInWave, out bool pulseGameOver, out int pulseRemaining))
         {
             if (!pulseInWave || pulseGameOver)
@@ -6569,6 +7062,37 @@ internal sealed class AutoPlayController
         AddWarning(detail);
         SetStage(AutomationStage.Battle, detail);
         return false;
+    }
+
+    private static bool IsForbiddenActiveBattleTrainMutation(string command) =>
+        string.Equals(command, "moveTrainToLine", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "moveVehicleInTrain", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "placeVehicleOnLine", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "openMergePanel", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "submitMergeSelection", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase);
+
+    private bool ShouldBlockActiveBattleTrainMutation(string command, out string detail)
+    {
+        detail = string.Empty;
+        if (!IsForbiddenActiveBattleTrainMutation(command))
+        {
+            return false;
+        }
+
+        if (_bridge.TryGetWavePulse(out bool inWave, out bool gameOver, out _))
+        {
+            if (!inWave || gameOver) return false;
+        }
+        else if (!_wasInWave)
+        {
+            return false;
+        }
+
+        detail = "战斗中已拒绝直接车列写命令 " + command +
+                 "；只允许站点道具、可移动站点和从始发站断环后的玩家原生重连。";
+        return true;
     }
 
     private bool IsOwnedDisposablePreview(JObject result)
@@ -6758,6 +7282,57 @@ internal sealed class AutoPlayController
 
         bool? expectedForward = movement.Arguments["forward"]?.Value<bool?>();
         return !expectedForward.HasValue || movedTrain["forward"]?.Value<bool?>() == expectedForward.Value;
+    }
+
+    private static bool IsFreshDisconnectedMovableStation(
+        JObject? catapultResult,
+        JObject? movableResult,
+        RailStationMoveCandidate candidate)
+    {
+        JObject[] catapults = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item => (item["catapultInstanceId"]?.Value<int?>() ?? item["instanceId"]?.Value<int?>()) ==
+                           candidate.StationCatapultInstanceId)
+            .ToArray() ?? Array.Empty<JObject>();
+        JObject[] movable = (State(movableResult)["stations"] as JArray)?.OfType<JObject>()
+            .Where(item => item["instanceId"]?.Value<int?>() == candidate.StationCatapultInstanceId)
+            .ToArray() ?? Array.Empty<JObject>();
+        return catapults.Length == 1 && movable.Length == 1 &&
+               catapults[0]["canMove"]?.Value<bool>() == true &&
+               movable[0]["canMove"]?.Value<bool>() == true &&
+               (catapults[0]["railMembershipCount"]?.Value<int?>() ?? 0) == 0 &&
+               catapults[0]["gameObjectInstanceId"]?.Value<int?>() == candidate.StationGameObjectInstanceId &&
+               catapults[0]["linePointInstanceId"]?.Value<int?>() == candidate.StationLinePointInstanceId &&
+               string.Equals(catapults[0]["path"]?.Value<string>(), candidate.StationPath, StringComparison.Ordinal);
+    }
+
+    private bool TryRefreshDisconnectedStationAtTarget(
+        JObject? catapultResult,
+        RailStationMoveCandidate? candidate,
+        JObject? expectedGrid,
+        RailRebuildSnapshot snapshot)
+    {
+        if (candidate == null) return false;
+        int? x = expectedGrid?["x"]?.Value<int?>();
+        int? y = expectedGrid?["y"]?.Value<int?>();
+        if (!x.HasValue || !y.HasValue) return false;
+        JObject[] matches = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item =>
+                string.Equals(item["name"]?.Value<string>(), candidate.StationName, StringComparison.Ordinal) &&
+                string.Equals(item["recycleDisposableEnum"]?.Value<string>(),
+                    candidate.StationDisposableEnum, StringComparison.Ordinal) &&
+                (item["isAttribute"]?.Value<bool>() == true) == candidate.StationIsAttribute &&
+                (item["railMembershipCount"]?.Value<int?>() ?? 0) == 0 &&
+                item.SelectToken("grid.x")?.Value<int?>() == x.Value &&
+                item.SelectToken("grid.y")?.Value<int?>() == y.Value)
+            .ToArray() ?? Array.Empty<JObject>();
+        if (matches.Length != 1) return false;
+        int newPointId = matches[0]["linePointInstanceId"]?.Value<int?>() ?? 0;
+        if (newPointId == 0) return false;
+        _railRebuildPlanner.RefreshMovedStationIdentity(
+            snapshot,
+            candidate.StationLinePointInstanceId,
+            newPointId);
+        return true;
     }
 
     private static JObject State(JObject? result) =>
@@ -7175,6 +7750,12 @@ internal sealed class AutoPlayController
         else if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
         {
             ClearSelectionHighlight("merge-fetter");
+        }
+        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        {
+            AddWarning(blockedDetail);
+            SetStage(AutomationStage.Battle, blockedDetail);
+            return false;
         }
         SetStage(action.Stage, action.Reason);
         if (string.Equals(action.Command, "wait", StringComparison.Ordinal))
@@ -8525,7 +9106,9 @@ internal sealed class AutoPlayController
     private static bool HasAvailableExpansionStationAtGrid(
         JObject catapultResult,
         JObject? expectedGrid,
-        string disposableEnum)
+        string disposableEnum,
+        string? expectedStationKind = null,
+        string? expectedEffectIdentity = null)
     {
         int? expectedX = expectedGrid?["x"]?.Value<int?>();
         int? expectedY = expectedGrid?["y"]?.Value<int?>();
@@ -8542,15 +9125,34 @@ internal sealed class AutoPlayController
             catapult["railReachMax"]?.Value<bool>() != true &&
             (catapult["railMembershipCount"]?.Value<int?>() ?? 0) == 0 &&
             (catapult["linePointInstanceId"]?.Value<int?>() ?? 0) != 0 &&
-            (string.Equals(disposableEnum, "FreePoint_Attribute", StringComparison.Ordinal)
-                ? catapult["isAttribute"]?.Value<bool>() == true
-                : catapult["isAttribute"]?.Value<bool>() != true &&
-                  string.Equals(
-                      catapult["recycleDisposableEnum"]?.Value<string>(),
-                      disposableEnum,
-                      StringComparison.Ordinal)) &&
+            (string.Equals(
+                 catapult["recycleDisposableEnum"]?.Value<string>(),
+                 disposableEnum,
+                 StringComparison.Ordinal) ||
+             string.Equals(disposableEnum, "FreePoint_Attribute", StringComparison.Ordinal) &&
+              catapult["isAttribute"]?.Value<bool>() == true) &&
+            (string.IsNullOrWhiteSpace(expectedStationKind) ||
+             string.Equals(expectedStationKind, "AttributeCatapult", StringComparison.Ordinal) ==
+             (catapult["isAttribute"]?.Value<bool>() == true)) &&
+            (string.IsNullOrWhiteSpace(expectedStationKind) ||
+             catapult["canMove"]?.Value<bool>() == true) &&
+            MatchesPlacedStationEffect(catapult, expectedEffectIdentity) &&
             catapult.SelectToken("grid.x")?.Value<int?>() == expectedX.Value &&
             catapult.SelectToken("grid.y")?.Value<int?>() == expectedY.Value) == true;
+    }
+
+    private static bool MatchesPlacedStationEffect(JObject catapult, string? expectedEffectIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(expectedEffectIdentity)) return true;
+        IEnumerable<string?> identities = new string?[]
+            {
+                catapult["specialSource"]?.Value<string>(),
+                catapult["effectEnum"]?.Value<string>(),
+                catapult["specialEffectEnum"]?.Value<string>()
+            }
+            .Concat((catapult["runtimeBuffIdentities"] as JArray)?.Values<string>() ?? Enumerable.Empty<string?>())
+            .Concat((catapult["effectTags"] as JArray)?.Values<string>() ?? Enumerable.Empty<string?>());
+        return identities.Any(value => string.Equals(value, expectedEffectIdentity, StringComparison.Ordinal));
     }
 
     private void MarkProgress() => _lastProgressAt = Time.realtimeSinceStartup;
