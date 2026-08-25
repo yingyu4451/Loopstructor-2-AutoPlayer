@@ -431,9 +431,7 @@ internal static class RewardUiRuntimeFallback
         string currentQueueItemType = currentQueueItem == null
             ? string.Empty
             : contract.QueueItemType.GetValue(currentQueueItem)?.ToString() ?? string.Empty;
-        bool currentQueueMandatory = currentQueueItem == null ||
-                                     contract.QueueItemMandatory.GetValue(currentQueueItem) is not bool mandatory ||
-                                     mandatory;
+        bool currentQueueMandatory = IsCurrentQueueMandatory(contract, currentQueueItem);
         int queueCount = panel != null && contract.PanelQueue.GetValue(panel) is ICollection queue
             ? queue.Count
             : 0;
@@ -497,6 +495,24 @@ internal static class RewardUiRuntimeFallback
             options);
     }
 
+    private static bool IsCurrentQueueMandatory(ReflectionContract contract, object? currentQueueItem)
+    {
+        if (currentQueueItem == null)
+        {
+            return true;
+        }
+
+        FieldInfo? mandatoryField = contract.QueueItemMandatory;
+        if (mandatoryField == null)
+        {
+            // Older builds expose an unconditional SkipHandle and do not carry
+            // per-opportunity mandatory metadata. Their queue remains operable.
+            return false;
+        }
+
+        return mandatoryField.GetValue(currentQueueItem) is not bool mandatory || mandatory;
+    }
+
     private static List<RewardOptionSnapshot> GetRewardOptions(
         ReflectionContract contract,
         Component panel,
@@ -536,7 +552,7 @@ internal static class RewardUiRuntimeFallback
     {
         object? reward = contract.ItemReward.GetValue(item);
         int money = contract.ItemMoney.GetValue(item) is int amount ? amount : 0;
-        object? button = contract.ItemButton.GetValue(item);
+        object? button = contract.ItemButton.GetValue(item, null);
         bool buttonActive = button != null &&
                             contract.ButtonActive.GetValue(button, null) is bool active && active;
         bool isVehicle = reward != null && contract.RazorRewardType.IsInstanceOfType(reward);
@@ -974,8 +990,8 @@ internal static class RewardUiRuntimeFallback
 
         FieldInfo? itemReward = FindInstanceField(itemType, "m_reward");
         FieldInfo? itemMoney = FindInstanceField(itemType, "m_money");
-        FieldInfo? itemButton = FindInstanceField(itemType, "m_btn");
-        PropertyInfo? buttonActive = FindInstanceProperty(itemButton?.FieldType, "BtnActive");
+        PropertyInfo? itemButton = FindInstanceProperty(itemType, "Btn");
+        PropertyInfo? buttonActive = FindInstanceProperty(itemButton?.PropertyType, "BtnActive");
         MethodInfo? clickEvent = FindInstanceMethod(itemType, "ClickEvent");
 
         FieldInfo? mutexInstance = FindStaticField(mutexType, "m_instance");
@@ -1015,7 +1031,7 @@ internal static class RewardUiRuntimeFallback
             panelInstance == null || panelIsOpen == null || panelIsActive == null ||
             panelRewardContent == null || panelQueue == null || panelCurrentQueueItem == null ||
             panelRefresh == null || panelFinished == null || queueItemType == null ||
-            queueItemMandatory == null || panelSkipHandle == null ||
+            panelSkipHandle == null ||
             itemReward == null || itemMoney == null || itemButton == null || buttonActive == null ||
             clickEvent == null || mutexInstance == null || mutexBusy == null ||
             spawnerInstance == null || spawnerRewardObjects == null || rewardRare == null ||
@@ -1278,12 +1294,12 @@ internal static class RewardUiRuntimeFallback
             FieldInfo panelRefresh,
             FieldInfo panelFinished,
             FieldInfo queueItemType,
-            FieldInfo queueItemMandatory,
+            FieldInfo? queueItemMandatory,
             MethodInfo panelSkipHandle,
             Type rewardItemType,
             FieldInfo itemReward,
             FieldInfo itemMoney,
-            FieldInfo itemButton,
+            PropertyInfo itemButton,
             PropertyInfo buttonActive,
             MethodInfo clickEvent,
             FieldInfo mutexInstance,
@@ -1377,12 +1393,12 @@ internal static class RewardUiRuntimeFallback
         public FieldInfo PanelRefresh { get; }
         public FieldInfo PanelFinished { get; }
         public FieldInfo QueueItemType { get; }
-        public FieldInfo QueueItemMandatory { get; }
+        public FieldInfo? QueueItemMandatory { get; }
         public MethodInfo PanelSkipHandle { get; }
         public Type RewardItemType { get; }
         public FieldInfo ItemReward { get; }
         public FieldInfo ItemMoney { get; }
-        public FieldInfo ItemButton { get; }
+        public PropertyInfo ItemButton { get; }
         public PropertyInfo ButtonActive { get; }
         public MethodInfo ClickEvent { get; }
         public FieldInfo MutexInstance { get; }

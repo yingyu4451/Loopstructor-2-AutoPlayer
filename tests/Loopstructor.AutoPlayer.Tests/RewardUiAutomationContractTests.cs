@@ -66,6 +66,7 @@ public sealed class RewardUiAutomationContractTests
         MethodDefinition options = RequireMethod(fallback, "GetRewardOptions");
         MethodDefinition rewardObjects = RequireMethod(fallback, "BuildRewardObjects");
         MethodDefinition contract = RequireMethod(fallback, "TryGetContract");
+        MethodDefinition currentQueueMandatory = RequireMethod(fallback, "IsCurrentQueueMandatory");
 
         Assert.Contains("m_rewardContent", LoadedStrings(contract));
         Assert.Contains("m_rewardObjects", LoadedStrings(contract));
@@ -75,8 +76,14 @@ public sealed class RewardUiAutomationContractTests
         Assert.Contains("isInUsing", LoadedStrings(contract));
         Assert.Contains("m_instance", LoadedStrings(contract));
         Assert.Contains("m_reward", LoadedStrings(contract));
+        Assert.Contains("Btn", LoadedStrings(contract));
+        Assert.Contains("BtnActive", LoadedStrings(contract));
+        Assert.DoesNotContain("m_btn", LoadedStrings(contract));
         Assert.Contains("initFetterModuleData", LoadedStrings(contract));
         Assert.Contains("isMandatory", LoadedStrings(contract));
+        Assert.Contains(Calls(snapshot), IsCall(FallbackType, "IsCurrentQueueMandatory"));
+        Assert.Contains(currentQueueMandatory.Body.Instructions, instruction =>
+            instruction.OpCode.Code == Code.Ldc_I4_0);
         Assert.Contains("SkipHandle", LoadedStrings(contract));
         Assert.Contains("TryGetDisposableTemplate", LoadedStrings(contract));
         Assert.Contains("CanAdd", LoadedStrings(contract));
