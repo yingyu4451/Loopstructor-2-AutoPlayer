@@ -72,6 +72,10 @@ public sealed class RailStationMoveCandidate
     public int StationCatapultInstanceId { get; set; }
     public int StationGameObjectInstanceId { get; set; }
     public int StationLinePointInstanceId { get; set; }
+    /// <summary>
+    /// Game-stable LinePoint.ID. Unlike Unity instance ids, this survives CatapultCreator.MoveCatapult.
+    /// </summary>
+    public int StationPointId { get; set; }
     public string StationPath { get; set; } = string.Empty;
     public string StationName { get; set; } = string.Empty;
     public string StationDisposableEnum { get; set; } = string.Empty;
@@ -82,6 +86,7 @@ public sealed class RailStationMoveCandidate
     public IReadOnlyList<AutoPlayerGrid> NeighborGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
     public IReadOnlyList<AutoPlayerGrid> OrderedStationGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
     public IReadOnlyList<bool> OrderedStationKinds { get; set; } = Array.Empty<bool>();
+    public IReadOnlyList<int> OrderedStationPointIds { get; set; } = Array.Empty<int>();
 }
 
 /// <summary>
@@ -232,8 +237,8 @@ public sealed class RailExpansionPlanner
                 continue;
             }
 
-            int pointId = ReadInt(station["linePointInstanceId"], 0);
-            List<JObject> matchingRails = rails.Where(item => RailContainsPoint(item, pointId)).ToList();
+            int linePointInstanceId = ReadInt(station["linePointInstanceId"], 0);
+            List<JObject> matchingRails = rails.Where(item => RailContainsPoint(item, linePointInstanceId)).ToList();
             if (matchingRails.Count != 1)
             {
                 continue;
@@ -280,6 +285,12 @@ public sealed class RailExpansionPlanner
                     .Select((grid, index) => index == 0)
                     .ToArray();
             }
+            IReadOnlyList<int> orderedStationPointIds = ReadRailStablePointIds(rail);
+            int stablePointId = ReadStablePointId(rail, linePointInstanceId);
+            if (stablePointId == 0 || orderedStationPointIds.Count != orderedStationGrids.Count)
+            {
+                continue;
+            }
 
             result.Add(new RailStationMoveCandidate
             {
@@ -292,7 +303,8 @@ public sealed class RailExpansionPlanner
                     station["catapultInstanceId"],
                     ReadInt(station["instanceId"], 0)),
                 StationGameObjectInstanceId = ReadInt(station["gameObjectInstanceId"], 0),
-                StationLinePointInstanceId = pointId,
+                StationLinePointInstanceId = linePointInstanceId,
+                StationPointId = stablePointId,
                 StationPath = station["path"]?.Value<string>() ?? string.Empty,
                 StationName = station["name"]?.Value<string>() ?? string.Empty,
                 StationDisposableEnum = station["recycleDisposableEnum"]?.Value<string>() ?? string.Empty,
@@ -302,7 +314,8 @@ public sealed class RailExpansionPlanner
                 CurrentGrid = currentGrid,
                 NeighborGrids = neighbors,
                 OrderedStationGrids = orderedStationGrids,
-                OrderedStationKinds = orderedStationKinds
+                OrderedStationKinds = orderedStationKinds,
+                OrderedStationPointIds = orderedStationPointIds
             });
         }
 
@@ -310,13 +323,14 @@ public sealed class RailExpansionPlanner
             .Where(candidate => candidate.RailInstanceId != 0 &&
                                 candidate.RailInternalId != 0 &&
                                 candidate.StationCatapultInstanceId != 0 &&
-                                candidate.StationGameObjectInstanceId != 0 &&
-                                candidate.StationLinePointInstanceId != 0 &&
+                                 candidate.StationGameObjectInstanceId != 0 &&
+                                 candidate.StationLinePointInstanceId != 0 &&
+                                 candidate.StationPointId != 0 &&
                                 !string.IsNullOrWhiteSpace(candidate.StationPath) &&
                                 !string.IsNullOrWhiteSpace(candidate.StationFingerprint))
             .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
             .ThenBy(candidate => candidate.RailInstanceId)
-            .ThenBy(candidate => candidate.StationLinePointInstanceId)
+            .ThenBy(candidate => candidate.StationPointId)
             .ToArray();
     }
 
@@ -350,6 +364,105 @@ public sealed class RailExpansionPlanner
             candidate.StationCount,
             predictedCycle,
             candidate.SpacingRules);
+    }
+
+    public RailLayoutScore ScoreObservedJointLayout(
+        RailJointLayoutPlan? plan,
+        JObject? railResult)
+    {
+        if (plan == null) return new RailLayoutScore();
+        JObject? rail = (State(railResult)["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["railInternalId"], ReadInt(item["id"], 0)) == plan.RailInternalId);
+        if (rail == null || rail["isLegalPlayerLoop"]?.Value<bool>() != true ||
+            !TryReadPositiveDouble(rail["loopCycleSeconds"], out double cycle)) return new RailLayoutScore();
+        List<AutoPlayerGrid> grids = ReadRailGeometryGrids(rail);
+        IReadOnlyList<bool> kinds = ReadRailStationKinds(rail);
+        StationSpacingRules rules = plan.Targets.FirstOrDefault()?.Candidate.SpacingRules ?? default;
+        return kinds.Count == grids.Count
+            ? RailLayoutStrategyPlanner.EvaluateWithSpacing(
+                grids.Select(ToLayoutPoint), kinds, grids.Count, cycle, rules)
+            : RailLayoutStrategyPlanner.Evaluate(grids.Select(ToLayoutPoint), grids.Count, cycle);
+    }
+
+    public RailLayoutScore ScorePlannedJointLayout(
+        RailJointLayoutPlan? plan,
+        double loopCycleSeconds)
+    {
+        if (plan == null || !TryReadPositiveDouble(new JValue(loopCycleSeconds), out double cycle) ||
+            plan.OrderedTargetGrids.Count < 3) return new RailLayoutScore();
+        RailStationMoveCandidate? canonical = plan.Targets.FirstOrDefault()?.Candidate;
+        if (canonical == null || canonical.OrderedStationKinds.Count != plan.OrderedTargetGrids.Count)
+            return new RailLayoutScore();
+        return RailLayoutStrategyPlanner.EvaluateWithSpacing(
+            plan.OrderedTargetGrids.Select(ToLayoutPoint),
+            canonical.OrderedStationKinds,
+            plan.OrderedTargetGrids.Count,
+            cycle,
+            canonical.SpacingRules);
+    }
+
+    public bool TryRefreshJointMoveCandidate(
+        JObject? railResult,
+        JObject? catapultResult,
+        RailJointMoveTarget? target,
+        out RailStationMoveCandidate refreshed)
+    {
+        refreshed = new RailStationMoveCandidate();
+        if (target == null || target.StablePointId == 0) return false;
+        StationSpacingRules spacingRules = target.Candidate.SpacingRules;
+        RailStationMoveCandidate[] candidates = BuildExistingSpecialMoveCandidates(
+                railResult,
+                catapultResult,
+                spacingRules)
+            .Where(candidate => candidate.StationPointId == target.StablePointId)
+            .ToArray();
+        if (candidates.Length != 1) return false;
+        refreshed = candidates[0];
+        return true;
+    }
+
+    public bool IsJointMoveObserved(
+        JObject? railResult,
+        JObject? catapultResult,
+        RailJointMoveTarget? target,
+        out RailStationMoveCandidate refreshed)
+    {
+        refreshed = new RailStationMoveCandidate();
+        if (target == null) return false;
+        JObject[] rails = (State(railResult)["rails"] as JArray)?.OfType<JObject>()
+            .Where(item => ReadInt(item["railInternalId"], ReadInt(item["id"], 0)) ==
+                           target.Candidate.RailInternalId)
+            .ToArray() ?? Array.Empty<JObject>();
+        int expectedLinePointInstanceId = 0;
+        if (rails.Length > 0)
+        {
+            JObject[] stableStations = rails
+                .SelectMany(item => (item["orderedStations"] as JArray)?.OfType<JObject>() ??
+                                    Enumerable.Empty<JObject>())
+                .Where(item =>
+                    ReadInt(item["pointId"], 0) == target.StablePointId &&
+                    item.SelectToken("grid.x")?.Value<int?>() == target.TargetGrid.X &&
+                    item.SelectToken("grid.y")?.Value<int?>() == target.TargetGrid.Y)
+                .ToArray();
+            if (stableStations.Length != 1) return false;
+            expectedLinePointInstanceId = ReadInt(stableStations[0]["linePointInstanceId"], 0);
+            if (expectedLinePointInstanceId == 0) return false;
+        }
+        JObject[] matches = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item =>
+                item["active"]?.Value<bool>() != false &&
+                item.SelectToken("grid.x")?.Value<int?>() == target.TargetGrid.X &&
+                item.SelectToken("grid.y")?.Value<int?>() == target.TargetGrid.Y &&
+                (item["isAttribute"]?.Value<bool>() == true) == target.Candidate.StationIsAttribute &&
+                (expectedLinePointInstanceId == 0 ||
+                 ReadInt(item["linePointInstanceId"], 0) == expectedLinePointInstanceId) &&
+                string.Equals(BuildStationFingerprint(item), target.Candidate.StationFingerprint, StringComparison.Ordinal))
+            .ToArray() ?? Array.Empty<JObject>();
+        if (matches.Length != 1) return false;
+        JObject station = matches[0];
+        refreshed = CloneWithRuntimeIdentity(target.Candidate, station, target.TargetGrid);
+        return refreshed.StationCatapultInstanceId != 0 && refreshed.StationLinePointInstanceId != 0;
     }
 
     /// <summary>
@@ -1086,6 +1199,33 @@ public sealed class RailExpansionPlanner
         return !isAttribute && station["isSpecial"]?.Value<bool>() == true;
     }
 
+    private static RailStationMoveCandidate CloneWithRuntimeIdentity(
+        RailStationMoveCandidate source,
+        JObject station,
+        AutoPlayerGrid currentGrid) => new()
+    {
+        RailInstanceId = source.RailInstanceId,
+        RailInternalId = source.RailInternalId,
+        StationCount = source.StationCount,
+        CurrentLoopCycleSeconds = source.CurrentLoopCycleSeconds,
+        RailLength = source.RailLength,
+        StationCatapultInstanceId = ReadInt(station["catapultInstanceId"], ReadInt(station["instanceId"], 0)),
+        StationGameObjectInstanceId = ReadInt(station["gameObjectInstanceId"], 0),
+        StationLinePointInstanceId = ReadInt(station["linePointInstanceId"], 0),
+        StationPointId = source.StationPointId,
+        StationPath = station["path"]?.Value<string>() ?? source.StationPath,
+        StationName = station["name"]?.Value<string>() ?? source.StationName,
+        StationDisposableEnum = source.StationDisposableEnum,
+        StationFingerprint = source.StationFingerprint,
+        StationIsAttribute = source.StationIsAttribute,
+        SpacingRules = source.SpacingRules,
+        CurrentGrid = currentGrid,
+        NeighborGrids = source.NeighborGrids,
+        OrderedStationGrids = source.OrderedStationGrids,
+        OrderedStationKinds = source.OrderedStationKinds,
+        OrderedStationPointIds = source.OrderedStationPointIds
+    };
+
     private static bool IsAvailableCommonStation(JObject item) =>
         item["active"]?.Value<bool>() != false &&
         item["canUseForNewRail"]?.Value<bool>() == true &&
@@ -1119,6 +1259,20 @@ public sealed class RailExpansionPlanner
         ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
         .OfType<JObject>()
         .Any(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == pointInstanceId) == true;
+
+    private static int ReadStablePointId(JObject rail, int linePointInstanceId) =>
+        ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+        .OfType<JObject>()
+        .Where(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == linePointInstanceId)
+        .Select(point => ReadInt(point["pointId"], ReadInt(point["linePointInstanceId"], 0)))
+        .SingleOrDefault() ?? 0;
+
+    private static IReadOnlyList<int> ReadRailStablePointIds(JObject rail) =>
+        ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+        .OfType<JObject>()
+        .Select(point => ReadInt(point["pointId"], ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0))))
+        .Where(pointId => pointId != 0)
+        .ToArray() ?? Array.Empty<int>();
 
     private static bool TryReadPointIdentitySequence(JObject rail, out int[] pointIds)
     {

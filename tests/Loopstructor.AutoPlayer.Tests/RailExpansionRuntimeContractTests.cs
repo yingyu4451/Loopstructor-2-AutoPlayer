@@ -13,6 +13,8 @@ public sealed class RailExpansionRuntimeContractTests
     private const string StructuralGuardType = "Loopstructor.AutoPlayer.Core.PendingDefenseMutationGuard";
     private const string StationGridProbeType =
         "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseStationGridProbe";
+    private const string JointLayoutProbeType =
+        "Loopstructor.AutoPlayer.Plugin.IncrementalRailJointLayoutProbe";
 
     [Fact]
     public void RuntimeBridge_UsesFormalRailAndStationCommandsWithoutPseudoRightDragFallback()
@@ -359,24 +361,19 @@ public sealed class RailExpansionRuntimeContractTests
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
-        TypeDefinition probe = RequireType(assembly, StationGridProbeType);
+        TypeDefinition probe = RequireType(assembly, JointLayoutProbeType);
         MethodDefinition maintain = RequireMethod(controller, "TryMaintainDefense");
         MethodDefinition handler = RequireMethod(
             controller,
             "HandleTransientMoveGridInitializationFailure");
         Instruction[] instructions = maintain.Body.Instructions.ToArray();
 
-        int initialize = FindCall(instructions, StationGridProbeType, "TryInitializeMove");
-        int readFailure = FindCall(
-            instructions,
-            StationGridProbeType,
-            "get_InitializationFailure",
-            initialize + 1);
+        int initialize = FindCall(instructions, JointLayoutProbeType, "TryInitialize");
         int transientHandler = FindCall(
             instructions,
             ControllerType,
             handler.Name,
-            readFailure + 1);
+            initialize + 1);
         int consumeCandidate = instructions
             .Select((instruction, index) => (instruction, index))
             .Where(item => item.index > transientHandler)
@@ -391,12 +388,9 @@ public sealed class RailExpansionRuntimeContractTests
 
         Assert.True(
             initialize >= 0 &&
-            readFailure > initialize &&
-            transientHandler > readFailure &&
+            transientHandler > initialize &&
             consumeCandidate > transientHandler);
-        Assert.Contains(
-            probe.NestedTypes.Concat(assembly.MainModule.Types),
-            type => type.Name == "DefenseStationGridProbeInitializationFailure");
+        Assert.Contains(probe.Fields, field => field.Name == "_candidateReader");
         Assert.Contains(
             handler.Body.Instructions,
             instruction => instruction.Operand is FieldReference field &&

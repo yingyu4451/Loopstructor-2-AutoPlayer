@@ -39,6 +39,7 @@ internal sealed class AutoPlayController
         ReconcileMerge,
         QueryCatapults,
         QueryRailExpansionCandidates,
+        ProbeJointRailLayout,
         PreviewRailInsertionCandidate,
         SelectRailInsertion,
         PreviewBattleSpecialRebuildCandidate,
@@ -169,6 +170,7 @@ internal sealed class AutoPlayController
     private readonly IncrementalBattleLiveDisposableGridProbe _battleLiveDisposableGridProbe = new();
     private readonly IncrementalDefenseExpansionAttributeGridProbe _defenseExpansionAttributeGridProbe = new();
     private readonly IncrementalDefenseStationGridProbe _defenseStationGridProbe = new();
+    private readonly IncrementalRailJointLayoutProbe _defenseJointLayoutProbe = new();
     private readonly List<TimelineEvent> _timeline = new();
     private readonly SceneTransitionGate _frontEndTransitionGate = new();
     private readonly NativeSelectionHighlighter _selectionHighlighter = new();
@@ -321,6 +323,11 @@ internal sealed class AutoPlayController
     private RailInsertionPreviewScore? _defenseSelectedRailInsertion;
     private RailStationMoveCandidate? _defenseSpecialMoveCandidate;
     private JObject? _defenseSpecialMoveGrid;
+    private RailJointLayoutPlan? _defenseJointLayoutPlan;
+    private int _defenseJointMoveIndex;
+    private readonly HashSet<int> _defenseJointMovedPointIds = new();
+    private bool _defenseJointLayoutRestoring;
+    private string _defenseJointRollbackReason = string.Empty;
     private int _defenseSpecialMoveInteractionInstanceId;
     private double _defenseSpecialMovePredictedCycleSeconds;
     private bool _defenseSpecialMoveCancelRequested;
@@ -3624,42 +3631,29 @@ internal sealed class AutoPlayController
                     {
                         AddWarning("无法读取当前关卡弹射点最小间距；本轮不会用猜测间距移动站点：" + spacingError);
                     }
-                    foreach (RailStationMoveCandidate moveCandidate in
-                             _railExpansionPlanner.BuildExistingSpecialMoveCandidates(
-                                 expansionRailState,
-                                 _defenseCatapults,
-                                 spacingRules))
+                    IReadOnlyList<RailStationMoveCandidate> movableCandidates =
+                        _railExpansionPlanner.BuildExistingSpecialMoveCandidates(
+                            expansionRailState,
+                            _defenseCatapults,
+                            spacingRules);
+                    if (movableCandidates.Count > 0)
                     {
-                        string moveCandidateFingerprint =
-                            BuildDefenseRailMoveCandidateFingerprint(moveCandidate);
-                        if (_defenseRailMaintenanceActionFingerprints.Contains(
-                                moveCandidateFingerprint))
+                        if (_defenseJointLayoutProbe.TryInitialize(
+                                movableCandidates,
+                                out string jointInitializationError))
                         {
-                            continue;
-                        }
-
-                        if (_defenseStationGridProbe.TryInitializeMove(
-                                moveCandidate,
-                                out string moveGridInitializationError))
-                        {
+                            _defenseJointLayoutPlan = null;
+                            _defenseJointMoveIndex = 0;
+                            _defenseJointMovedPointIds.Clear();
                             _defenseMoveGridInitializationRetryAttempts = 0;
-                            _defenseSpecialMoveCandidate = moveCandidate;
-                            _defenseMaintenanceStep = DefenseMaintenanceStep.ProbeSpecialStationMoveGrid;
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.ProbeJointRailLayout;
                             ScheduleDefenseMaintenanceStep(
-                                $"正在为能量/特殊弹射点 {moveCandidate.StationName} 分帧检查周向覆盖或 N/T 更优的合法位置。");
+                                $"正在联合规划 {movableCandidates.Count} 个可移动站点的完整最终布局；每帧预算不超过 3 ms。");
                             return true;
                         }
 
-                        if (_defenseStationGridProbe.InitializationFailure !=
-                            DefenseStationGridProbeInitializationFailure.NoBeneficialCandidate)
-                        {
-                            HandleTransientMoveGridInitializationFailure(
-                                moveGridInitializationError);
-                            return true;
-                        }
-
-                        _defenseRailMaintenanceActionFingerprints.Add(
-                            moveCandidateFingerprint);
+                        HandleTransientMoveGridInitializationFailure(jointInitializationError);
+                        return true;
                     }
                 }
 
@@ -3727,6 +3721,72 @@ internal sealed class AutoPlayController
                 _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailInsertionCandidate;
                 ScheduleDefenseMaintenanceStep(
                     $"准备逐帧预览 {_defenseRailInsertionCandidates.Count} 个扩轨候选。");
+                return true;
+
+            case DefenseMaintenanceStep.ProbeJointRailLayout:
+                RailJointLayoutSearchResult jointProbe = _defenseJointLayoutProbe.ProbeNext();
+                if (jointProbe.Status == RailJointLayoutSearchStatus.Probing)
+                {
+                    ScheduleDefenseMaintenanceStep(jointProbe.Detail);
+                    return true;
+                }
+                _defenseJointLayoutProbe.Reset();
+                if (jointProbe.Status != RailJointLayoutSearchStatus.Found || jointProbe.Plan == null)
+                {
+                    if (_defenseBattleSpecialMoveOnly)
+                    {
+                        _defenseRailRebuildCandidates =
+                            _railRebuildPlanner.BuildSpecialInsertionCandidates(
+                                _defenseRailExpansionBaseline,
+                                _battleTrain,
+                                _defenseCatapults);
+                        if (_bridge.HasCommand("deleteLinePoint") && _defenseRailRebuildCandidates.Count > 0)
+                        {
+                            _defenseRailRebuildScores.Clear();
+                            _defenseRailRebuildCandidateIndex = 0;
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate;
+                            ScheduleDefenseMaintenanceStep(jointProbe.Detail + " 正在检查可插入的特殊中继站。");
+                            return true;
+                        }
+                    }
+                    MarkDefenseRailMaintenanceStable();
+                    FinishDefenseMaintenance(jointProbe.Detail, warning: false);
+                    return true;
+                }
+                _defenseJointLayoutPlan = jointProbe.Plan;
+                _defenseJointMoveIndex = 0;
+                _defenseJointMovedPointIds.Clear();
+                AddTimeline(
+                    "rail-layout-plan",
+                    BuildJointRailLayoutPlanTimeline(_defenseJointLayoutPlan));
+                if (_defenseBattleSpecialMoveOnly && _bridge.HasCommand("deleteLinePoint"))
+                {
+                    _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
+                        _defenseRailExpansionBaseline,
+                        _defenseJointLayoutPlan.RailInstanceId,
+                        _battleTrain);
+                    if (_defenseRailRebuildSnapshot == null)
+                    {
+                        MarkDefenseRailMaintenanceStable();
+                        FinishDefenseMaintenance("联合布局已算出，但无法建立始发站重连快照；没有发送任何移动。", warning: true);
+                        return true;
+                    }
+                    _defenseRailRebuildRecoveryAttempted = false;
+                    _defenseRailRebuildExplicitPollution = false;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
+                    ScheduleDefenseMaintenanceStep(
+                        $"联合布局已确定 {_defenseJointLayoutPlan.Targets.Count} 个必要移动；下一帧只断环一次。" );
+                    return true;
+                }
+                if (!PrepareNextJointStationMove())
+                {
+                    MarkDefenseRailMaintenanceStable();
+                    FinishDefenseMaintenance("联合布局没有需要执行的站点移动。", warning: false);
+                    return true;
+                }
+                _defenseMaintenanceStep = DefenseMaintenanceStep.QueryFreshMovableStation;
+                ScheduleDefenseMaintenanceStep(
+                    $"联合布局已确定 {_defenseJointLayoutPlan.Targets.Count} 个必要移动；开始执行第 1 个。" );
                 return true;
 
             case DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate:
@@ -4018,6 +4078,11 @@ internal sealed class AutoPlayController
             case DefenseMaintenanceStep.DisconnectRailForRebuild:
                 if (_defenseRailRebuildSnapshot == null)
                 {
+                    if (_defenseJointLayoutPlan != null)
+                    {
+                        HandleJointLayoutExecutionFailure("始发站重连快照已经失效；没有发送断环命令。" );
+                        return true;
+                    }
                     ContinueDefenseRailOptimization("始发站重连快照已经失效；没有发送断环命令。");
                     return true;
                 }
@@ -4051,6 +4116,15 @@ internal sealed class AutoPlayController
                 if (disconnectVerification.Verified)
                 {
                     _defenseStructuralMutationGuard.Reset();
+                    if (_defenseJointLayoutPlan != null && _defenseSpecialMoveCandidate == null)
+                    {
+                        if (!PrepareNextJointStationMove())
+                        {
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                            ScheduleDefenseMaintenanceStep(disconnectVerification.Detail + " 联合布局无需移动，下一帧只预览一次闭环。");
+                            return true;
+                        }
+                    }
                     _defenseMaintenanceStep = _defenseSpecialMoveCandidate == null
                         ? DefenseMaintenanceStep.PreviewRailRebuild
                         : DefenseMaintenanceStep.QueryFreshMovableStation;
@@ -4114,6 +4188,36 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseCatapults = freshMoveCatapults;
+                if (_defenseJointLayoutPlan != null &&
+                    _defenseJointMoveIndex < _defenseJointLayoutPlan.Targets.Count)
+                {
+                    RailJointMoveTarget target = _defenseJointLayoutPlan.Targets[_defenseJointMoveIndex];
+                    JObject? railForIdentity = _defenseRailRebuildSnapshot == null
+                        ? _defenseVerifiedRailResult
+                        : BuildDisconnectedJointRailIdentitySnapshot(target);
+                    if (!_railExpansionPlanner.TryRefreshJointMoveCandidate(
+                            railForIdentity ?? _defenseRailExpansionBaseline,
+                            _defenseCatapults,
+                            target,
+                            out RailStationMoveCandidate refreshed))
+                    {
+                        if (_defenseRailRebuildSnapshot != null &&
+                            TryRefreshDisconnectedJointCandidate(_defenseCatapults, target, out refreshed))
+                        {
+                            _defenseSpecialMoveCandidate = refreshed;
+                        }
+                        else
+                        {
+                            HandleJointLayoutExecutionFailure(
+                                $"无法通过稳定 pointId={target.StablePointId} 重新定位第 {_defenseJointMoveIndex + 1} 个站点。" );
+                            return true;
+                        }
+                    }
+                    else
+                    {
+                        _defenseSpecialMoveCandidate = refreshed;
+                    }
+                }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryFreshMovableStationState;
                 ScheduleDefenseMaintenanceStep("站点身份已刷新；下一帧读取正式移动交互状态。");
                 return true;
@@ -4156,6 +4260,17 @@ internal sealed class AutoPlayController
                             "已确认断环后的特殊站点身份稳定且 canMove=true；下一帧启动正式移动交互。");
                         return true;
                     }
+                    if (_defenseJointLayoutPlan != null && freshCandidate != null &&
+                        IsFreshDisconnectedJointStation(
+                            _defenseCatapults,
+                            freshMovableState,
+                            freshCandidate))
+                    {
+                        _defenseFreshMovableStationRetryAttempts = 0;
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.StartSpecialStationMove;
+                        ScheduleDefenseMaintenanceStep("已通过稳定 pointId 重新定位断环后的站点；下一帧执行联合计划中的本次移动。" );
+                        return true;
+                    }
                     HandleTransientFreshMovableStationMismatch();
                     return true;
                 }
@@ -4169,11 +4284,15 @@ internal sealed class AutoPlayController
                 if (_defenseSpecialMoveCandidate == null ||
                     _defenseSpecialMoveGrid == null)
                 {
+                    if (_defenseJointLayoutPlan != null)
+                    {
+                        HandleJointLayoutExecutionFailure("联合布局中的站点或目标格身份已丢失；没有发送移动命令。" );
+                        return true;
+                    }
                     ContinueDefenseRailOptimization(
                         "弹射点或目标格身份已丢失，未发送移动命令；将重新读取布局。");
                     return true;
                 }
-
                 AutomationAction startMoveAction = new(
                     "startStationMove",
                     JObject.FromObject(new
@@ -4200,6 +4319,11 @@ internal sealed class AutoPlayController
                 if (startMoveDisposition == RuntimeResultDisposition.Failure)
                 {
                     _defenseStructuralMutationGuard.Reset();
+                    if (_defenseJointLayoutPlan != null)
+                    {
+                        HandleJointLayoutExecutionFailure("游戏明确拒绝联合布局中的站点移动。" );
+                        return true;
+                    }
                     ContinueDefenseRailOptimization(
                         "游戏明确拒绝启动本次弹射点移动；相同动作不会重发，将尝试其他正收益候选。");
                     return true;
@@ -4444,7 +4568,7 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
-                if (_defenseRailRebuildSnapshot != null &&
+                if (_defenseRailRebuildSnapshot != null && _defenseJointLayoutPlan == null &&
                     TryRefreshDisconnectedStationAtTarget(
                         movedCatapultState,
                         _defenseSpecialMoveCandidate,
@@ -4452,9 +4576,43 @@ internal sealed class AutoPlayController
                         _defenseRailRebuildSnapshot))
                 {
                     _defenseStructuralMutationGuard.Reset();
+                    if (AdvanceJointLayoutAfterMove()) return true;
                     _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
                     ScheduleDefenseMaintenanceStep(
-                        "已确认断环后的特殊站点到达目标格；下一帧按原站点身份顺序预览重新闭环。");
+                        "已确认联合计划中的全部站点到达目标格；下一帧只预览并重建一次闭环。");
+                    return true;
+                }
+
+                if (_defenseJointLayoutPlan != null &&
+                    _defenseJointMoveIndex < _defenseJointLayoutPlan.Targets.Count &&
+                    _railExpansionPlanner.IsJointMoveObserved(
+                        _defenseVerifiedRailResult,
+                        movedCatapultState,
+                        _defenseJointLayoutPlan.Targets[_defenseJointMoveIndex],
+                        out RailStationMoveCandidate movedJointCandidate))
+                {
+                    if (_defenseRailRebuildSnapshot != null)
+                    {
+                        _railRebuildPlanner.RefreshMovedStationIdentity(
+                            _defenseRailRebuildSnapshot,
+                            _defenseSpecialMoveCandidate?.StationLinePointInstanceId ?? 0,
+                            movedJointCandidate.StationLinePointInstanceId);
+                    }
+                    _defenseSpecialMoveCandidate = movedJointCandidate;
+                    _defenseStructuralMutationGuard.Reset();
+                    if (AdvanceJointLayoutAfterMove()) return true;
+                    if (_defenseRailRebuildSnapshot != null)
+                    {
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                        ScheduleDefenseMaintenanceStep("联合计划中的全部移动已按稳定 pointId 对账；下一帧只重建一次闭环。" );
+                    }
+                    else
+                    {
+                        CompleteJointLayoutWithoutRebuild(
+                            movedCatapultState,
+                            _defenseVerifiedRailResult,
+                            State(_defenseVerifiedRailResult).SelectToken("rails[0].loopCycleSeconds")?.Value<double?>() ?? 0d);
+                    }
                     return true;
                 }
 
@@ -4469,6 +4627,7 @@ internal sealed class AutoPlayController
                     if (_defenseRailRebuildSnapshot != null)
                     {
                         _defenseStructuralMutationGuard.Reset();
+                        if (AdvanceJointLayoutAfterMove()) return true;
                         _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
                         ScheduleDefenseMaintenanceStep(
                             "站点已到达目标格；下一帧按原站点顺序只读预览完整闭环。");
@@ -4476,10 +4635,11 @@ internal sealed class AutoPlayController
                     }
                     RememberCommittedSpecialStationMove();
                     _defenseStructuralMutationGuard.Reset();
-                    ContinueDefenseRailOptimization(
-                        $"能量/特殊弹射点移动完成；回转周期由 " +
-                        $"{_defenseSpecialMoveCandidate?.CurrentLoopCycleSeconds:0.###} 秒变为 " +
-                        $"{moveVerification.ObservedLoopCycleSeconds:0.###} 秒，周向覆盖或 N/T 已验证改善。");
+                    if (AdvanceJointLayoutAfterMove()) return true;
+                    CompleteJointLayoutWithoutRebuild(
+                        movedCatapultState,
+                        _defenseVerifiedRailResult,
+                        moveVerification.ObservedLoopCycleSeconds);
                     return true;
                 }
 
@@ -4618,6 +4778,12 @@ internal sealed class AutoPlayController
                 if (rollbackVerification.Verified)
                 {
                     _defenseStructuralMutationGuard.Reset();
+                    if (_defenseJointLayoutPlan != null)
+                    {
+                        HandleJointLayoutExecutionFailure(
+                            rollbackVerification.Detail + " 联合布局中的单次移动已安全撤销。" );
+                        return true;
+                    }
                     ContinueDefenseRailOptimization(
                         rollbackVerification.Detail +
                         " 本次事务已安全解锁；相同动作不会重发，将检查其他正收益候选。");
@@ -4672,6 +4838,27 @@ internal sealed class AutoPlayController
                     AddWarning(
                         $"目标闭环预测触发率未严格优于原回路（新周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒）；" +
                         "仍会先恢复合法闭环，但不会把本方案记为收益。");
+                }
+                if (_defenseJointLayoutPlan != null &&
+                    !_defenseJointLayoutRestoring &&
+                    !_defenseRailRebuildRecoveryAttempted)
+                {
+                    RailLayoutScore exactPreview = _railExpansionPlanner.ScorePlannedJointLayout(
+                        _defenseJointLayoutPlan,
+                        _defenseRailRebuildPreviewCycleSeconds);
+                    if (!JointLayoutMeetsFinalAcceptance(exactPreview))
+                    {
+                        _defenseRailRebuildRecoveryAttempted = true;
+                        if (BeginJointLayoutRollback(
+                                $"完整闭环预览的真实周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒未达到原布局评分。"))
+                        {
+                            return true;
+                        }
+                        _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+                        ScheduleDefenseMaintenanceStep(
+                            "完整闭环预览未达到原布局评分；没有已移动站点需要恢复，将按原顺序闭环。" );
+                        return true;
+                    }
                 }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.DrawRailRebuild;
                 ScheduleDefenseMaintenanceStep(
@@ -4779,8 +4966,66 @@ internal sealed class AutoPlayController
                     bool strictImprovement = ImprovesRailTriggerRate(
                         _defenseRailRebuildSnapshot,
                         rebuildVerification.LoopCycleSeconds);
+                    if (_defenseJointLayoutPlan != null && !_defenseRailRebuildRecoveryAttempted)
+                    {
+                        RailLayoutScore observedJoint = _railExpansionPlanner.ScoreObservedJointLayout(
+                            _defenseJointLayoutPlan,
+                            _defenseVerifiedRailResult);
+                        strictImprovement = JointLayoutMeetsFinalAcceptance(observedJoint);
+                    }
                     _defenseStructuralMutationGuard.Reset();
                     RememberCommittedSpecialStationMove();
+                    if (_defenseJointLayoutPlan != null)
+                    {
+                        AddTimeline(
+                            "rail-layout-result",
+                            BuildJointRailLayoutResultTimeline(
+                                rebuildVerification.LoopCycleSeconds,
+                                strictImprovement));
+                        if (_defenseJointLayoutRestoring)
+                        {
+                            MarkDefenseRailMaintenanceStable();
+                            FinishDefenseMaintenance(
+                                rebuildVerification.Detail + " 原站点坐标与闭环已经恢复；本轮联合优化结束。",
+                                warning: true);
+                            return true;
+                        }
+                        if (!strictImprovement && !_defenseRailRebuildRecoveryAttempted)
+                        {
+                            _defenseRailRebuildRecoveryAttempted = true;
+                    if (BeginJointLayoutRollback(
+                            "联合布局的实测评分低于原布局；将恢复全部已移动站点。"))
+                    {
+                        _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
+                            _defenseVerifiedRailResult,
+                            _defenseJointLayoutPlan.RailInstanceId,
+                            rebuiltTrains);
+                        if (_defenseRailRebuildSnapshot == null)
+                        {
+                            FinishDefenseMaintenance(
+                                "联合布局实测未通过，但无法建立恢复事务快照；已停止本轮且不会重复移动。",
+                                warning: true);
+                            return true;
+                        }
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
+                                ScheduleDefenseMaintenanceStep(
+                                    "联合布局实测与合法预览不一致；将再次从始发站安全断环，恢复原站点坐标后闭环。" );
+                                return true;
+                            }
+                            _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+                            ScheduleDefenseMaintenanceStep("没有已移动站点需要恢复；将按原站点顺序闭环。" );
+                            return true;
+                        }
+                        MarkDefenseRailMaintenanceStable();
+                        FinishDefenseMaintenance(
+                            rebuildVerification.Detail +
+                            (strictImprovement
+                                ? $" 联合布局一次验收通过，实测周期 {rebuildVerification.LoopCycleSeconds:0.###} 秒；本轮已稳定。"
+                                : " 原闭环已恢复；本轮联合优化结束。"),
+                            warning: !strictImprovement);
+                        return true;
+                    }
                     ContinueDefenseRailOptimization(
                         rebuildVerification.Detail +
                         (strictImprovement
@@ -6056,6 +6301,13 @@ internal sealed class AutoPlayController
         _defenseSelectedRailInsertion = null;
         _defenseSpecialMoveCandidate = null;
         _defenseSpecialMoveGrid = null;
+        _defenseJointLayoutPlan = null;
+        _defenseJointMoveIndex = 0;
+        _defenseJointMovedPointIds.Clear();
+        _defenseJointLayoutRestoring = false;
+        _defenseJointRollbackReason = string.Empty;
+        _defenseJointLayoutRestoring = false;
+        _defenseJointRollbackReason = string.Empty;
         _defenseSpecialMoveInteractionInstanceId = 0;
         _defenseSpecialMovePredictedCycleSeconds = 0d;
         _defenseSpecialMoveCancelRequested = false;
@@ -6071,10 +6323,340 @@ internal sealed class AutoPlayController
         _defenseMoveGridInitializationRetryAttempts = 0;
         _defenseStructuralVerificationAttempts = 0;
         _defenseStationGridProbe.Reset();
+        _defenseJointLayoutProbe.Reset();
         ScheduleDefenseMaintenanceStep(
             detail +
             " 本次动作已得到确定结果且没有未对账的结构写事务；正在重新读取站点与轨道并继续寻找下一项正收益优化。");
     }
+
+    private bool PrepareNextJointStationMove()
+    {
+        if (_defenseJointLayoutPlan == null) return false;
+        while (_defenseJointMoveIndex < _defenseJointLayoutPlan.Targets.Count &&
+               _defenseJointMovedPointIds.Contains(
+                   _defenseJointLayoutPlan.Targets[_defenseJointMoveIndex].StablePointId))
+        {
+            _defenseJointMoveIndex++;
+        }
+        if (_defenseJointMoveIndex >= _defenseJointLayoutPlan.Targets.Count)
+        {
+            _defenseSpecialMoveCandidate = null;
+            _defenseSpecialMoveGrid = null;
+            return false;
+        }
+        RailJointMoveTarget target = _defenseJointLayoutPlan.Targets[_defenseJointMoveIndex];
+        _defenseSpecialMoveCandidate = target.Candidate;
+        _defenseSpecialMoveGrid = JObject.FromObject(new { x = target.TargetGrid.X, y = target.TargetGrid.Y });
+        _defenseSpecialMovePredictedCycleSeconds = _defenseJointLayoutPlan.PredictedLoopCycleSeconds;
+        _defenseSpecialMoveInteractionInstanceId = 0;
+        _defenseSpecialMoveCancelRequested = false;
+        _defenseSpecialMoveConfirmationAccepted = false;
+        return true;
+    }
+
+    private bool AdvanceJointLayoutAfterMove()
+    {
+        if (_defenseJointLayoutPlan == null || _defenseSpecialMoveCandidate == null) return false;
+        int stablePointId = _defenseSpecialMoveCandidate.StationPointId;
+        if (!_defenseJointMovedPointIds.Add(stablePointId))
+        {
+            HandleJointLayoutExecutionFailure(
+                $"联合计划拒绝重复移动稳定 pointId={stablePointId}。" );
+            return true;
+        }
+        AddTimeline(
+            "rail-layout-move",
+            $"完成第 {_defenseJointMoveIndex + 1}/{_defenseJointLayoutPlan.Targets.Count} 个站点，" +
+            $"pointId={stablePointId}，{_defenseSpecialMoveCandidate.CurrentGrid.X},{_defenseSpecialMoveCandidate.CurrentGrid.Y}" +
+            $" → {_defenseSpecialMoveGrid?["x"]?.Value<int>()},{_defenseSpecialMoveGrid?["y"]?.Value<int>()}。" );
+        _defenseJointMoveIndex++;
+        if (!PrepareNextJointStationMove()) return false;
+        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryFreshMovableStation;
+        ScheduleDefenseMaintenanceStep(
+            $"联合计划继续执行第 {_defenseJointMoveIndex + 1}/{_defenseJointLayoutPlan.Targets.Count} 个站点；不会重新规划目标。" );
+        return true;
+    }
+
+    private void CompleteJointLayoutWithoutRebuild(
+        JObject? catapultResult,
+        JObject? railResult,
+        double observedCycle)
+    {
+        if (_defenseJointLayoutPlan == null)
+        {
+            FinishDefenseMaintenance("站点移动已完成。", warning: false);
+            return;
+        }
+        RailLayoutScore observed = _railExpansionPlanner.ScoreObservedJointLayout(
+            _defenseJointLayoutPlan,
+            railResult);
+        bool accepted = JointLayoutMeetsFinalAcceptance(observed) &&
+                        JointTargetsObserved(catapultResult, _defenseJointLayoutPlan);
+        AddTimeline("rail-layout-result", BuildJointRailLayoutResultTimeline(observedCycle, accepted));
+        if (_defenseJointLayoutRestoring)
+        {
+            if (JointTargetsObserved(catapultResult, _defenseJointLayoutPlan))
+            {
+                MarkDefenseRailMaintenanceStable();
+                FinishDefenseMaintenance(
+                    _defenseJointRollbackReason + " 原站点坐标已经恢复；本轮联合优化结束。",
+                    warning: true);
+            }
+            else
+            {
+                FinishDefenseMaintenance(
+                    _defenseJointRollbackReason + " 恢复计划没有完整对账，已停止本轮且不会重复移动。",
+                    warning: true);
+            }
+            return;
+        }
+        if (accepted)
+        {
+            MarkDefenseRailMaintenanceStable();
+            FinishDefenseMaintenance(
+                $"联合布局一次验收通过；{_defenseJointLayoutPlan.Targets.Count} 个站点各移动至多一次，" +
+                $"实测周期 {observedCycle:0.###} 秒。",
+                warning: false);
+            return;
+        }
+        if (BeginJointLayoutRollback(
+                "联合布局实测未达到原布局评分；正在恢复本计划已经移动的站点。"))
+        {
+            return;
+        }
+        FinishDefenseMaintenance("联合布局实测未达到原布局评分，且没有已移动站点需要恢复。", warning: true);
+    }
+
+    private bool JointLayoutMeetsFinalAcceptance(RailLayoutScore observed) =>
+        _defenseJointLayoutPlan != null && observed.IsValid &&
+        RailLayoutStrategyPlanner.CompareCoverage(observed, _defenseJointLayoutPlan.BaselineScore) <= 0 &&
+        RailLayoutStrategyPlanner.CompareForDefense(observed, _defenseJointLayoutPlan.BaselineScore) <= 0;
+
+    private static bool JointTargetsObserved(JObject? catapultResult, RailJointLayoutPlan plan)
+    {
+        JObject[] catapults = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>().ToArray()
+                              ?? Array.Empty<JObject>();
+        return plan.Targets.All(target => catapults.Any(item =>
+            item.SelectToken("grid.x")?.Value<int?>() == target.TargetGrid.X &&
+            item.SelectToken("grid.y")?.Value<int?>() == target.TargetGrid.Y &&
+            (item["isAttribute"]?.Value<bool>() == true) == target.Candidate.StationIsAttribute &&
+            string.Equals(item["recycleDisposableEnum"]?.Value<string>(),
+                target.Candidate.StationDisposableEnum, StringComparison.Ordinal)));
+    }
+
+    private void HandleJointLayoutExecutionFailure(string detail)
+    {
+        if (_defenseJointLayoutRestoring)
+        {
+            FinishDefenseMaintenance(
+                detail + " 恢复过程已经停止，不会重复移动或改用局部贪心补偿。",
+                warning: true);
+            return;
+        }
+        if (_defenseRailRebuildSnapshot != null && !_defenseRailRebuildRecoveryAttempted)
+        {
+            _defenseRailRebuildRecoveryAttempted = true;
+            if (BeginJointLayoutRollback(detail + " 将恢复已移动站点的原坐标。")) return;
+            _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+            _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
+            ScheduleDefenseMaintenanceStep(detail + " 没有已移动站点需要恢复，将恢复原闭环。" );
+            return;
+        }
+        if (_defenseRailRebuildSnapshot == null &&
+            BeginJointLayoutRollback(detail + " 将恢复已移动站点的原坐标。")) return;
+        FinishDefenseMaintenance(detail + " 已停止本轮联合布局，不会改用局部贪心补偿。", warning: true);
+    }
+
+    private bool BeginJointLayoutRollback(string reason)
+    {
+        if (_defenseJointLayoutPlan == null || _defenseJointLayoutRestoring) return false;
+        RailJointLayoutPlan completedPlan = _defenseJointLayoutPlan;
+        HashSet<int> movedPointIds = new(_defenseJointMovedPointIds);
+        if (movedPointIds.Count == 0 && _defenseRailRebuildSnapshot != null)
+        {
+            foreach (RailJointMoveTarget target in completedPlan.Targets)
+            {
+                movedPointIds.Add(target.StablePointId);
+            }
+        }
+        RailJointMoveTarget[] rollbackTargets = completedPlan.Targets
+            .Where(target => movedPointIds.Contains(target.StablePointId))
+            .Reverse()
+            .Select(target => new RailJointMoveTarget
+            {
+                Candidate = CloneJointMoveCandidateAtGrid(target.Candidate, target.TargetGrid),
+                OriginalGrid = target.TargetGrid,
+                TargetGrid = target.OriginalGrid
+            })
+            .ToArray();
+        if (rollbackTargets.Length == 0) return false;
+
+        Dictionary<int, AutoPlayerGrid> originalByPointId = completedPlan.Targets
+            .ToDictionary(target => target.StablePointId, target => target.OriginalGrid);
+        AutoPlayerGrid[] restoredOrder = completedPlan.OrderedStablePointIds
+            .Select((pointId, index) => originalByPointId.TryGetValue(pointId, out AutoPlayerGrid grid)
+                ? grid
+                : completedPlan.OrderedTargetGrids[index])
+            .ToArray();
+        _defenseJointLayoutPlan = new RailJointLayoutPlan
+        {
+            RailInstanceId = completedPlan.RailInstanceId,
+            RailInternalId = completedPlan.RailInternalId,
+            OriginalLoopCycleSeconds = completedPlan.PredictedLoopCycleSeconds,
+            PredictedLoopCycleSeconds = completedPlan.OriginalLoopCycleSeconds,
+            PredictedTriggerRate = completedPlan.BaselineScore.TriggerRate,
+            BaselineScore = completedPlan.PredictedScore,
+            PredictedScore = completedPlan.BaselineScore,
+            Targets = rollbackTargets,
+            OrderedTargetGrids = restoredOrder,
+            OrderedStablePointIds = completedPlan.OrderedStablePointIds,
+            EvaluatedLayoutCount = completedPlan.EvaluatedLayoutCount
+        };
+        _defenseJointLayoutRestoring = true;
+        _defenseJointRollbackReason = reason;
+        _defenseJointMoveIndex = 0;
+        _defenseJointMovedPointIds.Clear();
+        if (_defenseRailRebuildSnapshot != null)
+            _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
+        if (!PrepareNextJointStationMove()) return false;
+        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryFreshMovableStation;
+        ScheduleDefenseMaintenanceStep(
+            reason + $" 将按相反顺序恢复 {rollbackTargets.Length} 个站点，每个站点至多移动一次。" );
+        return true;
+    }
+
+    private static string BuildJointRailLayoutPlanTimeline(RailJointLayoutPlan plan) =>
+        $"轨道 {plan.RailInternalId}；" +
+        string.Join("；", plan.Targets.Select((target, index) =>
+            $"第 {index + 1}/{plan.Targets.Count} 个 pointId={target.StablePointId} " +
+            $"({target.OriginalGrid.X},{target.OriginalGrid.Y})→({target.TargetGrid.X},{target.TargetGrid.Y})")) +
+        $"；预测 T={plan.PredictedLoopCycleSeconds:0.###} 秒，N/T={plan.PredictedTriggerRate:0.###}，" +
+        $"联合评估 {plan.EvaluatedLayoutCount} 个布局。";
+
+    private string BuildJointRailLayoutResultTimeline(double actualCycle, bool accepted) =>
+        _defenseJointLayoutPlan == null
+            ? $"联合布局状态已释放；实测 T={actualCycle:0.###} 秒。"
+            : $"轨道 {_defenseJointLayoutPlan.RailInternalId} 最终实测 T={actualCycle:0.###} 秒，" +
+              $"预测 T={_defenseJointLayoutPlan.PredictedLoopCycleSeconds:0.###} 秒，" +
+              $"覆盖层级 {(_defenseJointLayoutPlan.PredictedScore.CoveredQuadrants)}/4，" +
+              $"结果={(accepted ? "与预测同层且不劣于原布局" : "未通过最终评分验收")}。";
+
+    private JObject BuildDisconnectedJointRailIdentitySnapshot(RailJointMoveTarget target)
+    {
+        RailStationMoveCandidate candidate = target.Candidate;
+        return new JObject
+        {
+            ["rails"] = new JArray
+            {
+                new JObject
+                {
+                    ["instanceId"] = candidate.RailInstanceId,
+                    ["railInternalId"] = candidate.RailInternalId,
+                    ["id"] = candidate.RailInternalId,
+                    ["isLegalPlayerLoop"] = true,
+                    ["loopCycleSeconds"] = candidate.CurrentLoopCycleSeconds,
+                    ["railLength"] = candidate.RailLength,
+                    ["stationCount"] = candidate.StationCount,
+                    ["orderedStations"] = new JArray(candidate.OrderedStationPointIds.Select((pointId, index) =>
+                        new JObject
+                        {
+                            ["pointId"] = pointId,
+                            ["linePointInstanceId"] = candidate.OrderedStationPointIds[index] == candidate.StationPointId
+                                ? candidate.StationLinePointInstanceId
+                                : candidate.OrderedStationPointIds[index],
+                            ["grid"] = JObject.FromObject(new
+                            {
+                                x = candidate.OrderedStationGrids[index].X,
+                                y = candidate.OrderedStationGrids[index].Y
+                            }),
+                            ["isAttribute"] = candidate.OrderedStationKinds[index]
+                        }))
+                }
+            }
+        };
+    }
+
+    private static bool TryRefreshDisconnectedJointCandidate(
+        JObject? catapultResult,
+        RailJointMoveTarget target,
+        out RailStationMoveCandidate refreshed)
+    {
+        refreshed = target.Candidate;
+        JObject[] matches = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+            .Where(item =>
+                item["active"]?.Value<bool>() != false &&
+                item["canMove"]?.Value<bool>() == true &&
+                (item["railMembershipCount"]?.Value<int?>() ?? 0) == 0 &&
+                (item["isAttribute"]?.Value<bool>() == true) == target.Candidate.StationIsAttribute &&
+                string.Equals(item["recycleDisposableEnum"]?.Value<string>(),
+                    target.Candidate.StationDisposableEnum, StringComparison.Ordinal) &&
+                item.SelectToken("grid.x")?.Value<int?>() == target.Candidate.CurrentGrid.X &&
+                item.SelectToken("grid.y")?.Value<int?>() == target.Candidate.CurrentGrid.Y)
+            .ToArray() ?? Array.Empty<JObject>();
+        if (matches.Length != 1) return false;
+        JObject station = matches[0];
+        refreshed = CopyJointMoveCandidate(target.Candidate, station);
+        return true;
+    }
+
+    private static RailStationMoveCandidate CopyJointMoveCandidate(
+        RailStationMoveCandidate source,
+        JObject station) => new()
+    {
+        RailInstanceId = source.RailInstanceId,
+        RailInternalId = source.RailInternalId,
+        StationCount = source.StationCount,
+        CurrentLoopCycleSeconds = source.CurrentLoopCycleSeconds,
+        RailLength = source.RailLength,
+        StationCatapultInstanceId = station["catapultInstanceId"]?.Value<int?>() ??
+                                    station["instanceId"]?.Value<int?>() ?? 0,
+        StationGameObjectInstanceId = station["gameObjectInstanceId"]?.Value<int?>() ?? 0,
+        StationLinePointInstanceId = station["linePointInstanceId"]?.Value<int?>() ?? 0,
+        StationPointId = source.StationPointId,
+        StationPath = station["path"]?.Value<string>() ?? source.StationPath,
+        StationName = station["name"]?.Value<string>() ?? source.StationName,
+        StationDisposableEnum = source.StationDisposableEnum,
+        StationFingerprint = source.StationFingerprint,
+        StationIsAttribute = source.StationIsAttribute,
+        SpacingRules = source.SpacingRules,
+        CurrentGrid = source.CurrentGrid,
+        NeighborGrids = source.NeighborGrids,
+        OrderedStationGrids = source.OrderedStationGrids,
+        OrderedStationKinds = source.OrderedStationKinds,
+        OrderedStationPointIds = source.OrderedStationPointIds
+    };
+
+    private static RailStationMoveCandidate CloneJointMoveCandidateAtGrid(
+        RailStationMoveCandidate source,
+        AutoPlayerGrid currentGrid) => new()
+    {
+        RailInstanceId = source.RailInstanceId,
+        RailInternalId = source.RailInternalId,
+        StationCount = source.StationCount,
+        CurrentLoopCycleSeconds = source.CurrentLoopCycleSeconds,
+        RailLength = source.RailLength,
+        StationCatapultInstanceId = source.StationCatapultInstanceId,
+        StationGameObjectInstanceId = source.StationGameObjectInstanceId,
+        StationLinePointInstanceId = source.StationLinePointInstanceId,
+        StationPointId = source.StationPointId,
+        StationPath = source.StationPath,
+        StationName = source.StationName,
+        StationDisposableEnum = source.StationDisposableEnum,
+        StationFingerprint = source.StationFingerprint,
+        StationIsAttribute = source.StationIsAttribute,
+        SpacingRules = source.SpacingRules,
+        CurrentGrid = currentGrid,
+        NeighborGrids = source.NeighborGrids,
+        OrderedStationGrids = source.OrderedStationGrids,
+        OrderedStationKinds = source.OrderedStationKinds,
+        OrderedStationPointIds = source.OrderedStationPointIds
+    };
+
+    private static bool IsFreshDisconnectedJointStation(
+        JObject? catapultResult,
+        JObject? movableResult,
+        RailStationMoveCandidate candidate) =>
+        IsFreshDisconnectedMovableStation(catapultResult, movableResult, candidate);
 
     private void ResetDefenseRailMaintenanceSession()
     {
@@ -6235,6 +6817,11 @@ internal sealed class AutoPlayController
         string detail = verification.StructureValid
             ? verification.Detail + " 已保留游戏实际结果并结束本轮轨道调整，后续布局变化时会重新评估。"
             : verification.Detail + " 确认命令已经成功，无法再取消；已停止本轮结构写入并继续正常游玩。";
+        if (_defenseJointLayoutPlan != null)
+        {
+            HandleJointLayoutExecutionFailure(detail);
+            return;
+        }
         FinishDefenseMaintenance(detail, warning: true);
     }
 
@@ -6319,6 +6906,16 @@ internal sealed class AutoPlayController
             return false;
         }
 
+        if (_defenseSpecialMoveConfirmationAccepted && _defenseJointLayoutPlan != null)
+        {
+            _defenseVerifiedRailResult = null;
+            _defenseStructuralVerificationAttempts = 0;
+            _defenseMaintenanceStep = DefenseMaintenanceStep.VerifySpecialStationMoved;
+            ScheduleDefenseMaintenanceStep(
+                "联合计划中的移动确认已经成功；交互退出属于正常提交，下一帧只读对账稳定 pointId，不会误走取消回滚。" );
+            return true;
+        }
+
         _defenseVerifiedRailResult = null;
         _defenseStructuralVerificationAttempts = 0;
         _defenseMaintenanceStep = DefenseMaintenanceStep.VerifySpecialStationMoveRollbackRail;
@@ -6370,6 +6967,11 @@ internal sealed class AutoPlayController
         _defenseSelectedRailInsertion = null;
         _defenseSpecialMoveCandidate = null;
         _defenseSpecialMoveGrid = null;
+        _defenseJointLayoutPlan = null;
+        _defenseJointMoveIndex = 0;
+        _defenseJointMovedPointIds.Clear();
+        _defenseJointLayoutRestoring = false;
+        _defenseJointRollbackReason = string.Empty;
         _defenseSpecialMoveInteractionInstanceId = 0;
         _defenseSpecialMovePredictedCycleSeconds = 0d;
         _defenseBattleSpecialMoveOnly = false;
@@ -6387,6 +6989,7 @@ internal sealed class AutoPlayController
         _defenseStructuralVerificationAttempts = 0;
         _defenseRailMaintenanceLayoutFingerprint = string.Empty;
         _defenseStationGridProbe.Reset();
+        _defenseJointLayoutProbe.Reset();
         if (!preservePendingDisposableMutation)
         {
             ClearDefenseAttributePlacementState();

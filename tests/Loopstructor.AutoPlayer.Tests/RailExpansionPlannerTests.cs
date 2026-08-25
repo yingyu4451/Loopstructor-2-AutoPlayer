@@ -139,6 +139,7 @@ public sealed class RailExpansionPlannerTests
             new[] { new AutoPlayerGrid(5, 5), new AutoPlayerGrid(10, 12) },
             candidate);
         Assert.NotEmpty(rankedMoves);
+        Assert.Equal(301, candidate.StationPointId);
         Assert.Equal(new AutoPlayerGrid(10, 12), rankedMoves[0]);
         Assert.Contains(new AutoPlayerGrid(5, 5), rankedMoves);
 
@@ -403,7 +404,7 @@ public sealed class RailExpansionPlannerTests
         loopCycleSeconds = cycle,
         stationCount,
         railLength = cycle * 2d,
-        orderedStations = pointIds.Select(id => new { linePointInstanceId = id }),
+        orderedStations = pointIds.Select(id => new { linePointInstanceId = id, pointId = id }),
         lines = new[] { new { lineInstanceId = lineId } }
     };
 
@@ -426,9 +427,9 @@ public sealed class RailExpansionPlannerTests
         railLength,
         orderedStations = new[]
         {
-            new { linePointInstanceId = 11, grid = new { x = 0, y = 0 } },
-            new { linePointInstanceId = movedPointId, grid = new { x = movedX, y = movedY } },
-            new { linePointInstanceId = 13, grid = new { x = 20, y = 0 } }
+            new { linePointInstanceId = 11, pointId = 11, grid = new { x = 0, y = 0 } },
+            new { linePointInstanceId = movedPointId, pointId = 301, grid = new { x = movedX, y = movedY } },
+            new { linePointInstanceId = 13, pointId = 13, grid = new { x = 20, y = 0 } }
         },
         lines = new object[]
         {

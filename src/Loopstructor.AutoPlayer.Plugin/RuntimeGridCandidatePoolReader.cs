@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Loopstructor.AutoPlayer.Core;
 using UnityEngine;
@@ -22,6 +23,22 @@ internal sealed class RuntimeGridCandidatePoolReader
     public bool TryRead(out IReadOnlyList<AutoPlayerGrid> candidates, out string error)
     {
         candidates = Array.Empty<AutoPlayerGrid>();
+        if (!TryReadTyped(out IReadOnlyList<AutoPlayerGrid> ordinary, out IReadOnlyList<AutoPlayerGrid> energy, out error))
+        {
+            return false;
+        }
+
+        candidates = new HashSet<AutoPlayerGrid>(ordinary.Concat(energy)).ToArray();
+        return true;
+    }
+
+    public bool TryReadTyped(
+        out IReadOnlyList<AutoPlayerGrid> ordinaryCandidates,
+        out IReadOnlyList<AutoPlayerGrid> energyCandidates,
+        out string error)
+    {
+        ordinaryCandidates = Array.Empty<AutoPlayerGrid>();
+        energyCandidates = Array.Empty<AutoPlayerGrid>();
         try
         {
             if (!TryResolveContract(out error))
@@ -36,16 +53,18 @@ internal sealed class RuntimeGridCandidatePoolReader
                 return false;
             }
 
-            HashSet<AutoPlayerGrid> result = new();
-            AddCandidateDictionary(result, _catapultRingPosition!.GetValue(manager, null));
-            AddCandidateDictionary(result, _energyCatapultRingPosition!.GetValue(manager, null));
-            if (result.Count == 0)
+            HashSet<AutoPlayerGrid> ordinary = new();
+            HashSet<AutoPlayerGrid> energy = new();
+            AddCandidateDictionary(ordinary, _catapultRingPosition!.GetValue(manager, null));
+            AddCandidateDictionary(energy, _energyCatapultRingPosition!.GetValue(manager, null));
+            if (ordinary.Count == 0 || energy.Count == 0)
             {
-                error = "MapPosManager 没有返回可用的弹射点候选格。";
+                error = "MapPosManager 没有同时返回普通站点和能量站点候选格。";
                 return false;
             }
 
-            candidates = new List<AutoPlayerGrid>(result);
+            ordinaryCandidates = ordinary.OrderBy(grid => grid.X).ThenBy(grid => grid.Y).ToArray();
+            energyCandidates = energy.OrderBy(grid => grid.X).ThenBy(grid => grid.Y).ToArray();
             error = string.Empty;
             return true;
         }

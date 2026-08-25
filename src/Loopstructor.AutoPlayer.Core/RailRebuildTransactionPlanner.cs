@@ -10,8 +10,10 @@ public sealed class RailRebuildSnapshot
     public int RailInstanceId { get; set; }
     public int RailInternalId { get; set; }
     public int OriginLinePointInstanceId { get; set; }
+    public int OriginPointId { get; set; }
     public IReadOnlyList<int> OriginalOrderedLinePointInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> OrderedLinePointInstanceIds { get; set; } = Array.Empty<int>();
+    public IReadOnlyList<int> OrderedPointIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> TrainInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> VehicleInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> VehicleBusinessIds { get; set; } = Array.Empty<int>();
@@ -48,7 +50,14 @@ public sealed class RailRebuildTransactionPlanner
         int origin = stations.Where(item => item["isAttribute"]?.Value<bool>() == true)
             .Select(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])))
             .FirstOrDefault();
-        if (origin == 0 || ordered.Length < 3 || ordered[0] != origin) return null;
+        int originPointId = stations.Where(item => item["isAttribute"]?.Value<bool>() == true)
+            .Select(item => ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))))
+            .FirstOrDefault();
+        int[] stablePointIds = stations.Select(item =>
+                ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))))
+            .Where(id => id != 0).ToArray();
+        if (origin == 0 || originPointId == 0 || ordered.Length < 3 || ordered[0] != origin ||
+            stablePointIds.Length != ordered.Length) return null;
 
         int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Where(id => id != 0).ToArray()
                        ?? Array.Empty<int>();
@@ -57,8 +66,10 @@ public sealed class RailRebuildTransactionPlanner
             RailInstanceId = railInstanceId,
             RailInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"])),
             OriginLinePointInstanceId = origin,
+            OriginPointId = originPointId,
             OriginalOrderedLinePointInstanceIds = ordered,
             OrderedLinePointInstanceIds = ordered,
+            OrderedPointIds = stablePointIds,
             TrainInstanceIds = trains.Distinct().OrderBy(id => id).ToArray(),
             VehicleInstanceIds = ReadVehicleIds(trainResult, trains, "instanceId"),
             VehicleBusinessIds = ReadVehicleIds(trainResult, trains, "vehicleId"),
@@ -176,8 +187,10 @@ public sealed class RailRebuildTransactionPlanner
             RailInstanceId = snapshot.RailInstanceId,
             RailInternalId = snapshot.RailInternalId,
             OriginLinePointInstanceId = snapshot.OriginLinePointInstanceId,
+            OriginPointId = snapshot.OriginPointId,
             OriginalOrderedLinePointInstanceIds = snapshot.OriginalOrderedLinePointInstanceIds,
             OrderedLinePointInstanceIds = ordered,
+            OrderedPointIds = snapshot.OrderedPointIds,
             TrainInstanceIds = snapshot.TrainInstanceIds,
             VehicleInstanceIds = snapshot.VehicleInstanceIds,
             VehicleBusinessIds = snapshot.VehicleBusinessIds,
