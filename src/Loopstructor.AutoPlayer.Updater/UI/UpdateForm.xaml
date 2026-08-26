@@ -148,13 +148,31 @@
         </Style>
 
         <Style TargetType="ToolTip">
-            <Setter Property="Padding" Value="8,5" />
-            <Setter Property="Background" Value="{StaticResource ScreenBrush}" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource BrassBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderThickness" Value="0" />
             <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
             <Setter Property="FontSize" Value="12" />
+            <Setter Property="MaxWidth" Value="360" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="1000" />
+            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+            <Setter Property="LayoutTransform" Value="{DynamicResource UiScaleTransform}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Padding="{TemplateBinding Padding}"
+                                Background="#F011100C"
+                                BorderBrush="{StaticResource BrassBrush}"
+                                BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="10" Direction="270" Opacity="0.75" ShadowDepth="3" Color="#000000" />
+                            </Border.Effect>
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="WindowMenuButtonStyle" TargetType="Button">

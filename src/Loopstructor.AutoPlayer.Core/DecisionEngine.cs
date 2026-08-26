@@ -351,14 +351,22 @@ public sealed class DecisionEngine
 
         if (state["selectedFetterSelectable"]?.Value<bool>() != true)
         {
+            string requiredFetter = state["requiredFetterEnum"]?.Value<string>() ?? string.Empty;
             JObject? selected = (state["availableFetters"] as JArray)?.OfType<JObject>()
-                .FirstOrDefault(item => item["index"]?.Value<int>() == options.RandomFetterIndex);
+                .FirstOrDefault(item => !string.IsNullOrWhiteSpace(requiredFetter) && string.Equals(
+                    item["fetterEnum"]?.Value<string>(),
+                    requiredFetter,
+                    StringComparison.Ordinal))
+                ?? (state["availableFetters"] as JArray)?.OfType<JObject>()
+                    .FirstOrDefault(item => item["index"]?.Value<int>() == options.RandomFetterIndex)
+                ?? (state["availableFetters"] as JArray)?.OfType<JObject>().FirstOrDefault();
             return new AutomationAction(
                 "selectRandomFetter",
                 JObject.FromObject(new
                 {
-                    index = options.RandomFetterIndex,
-                    fetterEnum = selected?["fetterEnum"]?.Value<string>() ?? string.Empty
+                    fetterEnum = selected?["fetterEnum"]?.Value<string>() ?? string.Empty,
+                    targetInstanceId = selected?["instanceId"]?.Value<int>() ?? 0,
+                    targetPath = selected?["path"]?.Value<string>() ?? string.Empty
                 }),
                 AutomationStage.RandomSelection,
                 "选择一个可用的随机模式羁绊。");
@@ -472,6 +480,10 @@ public sealed class DecisionEngine
             1 => 50,
             _ => 0
         };
+        if (priority == AutomationDecisionPriority.Relics && kindPriority == 3)
+        {
+            score += 3200;
+        }
         score += RewardRarityPriority(option) * 40;
         if (kindPriority == 2)
         {
@@ -677,23 +689,26 @@ public sealed class DecisionEngine
         {
             AutomationDecisionPriority.ThreeStarVehicles => 1100,
             AutomationDecisionPriority.CatapultPoints => 350,
+            AutomationDecisionPriority.Relics => 300,
             _ => 700
         };
         int catapultWeight = priority switch
         {
             AutomationDecisionPriority.ThreeStarVehicles => 250,
             AutomationDecisionPriority.CatapultPoints => 1000,
+            AutomationDecisionPriority.Relics => 250,
             _ => 350
         };
         int disposableWeight = priority switch
         {
             AutomationDecisionPriority.ThreeStarVehicles => 180,
             AutomationDecisionPriority.CatapultPoints => 650,
+            AutomationDecisionPriority.Relics => 180,
             _ => 250
         };
         int rewardScore = (vehicleCount * vehicleWeight)
                           + (catapultCount * catapultWeight)
-                          + (superModuleCount * 600)
+                          + (superModuleCount * (priority == AutomationDecisionPriority.Relics ? 1800 : 600))
                           + (disposableCount * disposableWeight)
                           + (moneyCount * 60);
 
@@ -728,6 +743,12 @@ public sealed class DecisionEngine
 
     private static int RouteRewardTypeScore(string rewardEnum, AutomationDecisionPriority? priority)
     {
+        if (priority == AutomationDecisionPriority.Relics &&
+            string.Equals(rewardEnum, "superModule", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1800;
+        }
+
         if (priority == AutomationDecisionPriority.ThreeStarVehicles &&
             string.Equals(rewardEnum, "vehicle", StringComparison.OrdinalIgnoreCase))
         {

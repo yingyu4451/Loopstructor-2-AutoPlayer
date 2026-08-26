@@ -18,11 +18,11 @@ public sealed class CheatShellViewModelTests
         };
 
         viewModel.UpdateRunState(false, true, true, false, true, status, null);
-        Assert.Equal("监视中 · 写操作锁定", viewModel.RunStateLabel);
+        Assert.Equal("自动游玩中 · 仅可查看", viewModel.RunStateLabel);
         Assert.Contains("自动游玩期间", viewModel.RunStateDetail, StringComparison.Ordinal);
 
         viewModel.UpdateRunState(true, true, true, false, true, status, null);
-        Assert.Equal("写入冻结", viewModel.RunStateLabel);
+        Assert.Equal("上次操作结果待确认", viewModel.RunStateLabel);
         Assert.Contains("避免重复修改", viewModel.RunStateDetail, StringComparison.Ordinal);
     }
 }

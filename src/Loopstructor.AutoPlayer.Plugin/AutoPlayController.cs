@@ -217,6 +217,7 @@ internal sealed class AutoPlayController
     private float _mapPreviewOpenRequestedAt = -1f;
     private bool _mapPreviewOpenAnimationObserved;
     private AutomationAction? _deferredFrontEndAction;
+    private string _pendingRandomFetterEnum = string.Empty;
     private AutomationAction? _deferredNormalEventAction;
     private bool _deferredNormalEventChoosingOption;
     private AutomationAction? _deferredRewardAction;
@@ -1007,8 +1008,24 @@ internal sealed class AutoPlayController
         {
             AutomationAction deferred = _deferredFrontEndAction;
             _deferredFrontEndAction = null;
+            if (string.Equals(deferred.Command, "selectRandomFetter", StringComparison.OrdinalIgnoreCase))
+            {
+                int targetInstanceId = deferred.Arguments["targetInstanceId"]?.Value<int>() ?? 0;
+                string fetterEnum = deferred.Arguments["fetterEnum"]?.Value<string>() ?? string.Empty;
+                if (targetInstanceId == 0 || !RandomModeVisibleFetterReader.Matches(targetInstanceId, fetterEnum))
+                {
+                    ClearSelectionHighlight("front-end");
+                    SetStage(AutomationStage.RandomSelection, "附魔候选界面已变化，正在重新读取可见选项后再选择。");
+                    ScheduleContinuationFrame();
+                    return;
+                }
+            }
             ClearSelectionHighlight("front-end");
             bool deferredExecuted = Execute(deferred);
+            if (deferredExecuted && string.Equals(deferred.Command, "selectRandomFetter", StringComparison.OrdinalIgnoreCase))
+            {
+                _pendingRandomFetterEnum = deferred.Arguments["fetterEnum"]?.Value<string>() ?? string.Empty;
+            }
             if (deferredExecuted && IsSceneTransitionCommand(deferred.Command))
             {
                 _frontEndTransitionGate.Begin(deferred.Command, activeScene, DateTime.UtcNow);
@@ -1022,6 +1039,34 @@ internal sealed class AutoPlayController
             ? "queryRandomMode"
             : "queryFrontend";
         JObject result = _bridge.Invoke(query);
+        if (string.Equals(query, "queryRandomMode", StringComparison.OrdinalIgnoreCase) &&
+            RuntimeResultInspector.ClassifyReadOnly(result) == RuntimeResultDisposition.Success)
+        {
+            JArray visibleFetters = RandomModeVisibleFetterReader.ReadVisible();
+            if (result.SelectToken("data.state") is JObject randomState)
+            {
+                randomState["availableFetters"] = visibleFetters;
+                string selectedFetter = randomState["selectedFetter"]?.Value<string>() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(_pendingRandomFetterEnum))
+                {
+                    if (string.Equals(selectedFetter, _pendingRandomFetterEnum, StringComparison.Ordinal))
+                    {
+                        AddTimeline("random-fetter", "已确认游戏实际选择的附魔与绿色边框目标一致：" + selectedFetter + "。");
+                        _pendingRandomFetterEnum = string.Empty;
+                    }
+                    else
+                    {
+                        randomState["requiredFetterEnum"] = _pendingRandomFetterEnum;
+                    }
+                }
+                randomState["selectedFetterSelectable"] = !string.IsNullOrWhiteSpace(selectedFetter) &&
+                    string.IsNullOrWhiteSpace(_pendingRandomFetterEnum) &&
+                    visibleFetters.OfType<JObject>().Any(item => string.Equals(
+                        item["fetterEnum"]?.Value<string>(),
+                        selectedFetter,
+                        StringComparison.Ordinal));
+            }
+        }
         switch (RuntimeResultInspector.ClassifyReadOnly(result))
         {
             case RuntimeResultDisposition.Pending:
@@ -1620,7 +1665,10 @@ internal sealed class AutoPlayController
         AutomationAction action = decision.Action;
         if (string.Equals(action.Command, "wait", StringComparison.OrdinalIgnoreCase))
         {
-            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            float waitSeconds = (float)Math.Max(
+                BattleTacticFrameDelaySeconds,
+                _openingDefensePreparationPlanner.RecommendedRetryDelaySeconds);
+            _nextTickAt = Time.realtimeSinceStartup + waitSeconds;
             SetStage(AutomationStage.PreparingDefense, decision.Detail);
             return;
         }
@@ -1725,6 +1773,21 @@ internal sealed class AutoPlayController
 
         OpeningDefensePreparationPhase observedPhase = decision.Phase;
         _openingDefensePreparationPlanner.Observe(action, result, accepted);
+        if (observedPhase == OpeningDefensePreparationPhase.DrawRailPath &&
+            !_openingDefensePreparationPlanner.DrawSubmitted &&
+            _openingDefensePreparationPlanner.CleanDrawRetryAttempts > 0)
+        {
+            float retryDelay = (float)Math.Max(
+                BattleTacticFrameDelaySeconds,
+                _openingDefensePreparationPlanner.RecommendedRetryDelaySeconds);
+            _nextTickAt = Math.Max(_nextTickAt, Time.realtimeSinceStartup + retryDelay);
+            string retryDetail = _openingDefensePreparationPlanner.CleanDrawRetryAttempts < 3
+                ? "画轨命令未提交，轨道和交互状态均未改变；正在重新读取站点与轨道后安全重试。"
+                : "同一画轨快照连续未提交；已延长等待并重新读取游戏状态，不会把空轨道误判为新轨道。";
+            AddTimeline("rail-draw-retry", retryDetail);
+            SetStage(AutomationStage.PreparingDefense, retryDetail);
+            return;
+        }
         if (observedPhase == OpeningDefensePreparationPhase.VerifyAttributePlacement &&
             accepted &&
             _openingDefensePreparationPlanner.Phase == OpeningDefensePreparationPhase.QueryVehicle)
@@ -1790,6 +1853,7 @@ internal sealed class AutoPlayController
         _pendingMapAction = null;
         ClearSelectionHighlight();
         _deferredFrontEndAction = null;
+        _pendingRandomFetterEnum = string.Empty;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
         _deferredRewardAction = null;
@@ -8109,12 +8173,14 @@ internal sealed class AutoPlayController
         else if (string.Equals(action.Command, "selectRandomFetter", StringComparison.OrdinalIgnoreCase))
         {
             string fetter = action.Arguments["fetterEnum"]?.Value<string>() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(fetter))
+            int targetInstanceId = action.Arguments["targetInstanceId"]?.Value<int>() ?? 0;
+            string targetPath = action.Arguments["targetPath"]?.Value<string>() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(fetter) && targetInstanceId != 0)
             {
-                target = NativeSelectionTarget.ByMember(
+                target = NativeSelectionTarget.ByInstance(
                     "Systems.UISystem.RandomMode_Selected_Fetter",
-                    "m_fetter",
-                    fetter);
+                    targetInstanceId,
+                    targetPath);
                 detail = "已用绿色边框标出将选择的初始附魔；观察时间结束后再选择。";
             }
         }
@@ -8217,6 +8283,7 @@ internal sealed class AutoPlayController
     {
         ClearSelectionHighlight();
         _deferredFrontEndAction = null;
+        _pendingRandomFetterEnum = string.Empty;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
         _deferredRewardAction = null;

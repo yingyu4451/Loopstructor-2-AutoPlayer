@@ -414,33 +414,33 @@ public sealed class CheatFormWpfLayoutTests
 
                 TextBlock state = Assert.IsType<TextBlock>(form.FindName("_runControlStateText"));
                 Border badge = Assert.IsType<Border>(form.FindName("_runControlStateBadge"));
-                Assert.Equal("已启用", state.Text);
+                Assert.Equal("作弊已开启", state.Text);
                 Assert.Null(form.FindName("_statusBanner"));
                 Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetHelpText(badge)));
 
                 status.CheatUsed = true;
                 form.UpdateSession(true, DemoData.CheatHello(), status);
-                Assert.Equal("已启用 · 已标记", state.Text);
+                Assert.Equal("作弊已开启 · 本局用过作弊", state.Text);
 
                 status.RunState = AutoPlayerRunState.Running;
                 form.UpdateSession(true, DemoData.CheatHello(), status);
-                Assert.Equal("监视中 · 写操作锁定", state.Text);
+                Assert.Equal("自动游玩中 · 仅可查看", state.Text);
 
                 status.CheatModeEnabled = false;
                 form.UpdateSession(true, DemoData.CheatHello(), status);
-                Assert.Equal("自动游玩中", state.Text);
+                Assert.Equal("自动游玩中 · 仅可查看", state.Text);
 
                 status.RunState = AutoPlayerRunState.Standby;
                 status.CheatUsed = false;
                 form.UpdateSession(true, DemoData.CheatHello(), status);
-                Assert.Equal("未启用", state.Text);
+                Assert.Equal("作弊已关闭", state.Text);
 
                 form.UpdateSession(false, DemoData.CheatHello(), status);
-                Assert.Equal("未连接", state.Text);
+                Assert.Equal("等待游戏连接", state.Text);
 
                 status.CheatAvailable = false;
                 form.UpdateSession(true, DemoData.CheatHello(), status);
-                Assert.Equal("不可用", state.Text);
+                Assert.Equal("当前游戏版本不可用", state.Text);
             }
             finally
             {
@@ -474,7 +474,7 @@ public sealed class CheatFormWpfLayoutTests
                 enable.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpDispatcherFor(TimeSpan.FromMilliseconds(250));
 
-                Assert.Equal("未启用", Assert.IsType<TextBlock>(form.FindName("_runControlStateText")).Text);
+                Assert.Equal("作弊已关闭", Assert.IsType<TextBlock>(form.FindName("_runControlStateText")).Text);
                 Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(form.FindName("_toastHost")).Visibility);
             }
             finally

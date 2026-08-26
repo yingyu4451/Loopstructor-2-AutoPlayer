@@ -293,6 +293,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                         <TextBlock FontSize="15"
@@ -319,15 +320,25 @@
                                        Text="{Binding RunStateLabel}" />
                         </Border>
                     </StackPanel>
-                    <Button x:Name="_catalogRefreshButton"
+                    <TextBlock x:Name="_runRestrictionNotice"
                             Grid.Column="1"
+                            MaxWidth="520"
+                            Margin="16,0,0,0"
+                            VerticalAlignment="Center"
+                            Foreground="{StaticResource GoldBrush}"
+                            FontSize="12"
+                            Text="自动游玩正在运行：停止自动游玩后可恢复修改；目录浏览、对象查看、敌人 ID 和 Buff 显示仍可使用。"
+                            TextWrapping="Wrap"
+                            Visibility="Collapsed" />
+                    <Button x:Name="_catalogRefreshButton"
+                            Grid.Column="2"
                             MinWidth="112"
                             Margin="16,0,0,0"
                             VerticalAlignment="Center"
                             Content="刷新目录"
                             AutomationProperties.Name="刷新全部作弊目录" />
                     <CheckBox x:Name="_enableCheck"
-                              Grid.Column="2"
+                              Grid.Column="3"
                               Margin="18,0,0,0"
                               VerticalAlignment="Center"
                               FontSize="15"
@@ -356,7 +367,7 @@
                 <TabItem Header="战斗">
                     <Grid Margin="8,12,8,8">
                         <StackPanel>
-                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                            <Border x:Name="_battleStateMutationSection" Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="战场状态" />
                                     <Grid Height="40" HorizontalAlignment="Left">
@@ -370,7 +381,7 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource CheatCompactSectionStyle}">
+                            <Border x:Name="_battleWaveMutationSection" Style="{StaticResource CheatCompactSectionStyle}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="波次操作" />
                                     <Grid Height="40" HorizontalAlignment="Left">
@@ -595,7 +606,7 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <TabItem Header="生成">
+                <TabItem x:Name="_generateTab" Header="生成">
                     <ScrollViewer x:Name="_generatePageScroll" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="8,10,8,0">
                             <Border Margin="0" Style="{StaticResource CheatSectionStyle}">

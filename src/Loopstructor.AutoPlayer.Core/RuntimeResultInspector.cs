@@ -95,6 +95,33 @@ public static class RuntimeResultInspector
         result.SelectToken("data.state.statePolluted")?.Value<bool>() == false &&
         result.SelectToken("data.state.needsReset")?.Value<bool>() != true;
 
+    public static bool IsCleanUncommittedRailDrawFailure(JObject? result)
+    {
+        if (result == null || IsSuccess(result) || IsPending(result) || IsUnsafe(result))
+        {
+            return false;
+        }
+
+        JObject? state = result.SelectToken("data.state") as JObject;
+        JToken? before = state?["beforeRailState"];
+        JToken? after = state?["afterRailState"];
+        JObject? interaction = state?["interactionState"] as JObject;
+        if (state?["statePolluted"]?.Value<bool>() != false ||
+            before == null ||
+            after == null ||
+            !JToken.DeepEquals(before, after) ||
+            interaction == null)
+        {
+            return false;
+        }
+
+        return ReadIntOrDefault(interaction["pickingCount"], 0) == 0 &&
+               interaction["hasTemporaryLine"]?.Value<bool>() != true &&
+               interaction["hasPickLine"]?.Value<bool>() != true &&
+               interaction["dragSuccess"]?.Value<bool>() != true &&
+               interaction["makeDirty"]?.Value<bool>() != true;
+    }
+
     public static string Message(JObject? result) =>
         result?["message"]?.Value<string>() ?? "未知结果。";
 
@@ -143,6 +170,9 @@ public static class RuntimeResultInspector
 
     private static int ReadInt(JToken? token) =>
         token?.Type == JTokenType.Integer ? token.Value<int>() : int.MinValue;
+
+    private static int ReadIntOrDefault(JToken? token, int fallback) =>
+        token?.Type == JTokenType.Integer ? token.Value<int>() : fallback;
 
     private static bool HasTrueFlag(JObject? result, params string[] names)
     {

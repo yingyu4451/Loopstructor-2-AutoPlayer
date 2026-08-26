@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -40,6 +41,8 @@ internal sealed partial class MainForm : Window
     private readonly ObservableCollection<TelemetryRow> _telemetryRows = new();
     private readonly Dictionary<string, TelemetryRow> _telemetry = new(StringComparer.Ordinal);
     private readonly ObservableCollection<TimelineDisplayItem> _timeline = new();
+    private readonly ObservableCollection<AutomationModeOption> _modeOptions = new();
+    private readonly ObservableCollection<AutomationCharacterOption> _characterOptions = new();
 
     private ManagerSettings _settings;
     private BepInExInstaller _installer;
@@ -63,6 +66,9 @@ internal sealed partial class MainForm : Window
     private string _lastTrustError = string.Empty;
     private bool _restartWarningReported;
     private bool _cheatMarkerReported;
+    private bool _bindingUiScale;
+    private bool _automationSetupLoaded;
+    private DateTime _nextAutomationSetupQueryUtc;
 
     public MainForm(ManagerLaunchOptions launchOptions)
     {
@@ -79,6 +85,7 @@ internal sealed partial class MainForm : Window
         InitializeSelectors();
         InitializeTelemetry();
         BindSettings();
+        UiScaleService.Register(this, _settings);
         SetOperationAvailability();
 
         _pollTimer.Tick += PollTimerOnTick;
@@ -111,9 +118,29 @@ internal sealed partial class MainForm : Window
 
     private void InitializeSelectors()
     {
-        _mode.ItemsSource = new[] { "普通模式", "随机模式" };
+        _mode.ItemsSource = _modeOptions;
+        _character.ItemsSource = _characterOptions;
+        _modeOptions.Add(new AutomationModeOption
+        {
+            Mode = AutomationGameMode.Common,
+            DisplayName = "普通模式",
+            Available = false,
+            Reason = "连接游戏后读取可玩内容"
+        });
+        _modeOptions.Add(new AutomationModeOption
+        {
+            Mode = AutomationGameMode.Random,
+            DisplayName = "随机模式",
+            Available = false,
+            Reason = "连接游戏后读取可玩内容"
+        });
         _speed.ItemsSource = new[] { "跟随游戏", "1x · 常速（推荐）", "2x · 加速", "3x · 高速" };
-        _decisionPriority.ItemsSource = new[] { "优先拿三星车", "优先拿弹射点" };
+        _decisionPriority.ItemsSource = new[] { "优先拿三星车", "优先拿弹射点", "优先拿遗物" };
+        _uiScaleMode.ItemsSource = new[] { "跟随系统 DPI", "自定义" };
+        _uiScalePercent.ItemsSource = Enumerable.Range(0, 26)
+            .Select(index => 75 + index * 5)
+            .Select(value => value + "%")
+            .ToArray();
         _timelineItems.ItemsSource = _timeline;
         _logs.Document.PagePadding = new Thickness(0);
     }
@@ -162,11 +189,17 @@ internal sealed partial class MainForm : Window
         _gamePath.Text = _settings.GameRoot;
         _profileName.Text = string.IsNullOrWhiteSpace(_settings.ProfileName) ? "player-default" : _settings.ProfileName;
         _continueProfile.IsChecked = _settings.ContinueExistingProfile;
-        _mode.SelectedIndex = _settings.GameMode == AutomationGameMode.Random ? 1 : 0;
+        _mode.SelectedItem = _modeOptions.First(option => option.Mode == _settings.GameMode);
         _speed.SelectedIndex = SpeedSelectionIndex(_settings.OverrideGameSpeed, _settings.SpeedState);
         _maxMinutes.Text = Math.Clamp(_settings.MaxRunMinutes, 5, 480).ToString();
         _skipStory.IsChecked = _settings.SkipStory;
-        _decisionPriority.SelectedIndex = _settings.DecisionPriority == AutomationDecisionPriority.ThreeStarVehicles ? 0 : 1;
+        _decisionPriority.SelectedIndex = Math.Clamp((int)_settings.DecisionPriority, 0, 2);
+        _bindingUiScale = true;
+        _uiScaleMode.SelectedIndex = _settings.UiScaleMode == UiScaleMode.Custom ? 1 : 0;
+        _uiScalePercent.SelectedIndex = Math.Clamp((_settings.CustomUiScalePercent - 75) / 5, 0, 25);
+        _uiScalePercent.IsEnabled = _settings.UiScaleMode == UiScaleMode.Custom;
+        _bindingUiScale = false;
+        UpdateCharacterVisibility();
         _autoUpdateCheck.IsChecked = _settings.CheckUpdatesOnStart;
     }
 
@@ -223,6 +256,35 @@ internal sealed partial class MainForm : Window
     private void MaxMinutesOnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs eventArgs)
     {
         _maxMinutes.Text = ParseClamped(_maxMinutes.Text, 5, 480, 120).ToString();
+    }
+
+    private void UiScaleSettingOnChanged(object sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (_bindingUiScale || !IsInitialized) return;
+        _settings.UiScaleMode = _uiScaleMode.SelectedIndex == 1 ? UiScaleMode.Custom : UiScaleMode.System;
+        _settings.CustomUiScalePercent = 75 + Math.Max(0, _uiScalePercent.SelectedIndex) * 5;
+        _uiScalePercent.IsEnabled = _settings.UiScaleMode == UiScaleMode.Custom;
+        UiScaleService.ApplyAll(_settings);
+    }
+
+    private void ModeSelectionOnChanged(object sender, SelectionChangedEventArgs eventArgs)
+    {
+        UpdateCharacterVisibility();
+        SetOperationAvailability();
+    }
+
+    private void ContinueProfileOnChanged(object sender, RoutedEventArgs eventArgs)
+    {
+        UpdateCharacterVisibility();
+        SetOperationAvailability();
+    }
+
+    private void UpdateCharacterVisibility()
+    {
+        bool visible = _mode.SelectedItem is AutomationModeOption { Mode: AutomationGameMode.Common } &&
+                       _continueProfile.IsChecked != true;
+        _characterLabel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _character.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task BrowseForGameAsync()
@@ -812,6 +874,11 @@ internal sealed partial class MainForm : Window
             {
                 ApplyStatus(response.Status);
             }
+
+            if (_sessionTrusted && DateTime.UtcNow >= _nextAutomationSetupQueryUtc)
+            {
+                await RefreshAutomationSetupAsync();
+            }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -970,6 +1037,8 @@ internal sealed partial class MainForm : Window
     {
         bool connectionWasTrusted = _sessionTrusted;
         _sessionTrusted = false;
+        _automationSetupLoaded = false;
+        _modeAvailability.Text = "连接游戏后读取可玩内容";
         if (_session != null) _session.ProcessInstanceId = string.Empty;
         _cheatForm?.UpdateSession(false, _hello, _status);
         SetOperationAvailability();
@@ -988,6 +1057,7 @@ internal sealed partial class MainForm : Window
         {
             _cheatForm = new CheatForm(SendCheatCommandAsync);
             ConfigureIndependentToolWindow(_cheatForm);
+            UiScaleService.Register(_cheatForm, _settings);
             if (_launchOptions.DemoCheatWindow && _launchOptions.WindowSize is { } size)
             {
                 _cheatForm.Width = Math.Max(_cheatForm.MinWidth, size.Width);
@@ -1023,17 +1093,77 @@ internal sealed partial class MainForm : Window
         int speedSelection = Math.Clamp(_speed.SelectedIndex, 0, 3);
         return new AutomationRunOptions
         {
-            Mode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common,
+            Mode = (_mode.SelectedItem as AutomationModeOption)?.Mode ?? AutomationGameMode.Common,
+            CharacterIndex = (_character.SelectedItem as AutomationCharacterOption)?.RuntimeIndex ?? 0,
+            DifficultyIndex = (_character.SelectedItem as AutomationCharacterOption)?.DifficultyIndex ?? 0,
+            SuperModuleIndex = (_character.SelectedItem as AutomationCharacterOption)?.SuperModuleIndex ?? 0,
             GameSpeedControlVersion = AutoPlayerGameSpeed.CurrentOptionsVersion,
             OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection),
             SpeedState = SpeedStateFromSelectionIndex(speedSelection),
             MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120),
             ContinueExistingProfile = _continueProfile.IsChecked == true,
             SkipStory = _skipStory.IsChecked == true,
-            DecisionPriority = _decisionPriority.SelectedIndex == 0
-                ? AutomationDecisionPriority.ThreeStarVehicles
-                : AutomationDecisionPriority.CatapultPoints
+            DecisionPriority = (AutomationDecisionPriority)Math.Clamp(_decisionPriority.SelectedIndex, 0, 2)
         };
+    }
+
+    private async Task RefreshAutomationSetupAsync()
+    {
+        if (_session == null || !_sessionTrusted) return;
+        _nextAutomationSetupQueryUtc = DateTime.UtcNow.AddSeconds(3);
+        PipeCallResult call = await _pipeClient.QueryAutomationSetupAsync(_session, _lifetime.Token);
+        if (!call.TransportSuccess || call.Response?.Success != true || call.Response.Data == null)
+        {
+            _automationSetupLoaded = false;
+            _modeAvailability.Text = "连接游戏后读取可玩内容";
+            return;
+        }
+
+        ApplyAutomationSetup(call.Response.Data);
+    }
+
+    private void ApplyAutomationSetup(JObject data)
+    {
+        AutomationGameMode selectedMode = (_mode.SelectedItem as AutomationModeOption)?.Mode ?? _settings.GameMode;
+        _modeOptions.Clear();
+        foreach (JObject item in (data["modes"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+        {
+            string key = item["mode"]?.Value<string>() ?? string.Empty;
+            _modeOptions.Add(new AutomationModeOption
+            {
+                Mode = string.Equals(key, "random", StringComparison.OrdinalIgnoreCase)
+                    ? AutomationGameMode.Random
+                    : AutomationGameMode.Common,
+                DisplayName = item["displayName"]?.Value<string>() ?? key,
+                Available = item["available"]?.Value<bool>() == true,
+                Reason = item["reason"]?.Value<string>() ?? string.Empty
+            });
+        }
+
+        _mode.SelectedItem = _modeOptions.FirstOrDefault(option => option.Mode == selectedMode) ??
+                             _modeOptions.FirstOrDefault(option => option.Available) ?? _modeOptions.FirstOrDefault();
+        _characterOptions.Clear();
+        foreach (JObject item in (data["characters"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+        {
+            _characterOptions.Add(new AutomationCharacterOption
+            {
+                CfgIndex = item["cfgIndex"]?.Value<int>() ?? -1,
+                RuntimeIndex = item["runtimeIndex"]?.Value<int>() ?? 0,
+                DifficultyIndex = item["difficultyIndex"]?.Value<int>() ?? 0,
+                SuperModuleIndex = item["superModuleIndex"]?.Value<int>() ?? 0,
+                DisplayName = item["displayName"]?.Value<string>() ?? "未命名角色"
+            });
+        }
+
+        _character.SelectedItem = _characterOptions.FirstOrDefault(option => option.CfgIndex == _settings.CharacterCfgIndex) ??
+                                  _characterOptions.FirstOrDefault();
+        _automationSetupLoaded = true;
+        AutomationModeOption? selected = _mode.SelectedItem as AutomationModeOption;
+        _modeAvailability.Text = selected?.Available == true
+            ? "已从当前游戏读取可玩内容"
+            : selected?.Reason ?? "当前模式不可用";
+        UpdateCharacterVisibility();
+        SetOperationAvailability();
     }
 
     internal static int SpeedSelectionIndex(bool overrideGameSpeed, int speedState) =>
@@ -1484,7 +1614,11 @@ internal sealed partial class MainForm : Window
     private void SetControlButtons(bool enabled)
     {
         RunControlAvailability availability = RunControlAvailability.From(enabled, _status);
-        _startButton.IsEnabled = availability.CanStart;
+        bool setupAllowsStart = _launchOptions.DemoMode || _continueProfile.IsChecked == true ||
+                                (_automationSetupLoaded &&
+                                 _mode.SelectedItem is AutomationModeOption { Available: true } mode &&
+                                 (mode.Mode == AutomationGameMode.Random || _character.SelectedItem != null));
+        _startButton.IsEnabled = availability.CanStart && setupAllowsStart;
         _pauseButton.IsEnabled = availability.CanPause;
         _resumeButton.IsEnabled = availability.CanResume;
         _stopButton.IsEnabled = availability.CanStop;
@@ -1593,6 +1727,7 @@ internal sealed partial class MainForm : Window
             {
                 Owner = this
             };
+            UiScaleService.Register(confirmation, _settings);
             if (confirmation.ShowDialog() != true) return;
             (bool success, string message) = _updates.StartApply(_settings, _session?.ProcessId);
             AppendLog(success ? "INFO" : "ERROR", message, success ? BlueBrush : DangerBrush);
@@ -1794,15 +1929,16 @@ internal sealed partial class MainForm : Window
         _settings.GameRoot = _game?.GameRoot ?? _gamePath.Text.Trim();
         _settings.ProfileName = string.IsNullOrWhiteSpace(_profileName.Text) ? "player-default" : _profileName.Text.Trim();
         _settings.ContinueExistingProfile = _continueProfile.IsChecked == true;
-        _settings.GameMode = _mode.SelectedIndex == 1 ? AutomationGameMode.Random : AutomationGameMode.Common;
+        _settings.GameMode = (_mode.SelectedItem as AutomationModeOption)?.Mode ?? AutomationGameMode.Common;
+        _settings.CharacterCfgIndex = (_character.SelectedItem as AutomationCharacterOption)?.CfgIndex ?? -1;
         int speedSelection = Math.Clamp(_speed.SelectedIndex, 0, 3);
         _settings.OverrideGameSpeed = ShouldOverrideGameSpeed(speedSelection);
         _settings.SpeedState = SpeedStateFromSelectionIndex(speedSelection);
         _settings.MaxRunMinutes = ParseClamped(_maxMinutes.Text, 5, 480, 120);
         _settings.SkipStory = _skipStory.IsChecked == true;
-        _settings.DecisionPriority = _decisionPriority.SelectedIndex == 0
-            ? AutomationDecisionPriority.ThreeStarVehicles
-            : AutomationDecisionPriority.CatapultPoints;
+        _settings.DecisionPriority = (AutomationDecisionPriority)Math.Clamp(_decisionPriority.SelectedIndex, 0, 2);
+        _settings.UiScaleMode = _uiScaleMode.SelectedIndex == 1 ? UiScaleMode.Custom : UiScaleMode.System;
+        _settings.CustomUiScalePercent = 75 + Math.Max(0, _uiScalePercent.SelectedIndex) * 5;
         _settings.NormalizeUpdateSource();
         _settings.CheckUpdatesOnStart = _autoUpdateCheck.IsChecked == true;
         try

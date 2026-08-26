@@ -323,7 +323,25 @@
                                 <CheckBox
                                     x:Name="_continueProfile"
                                     Margin="0,0,0,8"
-                                    Content="继续当前配置中的未完成对局" />
+                                    Content="继续当前配置中的未完成对局"
+                                    Checked="ContinueProfileOnChanged"
+                                    Unchecked="ContinueProfileOnChanged" />
+
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="界面大小" />
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="92" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="_uiScaleMode"
+                                              AutomationProperties.Name="界面缩放模式"
+                                              SelectionChanged="UiScaleSettingOnChanged" />
+                                    <ComboBox x:Name="_uiScalePercent"
+                                              Grid.Column="1"
+                                              Margin="8,0,0,0"
+                                              AutomationProperties.Name="自定义界面缩放比例"
+                                              SelectionChanged="UiScaleSettingOnChanged" />
+                                </Grid>
 
                                 <Separator />
 
@@ -424,9 +442,30 @@
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="模式" />
                                 <ComboBox
                                     x:Name="_mode"
-                                    IsEditable="True"
-                                    IsTextSearchEnabled="True"
-                                    StaysOpenOnEdit="True" />
+                                    DisplayMemberPath="Label"
+                                    IsEditable="False"
+                                    SelectionChanged="ModeSelectionOnChanged">
+                                    <ComboBox.ItemContainerStyle>
+                                        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                            <Setter Property="IsEnabled" Value="{Binding Available}" />
+                                            <Setter Property="ToolTip" Value="{Binding Reason}" />
+                                            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        </Style>
+                                    </ComboBox.ItemContainerStyle>
+                                </ComboBox>
+                                <TextBlock x:Name="_modeAvailability"
+                                           Margin="0,5,0,0"
+                                           FontSize="11"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           Text="连接游戏后读取可玩内容"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="_characterLabel"
+                                           Margin="0,8,0,5"
+                                           Style="{StaticResource FieldLabelStyle}"
+                                           Text="角色" />
+                                <ComboBox x:Name="_character"
+                                          AutomationProperties.Name="开始新游戏角色"
+                                          DisplayMemberPath="DisplayName" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="速度" />
@@ -466,7 +505,7 @@
                                     x:Name="_decisionPriority"
                                     AutomationProperties.Name="自动游玩决策优先级"
                                     IsTextSearchEnabled="True"
-                                    ToolTip="选择优先合成三星战车，或优先获取扩轨所需的弹射点。" />
+                                    ToolTip="选择优先合成三星战车、获取扩轨弹射点或获取遗物。" />
                             </StackPanel>
                         </Grid>
 

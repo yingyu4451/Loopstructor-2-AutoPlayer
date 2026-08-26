@@ -1045,6 +1045,35 @@ public sealed class PluginRuntimeHostContractTests
             IsCall("System.Threading.ManualResetEventSlim", "Set"));
     }
 
+    [Fact]
+    public void AutomationSetupAndRandomFetterSelection_UseCurrentRuntimeUiState()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition server = RequireType(assembly, "Loopstructor.AutoPlayer.Plugin.PipeControlServer");
+        TypeDefinition setupReader = RequireType(assembly, "Loopstructor.AutoPlayer.Plugin.AutomationSetupRuntimeReader");
+        TypeDefinition fetterReader = RequireType(assembly, "Loopstructor.AutoPlayer.Plugin.RandomModeVisibleFetterReader");
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+
+        Assert.Contains(LoadedStrings(RequireMethod(server, "Pump")), value => value == "queryautomationsetup");
+        Assert.Contains(
+            Calls(RequireMethod(server, "Pump")),
+            IsCall(setupReader.FullName, "TryQuery"));
+        Assert.Contains(LoadedStrings(RequireMethod(setupReader, "ReadRuntimeCharacters")), value =>
+            value == "runtimeCharacterData");
+        Assert.Contains(LoadedStrings(RequireMethod(setupReader, "ResolveLocalizedText")), value =>
+            value == "GetText");
+
+        Assert.Contains(
+            Calls(RequireMethod(controller, "TickFrontEnd")),
+            IsCall(fetterReader.FullName, "ReadVisible"));
+        Assert.Contains(
+            Calls(RequireMethod(controller, "TickFrontEnd")),
+            IsCall(fetterReader.FullName, "Matches"));
+        Assert.Contains(controller.Fields, field => field.Name == "_pendingRandomFetterEnum");
+        Assert.Contains(LoadedStrings(RequireMethod(fetterReader, "ReadVisible")), value =>
+            value == "Systems.UISystem.RandomMode_Selected_Fetter");
+    }
+
     private static AssemblyDefinition ReadPlugin()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Loopstructor.AutoPlayer.Plugin.dll");

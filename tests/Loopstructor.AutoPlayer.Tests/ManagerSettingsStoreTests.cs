@@ -204,6 +204,37 @@ public sealed class ManagerSettingsStoreTests
         }
     }
 
+    [Fact]
+    public void Save_PreservesUiScaleCharacterAndRelicPriority()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            ManagerSettingsStore store = new(settingsPath);
+            ManagerSettings settings = new()
+            {
+                UiScaleMode = UiScaleMode.Custom,
+                CustomUiScalePercent = 135,
+                CharacterCfgIndex = 8,
+                DecisionPriority = AutomationDecisionPriority.Relics
+            };
+
+            store.Save(settings);
+            ManagerSettings reloaded = store.Load(out string warning);
+
+            Assert.Empty(warning);
+            Assert.Equal(UiScaleMode.Custom, reloaded.UiScaleMode);
+            Assert.Equal(135, reloaded.CustomUiScalePercent);
+            Assert.Equal(8, reloaded.CharacterCfgIndex);
+            Assert.Equal(AutomationDecisionPriority.Relics, reloaded.DecisionPriority);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "LoopstructorAutoPlayerTests", Guid.NewGuid().ToString("N"));

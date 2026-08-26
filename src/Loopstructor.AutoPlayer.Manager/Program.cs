@@ -3,6 +3,7 @@ using Loopstructor.AutoPlayer.Manager.Services;
 using Loopstructor.AutoPlayer.Manager.UI;
 using System.Windows;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 
 namespace Loopstructor.AutoPlayer.Manager;
 
@@ -11,6 +12,13 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        using ManagerSingleInstance singleInstance = ManagerSingleInstance.Create();
+        if (!singleInstance.IsPrimary)
+        {
+            singleInstance.NotifyPrimary();
+            return 0;
+        }
+
         ManagerLaunchOptions options = ManagerLaunchOptions.Parse(args);
         if (options.RestartedAfterUpdate)
         {
@@ -22,8 +30,22 @@ internal static class Program
             ShutdownMode = ShutdownMode.OnMainWindowClose
         };
         application.DispatcherUnhandledException += OnDispatcherUnhandledException;
-        return application.Run(new MainForm(options));
+        MainForm form = new(options);
+        singleInstance.StartListening(() => form.Dispatcher.BeginInvoke(() => ActivateExisting(form)));
+        return application.Run(form);
     }
+
+    private static void ActivateExisting(Window window)
+    {
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        if (!window.IsVisible) window.Show();
+        window.Activate();
+        SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(window).Handle);
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr window);
 
     private static void OnDispatcherUnhandledException(
         object sender,

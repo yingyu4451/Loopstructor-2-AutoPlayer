@@ -5,6 +5,50 @@ namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class DecisionEngineStrategyTests
 {
+    [Fact]
+    public void RelicPriority_PrefersRelicRewardAndRoute()
+    {
+        DecisionEngine engine = new();
+        JObject reward = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                state = new
+                {
+                    options = new object[]
+                    {
+                        new { index = 0, rewardKind = "vehicle", buttonActive = true, canAcquire = true, vehicleType = "Shell_Test_L3" },
+                        new { index = 1, rewardKind = "superModule", buttonActive = true, canAcquire = true }
+                    }
+                }
+            }
+        });
+        Assert.Equal(1, engine.DecideReward(reward, null, AutomationDecisionPriority.Relics).Arguments["index"]!.Value<int>());
+
+        JObject state = JObject.FromObject(new
+        {
+            success = true,
+            data = new
+            {
+                state = new
+                {
+                    blockers = Array.Empty<string>(),
+                    map = new
+                    {
+                        canSelectNextNode = true,
+                        selectableNodes = new object[]
+                        {
+                            new { readyIndex = 0, canPlayerSelect = true, rewardEnum = "vehicle", dropCounts = new { vehicle = 2 }, needFight = false },
+                            new { readyIndex = 1, canPlayerSelect = true, rewardEnum = "superModule", dropCounts = new { superModule = 1 }, needFight = false }
+                        }
+                    }
+                }
+            }
+        });
+        Assert.Equal(1, engine.DecideInGame(state, null, null, AutomationDecisionPriority.Relics).Arguments["readyIndex"]!.Value<int>());
+    }
+
     [Theory]
     [InlineData("nonne", "normal")]
     [InlineData("normal", "rare")]

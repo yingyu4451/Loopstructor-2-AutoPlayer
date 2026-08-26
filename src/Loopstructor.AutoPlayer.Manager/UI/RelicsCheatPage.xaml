@@ -22,7 +22,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <local:CatalogActionGridControl x:Name="RelicActions" MinHeight="250" DisplayMode="Binary" InteractionHint="左键启用，右键移除；悬停 1 秒查看游戏说明" />
-                <Grid Grid.Row="1" Margin="0,12,0,0">
+                <Grid x:Name="RelicMutationArea" Grid.Row="1" Margin="0,12,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Button x:Name="GrantAllRelicsButton" MinWidth="132" AutomationProperties.Name="一键补齐全部遗物" Style="{StaticResource GoldButtonStyle}" Content="补齐全部" ToolTip="逐帧获取尚未持有的全部已配置遗物；已有遗物不会重复获取" />
                     <Button x:Name="RemoveAllRelicsButton" Grid.Column="2" MinWidth="132" AutomationProperties.Name="删除所有遗物" Style="{StaticResource DangerButtonStyle}" Content="全部删除" ToolTip="逐帧删除当前持有的全部遗物，不弹出确认框" />

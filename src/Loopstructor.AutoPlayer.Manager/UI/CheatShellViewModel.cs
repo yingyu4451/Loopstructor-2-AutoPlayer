@@ -39,20 +39,20 @@ internal sealed partial class CheatShellViewModel : ObservableObject
     {
         if (writeOutcomeUnknown)
         {
-            SetState("写入冻结", "上一条写命令的结果无法确认；为避免重复修改，后续作弊写操作已冻结。", RedBrush, RedPanelBrush);
+            SetState("上次操作结果待确认", "上一条修改尚未确认结果；为避免重复修改，暂时不能继续写入。", RedBrush, RedPanelBrush);
             return;
         }
 
         if (!trusted)
         {
-            SetState("未连接", "请先启动已安装插件的游戏，并等待 Manager 完成安全握手。", RedBrush, RedPanelBrush);
+            SetState("等待游戏连接", "请先启动已安装插件的游戏，并等待 Manager 完成连接。", RedBrush, RedPanelBrush);
             return;
         }
 
         if (!available)
         {
             string reason = status?.CheatAvailabilityReason ?? hello?.CheatAvailabilityReason ?? string.Empty;
-            SetState("不可用", string.IsNullOrWhiteSpace(reason) ? "当前插件未提供作弊运行时合同。" : reason, RedBrush, RedPanelBrush);
+            SetState("当前游戏版本不可用", string.IsNullOrWhiteSpace(reason) ? "当前游戏版本不支持这组作弊功能。" : reason, RedBrush, RedPanelBrush);
             return;
         }
 
@@ -66,7 +66,7 @@ internal sealed partial class CheatShellViewModel : ObservableObject
         {
             string detail = "自动游玩期间可查询目录、战车和敌人，并切换敌人 ID 与 Buff 显示；其他作弊写操作已锁定。";
             if (status.CheatUsed) detail += " 当前配置已有作弊记录。";
-            SetState("监视中 · 写操作锁定", detail, AmberBrush, AmberPanelBrush);
+            SetState("自动游玩中 · 仅可查看", detail, AmberBrush, AmberPanelBrush);
             return;
         }
 
@@ -74,25 +74,25 @@ internal sealed partial class CheatShellViewModel : ObservableObject
         {
             string detail = "可以启用作弊监视；启用后仍只开放查询以及敌人 ID、Buff 显示。";
             if (status?.CheatUsed == true) detail += " 当前配置已有作弊记录。";
-            SetState("自动游玩中", detail, GreenBrush, GreenPanelBrush);
+            SetState("自动游玩中 · 仅可查看", detail, GreenBrush, GreenPanelBrush);
             return;
         }
 
         if (status?.CheatModeEnabled == true && status.CheatUsed)
         {
-            SetState("已启用 · 已标记", "作弊模式已启用，当前配置已有作弊记录。", AmberBrush, AmberPanelBrush);
+            SetState("作弊已开启 · 本局用过作弊", "作弊模式已启用，本局已执行过修改。", AmberBrush, AmberPanelBrush);
         }
         else if (status?.CheatModeEnabled == true)
         {
-            SetState("已启用", "可以执行资源、战斗、属性和怪物生成命令。", GreenBrush, GreenPanelBrush);
+            SetState("作弊已开启", "可以执行资源、战斗、属性和怪物生成命令。", GreenBrush, GreenPanelBrush);
         }
         else if (status?.CheatUsed == true)
         {
-            SetState("未启用 · 已标记", "作弊模式已关闭，但当前配置已有作弊记录；自动游玩结果会继续标记为 cheat-modified。", AmberBrush, AmberPanelBrush);
+            SetState("作弊已关闭 · 本局用过作弊", "作弊模式已关闭，但本局已经执行过修改。", AmberBrush, AmberPanelBrush);
         }
         else
         {
-            SetState("未启用", "作弊功能可用；开启作弊模式后可以执行修改命令。", GreenBrush, GreenPanelBrush);
+            SetState("作弊已关闭", "开启作弊模式后可以执行修改命令。", GreenBrush, GreenPanelBrush);
         }
     }
 

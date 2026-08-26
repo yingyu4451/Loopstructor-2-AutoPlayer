@@ -6,6 +6,37 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class RuntimeResultInspectorTests
 {
     [Fact]
+    public void CleanUncommittedRailDrawFailure_RequiresIdenticalSnapshotsAndNoInteractionResidue()
+    {
+        JObject clean = JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                state = new
+                {
+                    beforeRailState = new { railCount = 0, rails = Array.Empty<object>() },
+                    afterRailState = new { railCount = 0, rails = Array.Empty<object>() },
+                    statePolluted = false,
+                    interactionState = new
+                    {
+                        pickingCount = 0,
+                        hasTemporaryLine = false,
+                        hasPickLine = false,
+                        dragSuccess = false,
+                        makeDirty = false
+                    }
+                }
+            }
+        });
+
+        Assert.True(RuntimeResultInspector.IsCleanUncommittedRailDrawFailure(clean));
+
+        clean.SelectToken("data.state.interactionState.hasTemporaryLine")!.Replace(true);
+        Assert.False(RuntimeResultInspector.IsCleanUncommittedRailDrawFailure(clean));
+    }
+
+    [Fact]
     public void Message_UsesChineseFallbackWhenRuntimeOmitsMessage()
     {
         Assert.Equal("未知结果。", RuntimeResultInspector.Message(new JObject()));

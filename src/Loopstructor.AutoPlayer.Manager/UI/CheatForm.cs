@@ -47,6 +47,7 @@ internal sealed partial class CheatForm : Window
     private readonly List<UIElement> _mutationControls = new();
     private readonly List<UIElement> _catalogQueryControls = new();
     private readonly List<UIElement> _entityQueryControls = new();
+    private readonly List<FrameworkElement> _mutationSections = new();
     private readonly Dictionary<string, BitmapSource> _iconCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeCatalogIconKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _capturePollTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
@@ -290,6 +291,13 @@ internal sealed partial class CheatForm : Window
 
     private void RegisterAvailabilityControls()
     {
+        _mutationSections.AddRange(new FrameworkElement[]
+        {
+            _vehiclePage.VehicleMutationArea,
+            _relicsPage.RelicMutationArea,
+            _battleStateMutationSection,
+            _battleWaveMutationSection
+        });
         AddMutationControls(
             _vehicleCount, _enchantmentSelector,
             _grantVehicleButton, _disposableActions,
@@ -1373,6 +1381,18 @@ internal sealed partial class CheatForm : Window
 
         _enableCheck.IsEnabled = available && !_busy;
         foreach (UIElement control in _mutationControls) control.IsEnabled = canMutate;
+        foreach (UIElement control in _mutationControls)
+        {
+            control.Opacity = runConflict ? 0.52d : 1d;
+        }
+        foreach (FrameworkElement section in _mutationSections)
+        {
+            section.Opacity = runConflict ? 0.48d : 1d;
+            ToolTipService.SetShowOnDisabled(section, true);
+            ToolTipService.SetToolTip(
+                section,
+                runConflict ? "自动游玩期间不能修改战局；停止自动游玩后恢复。" : null);
+        }
         foreach (UIElement control in _catalogQueryControls) control.IsEnabled = canQueryCatalog;
         foreach (UIElement control in _entityQueryControls) control.IsEnabled = canQueryEntities;
         _disposableActions.IsActionEnabled = canMutate;
@@ -1380,6 +1400,15 @@ internal sealed partial class CheatForm : Window
         _catapultActions.IsActionEnabled = canMutate;
         _enemyIdOverlayCheck.IsEnabled = canQueryEntities;
         _enemyBuffOverlayCheck.IsEnabled = canQueryEntities;
+        _runRestrictionNotice.Visibility = runConflict ? Visibility.Visible : Visibility.Collapsed;
+        _generatePageScroll.IsHitTestVisible = !runConflict && canMutate;
+        _generatePageScroll.Opacity = runConflict ? 0.45d : 1d;
+        if (runConflict) _generateTab.Foreground = AmberBrush;
+        else _generateTab.ClearValue(ForegroundProperty);
+        ToolTipService.SetShowOnDisabled(_generateTab, true);
+        ToolTipService.SetToolTip(
+            _generateTab,
+            runConflict ? "生成怪物会修改战局，停止自动游玩后才能使用。" : null);
 
         _grantVehicleButton.IsEnabled = canMutate && _vehicleCatalog.SelectedCatalogItem != null;
         _grantAllRelicsButton.IsEnabled = canMutate;

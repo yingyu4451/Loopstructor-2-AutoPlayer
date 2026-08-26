@@ -118,6 +118,10 @@ internal sealed class PipeControlServer : IDisposable
                         case "stop":
                             request.Success = _controller.Stop(out message);
                             break;
+                        case "queryautomationsetup":
+                            request.Success = AutomationSetupRuntimeReader.TryQuery(out JObject setup, out message);
+                            request.Data = setup;
+                            break;
                         default:
                             request.Success = false;
                             message = "未知的控制命令：" + request.Command;

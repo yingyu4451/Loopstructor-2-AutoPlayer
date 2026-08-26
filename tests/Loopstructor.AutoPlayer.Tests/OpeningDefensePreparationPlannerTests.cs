@@ -320,7 +320,7 @@ public sealed class OpeningDefensePreparationPlannerTests
     }
 
     [Fact]
-    public void DrawFailure_IsReconciledByQueriesAndIsNeverResubmitted()
+    public void DrawFailureWithoutProofOfNoWrite_IsReconciledAndNeverResubmitted()
     {
         OpeningDefensePreparationPlanner planner = ReadyToDraw();
         OpeningDefensePreparationDecision draw = planner.Decide();
@@ -338,6 +338,47 @@ public sealed class OpeningDefensePreparationPlannerTests
         AssertTerminalFailure(failed, "拒绝重画");
         Assert.True(planner.DrawSubmitted);
         Assert.NotEqual("drawRailPath", failed.Action!.Command);
+    }
+
+    [Fact]
+    public void CleanUncommittedDrawFailure_RequeriesStateAndCanRetry()
+    {
+        OpeningDefensePreparationPlanner planner = ReadyToDraw();
+        OpeningDefensePreparationDecision draw = planner.Decide();
+        AssertAction(draw, "drawRailPath");
+
+        planner.Observe(draw.Action!, CleanUncommittedDrawFailure(), accepted: false);
+
+        Assert.False(planner.DrawSubmitted);
+        Assert.Equal(1, planner.CleanDrawRetryAttempts);
+        Assert.Equal(0.75d, planner.RecommendedRetryDelaySeconds);
+        Assert.Equal(OpeningDefensePreparationPhase.QueryCatapults, planner.Phase);
+        AssertAction(planner.Decide(), "queryCatapults");
+    }
+
+    [Fact]
+    public void RepeatedCleanDrawFailure_WaitsForSnapshotChangeBeforeWritingAgain()
+    {
+        OpeningDefensePreparationPlanner planner = ReadyToDraw();
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            OpeningDefensePreparationDecision draw = planner.Decide();
+            AssertAction(draw, "drawRailPath");
+            planner.Observe(draw.Action!, CleanUncommittedDrawFailure(), accepted: false);
+            Assert.Equal(attempt, planner.CleanDrawRetryAttempts);
+            AdvanceRetryToDraw(planner, vehicleLevel: 3);
+        }
+
+        OpeningDefensePreparationDecision unchanged = planner.Decide();
+        AssertAction(unchanged, "wait");
+        Assert.Contains("状态变化", unchanged.Detail, StringComparison.Ordinal);
+        Assert.Equal(OpeningDefensePreparationPhase.QueryCatapults, planner.Phase);
+        Assert.Equal(3d, planner.RecommendedRetryDelaySeconds);
+
+        AdvanceRetryToDraw(planner, vehicleLevel: 2);
+        OpeningDefensePreparationDecision changed = planner.Decide();
+        AssertAction(changed, "drawRailPath");
+        Assert.Equal(0, planner.CleanDrawRetryAttempts);
     }
 
     [Fact]
@@ -512,6 +553,21 @@ public sealed class OpeningDefensePreparationPlannerTests
         ObserveNext(planner, "queryRail", RailResult());
         Assert.Equal(OpeningDefensePreparationPhase.DrawRailPath, planner.Phase);
         return planner;
+    }
+
+    private static void AdvanceRetryToDraw(OpeningDefensePreparationPlanner planner, int vehicleLevel)
+    {
+        ObserveNext(
+            planner,
+            "queryCatapults",
+            CatapultResult(
+                Attribute(100, 0, 2),
+                Common(101, -2, -1),
+                Common(102, 2, -1)));
+        ObserveNext(planner, "queryVehicle", VehicleResult(BagVehicle(500, level: vehicleLevel)));
+        ObserveNext(planner, "previewRailPath", PreviewSuccess());
+        ObserveNext(planner, "queryRail", RailResult());
+        Assert.Equal(OpeningDefensePreparationPhase.DrawRailPath, planner.Phase);
     }
 
     private static OpeningDefensePreparationPlanner ReadyAtRailPreview()
@@ -760,6 +816,29 @@ public sealed class OpeningDefensePreparationPlannerTests
 
     private static JObject Success() => JObject.FromObject(new { success = true });
     private static JObject Failure() => JObject.FromObject(new { success = false });
+
+    private static JObject CleanUncommittedDrawFailure() => JObject.FromObject(new
+    {
+        success = false,
+        data = new
+        {
+            state = new
+            {
+                beforeRailState = new { railCount = 0, rails = Array.Empty<object>() },
+                afterRailState = new { railCount = 0, rails = Array.Empty<object>() },
+                statePolluted = false,
+                interactionState = new
+                {
+                    currentState = "IdleState",
+                    pickingCount = 0,
+                    hasTemporaryLine = false,
+                    hasPickLine = false,
+                    dragSuccess = false,
+                    makeDirty = false
+                }
+            }
+        }
+    });
 
     private static void AssertAction(OpeningDefensePreparationDecision decision, string command)
     {

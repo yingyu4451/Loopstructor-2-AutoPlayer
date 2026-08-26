@@ -56,6 +56,11 @@ public sealed class PipeControlClient
     public Task<PipeCallResult> StopAsync(ActivationSession session, CancellationToken cancellationToken = default) =>
         SendAsync(session, "stop", null, cancellationToken);
 
+    public Task<PipeCallResult> QueryAutomationSetupAsync(
+        ActivationSession session,
+        CancellationToken cancellationToken = default) =>
+        SendAsync(session, "queryAutomationSetup", null, cancellationToken);
+
     public async Task<PipeCallResult> SendCheatAsync(
         ActivationSession session,
         string command,

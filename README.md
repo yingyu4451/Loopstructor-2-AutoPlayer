@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.31 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.32 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.31
+.\scripts\package.ps1 -Version 0.6.32
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.31-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.32-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -148,11 +148,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.31-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.32-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 
-`v0.6.31` 将站点优化从逐站贪心改为完整布局规划：同一轨道一次读取稳定 `LinePoint.ID`、固定站点和全部可移动站点，1–2 个站点完整组合搜索，3 个以上采用宽度 512 的确定性束搜索，且每帧规划预算不超过 3 ms。方案先满足合法闭环、基地包围、四向覆盖和真实最小间距，再比较完整闭环预测周期与 N/T；一次计划中每个站点最多移动一次，战斗中只断环和重建一次，并在最终实测验收后把布局标记为稳定，不再触发局部重复移动。本版本以 `v0.6.30` 作为相邻增量更新基线。
+`v0.6.32` 修复画轨服务拒绝且未产生写入时被误判为已提交的问题，安全失败会重新读取状态并退避重试；新增从当前游戏动态读取可玩模式、已解锁角色和角色可用原因，普通模式可选择角色，并增加“优先拿遗物”决策。随机模式附魔选择统一使用当前可见 UI 候选快照，确保绿框、命令枚举和提交后结果一致。桌面端新增统一机械风悬浮提示、自定义界面倍率和 Manager 单实例唤醒；作弊工具状态改为通俗文案，并在自动游玩期间按区块禁用写操作、保留只读能力。本版本以 `v0.6.31` 作为相邻增量更新基线。
 
 `v0.6.26` 修复能量/特殊弹射点确认移动后被误判为取消失败并要求重启的问题；确认成功后的站点位置与优化收益分别对账，收益未达预测时保留游戏实际状态并继续游玩。Updater 只在事务期间建立隐藏回滚点，新版校验成功后立即删除，不再永久保留旧版本；更新后启动的 Manager 也会安全清理由旧版 Updater 生成的严格匹配备份目录。本版本以 `v0.6.25` 作为相邻增量更新基线。
 

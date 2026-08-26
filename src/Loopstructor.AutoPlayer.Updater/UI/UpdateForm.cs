@@ -7,6 +7,8 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Text.Json;
+using System.Windows.Shell;
 using Loopstructor.AutoPlayer.Updater.Models;
 using Loopstructor.AutoPlayer.Updater.Services;
 
@@ -47,6 +49,7 @@ internal sealed partial class UpdateForm : Window
         _operation = operation ?? throw new ArgumentNullException(nameof(operation));
 
         InitializeComponent();
+        ApplySavedUiScale();
         VersionLabel.Text = $"当前版本 v{_currentVersion}";
         DetailsBox.Document.PagePadding = new Thickness(0);
         DetailsBox.Document.Blocks.Clear();
@@ -64,6 +67,58 @@ internal sealed partial class UpdateForm : Window
     }
 
     public int ExitCode { get; private set; } = 1;
+
+    private void ApplySavedUiScale()
+    {
+        double scale = 1d;
+        try
+        {
+            string settingsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LoopstructorAutoPlayer",
+                "manager",
+                "settings.json");
+            if (File.Exists(settingsPath))
+            {
+                using JsonDocument document = JsonDocument.Parse(File.ReadAllText(settingsPath));
+                JsonElement root = document.RootElement;
+                bool hasMode = root.TryGetProperty("UiScaleMode", out JsonElement mode) ||
+                               root.TryGetProperty("uiScaleMode", out mode);
+                bool custom = hasMode &&
+                              (mode.ValueKind == JsonValueKind.String &&
+                               string.Equals(mode.GetString(), "Custom", StringComparison.OrdinalIgnoreCase) ||
+                               mode.ValueKind == JsonValueKind.Number && mode.GetInt32() == 1);
+                bool hasPercent = root.TryGetProperty("CustomUiScalePercent", out JsonElement value) ||
+                                  root.TryGetProperty("customUiScalePercent", out value);
+                int percent = hasPercent && value.TryGetInt32(out int parsed)
+                    ? Math.Clamp(parsed, 75, 200)
+                    : 100;
+                if (custom) scale = percent / 100d;
+            }
+        }
+        catch
+        {
+            scale = 1d;
+        }
+
+        Resources["UiScaleTransform"] = new ScaleTransform(scale, scale);
+        if (Content is FrameworkElement content) content.LayoutTransform = new ScaleTransform(scale, scale);
+        Rect work = SystemParameters.WorkArea;
+        Width = Math.Min(Width * scale, work.Width);
+        Height = Math.Min(Height * scale, work.Height);
+        MinWidth = Math.Min(MinWidth * scale, work.Width);
+        MinHeight = Math.Min(MinHeight * scale, work.Height);
+        WindowChrome? chrome = WindowChrome.GetWindowChrome(this);
+        if (chrome != null)
+        {
+            chrome.CaptionHeight *= scale;
+            chrome.ResizeBorderThickness = new Thickness(
+                chrome.ResizeBorderThickness.Left * scale,
+                chrome.ResizeBorderThickness.Top * scale,
+                chrome.ResizeBorderThickness.Right * scale,
+                chrome.ResizeBorderThickness.Bottom * scale);
+        }
+    }
 
     public static UpdateForm CreateDemo(string currentVersion, string latestVersion)
     {

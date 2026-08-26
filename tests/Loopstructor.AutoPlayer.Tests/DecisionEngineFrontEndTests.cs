@@ -89,7 +89,7 @@ public sealed class DecisionEngineFrontEndTests
 
     [Theory]
     [InlineData(false, false, "selectRandomVehicle", "index", 6)]
-    [InlineData(true, false, "selectRandomFetter", "index", 7)]
+    [InlineData(true, false, "selectRandomFetter", "fetterEnum", "")]
     [InlineData(true, true, "submitRandomMode", "autoStop", true)]
     public void RandomMode_SelectsMissingChoiceThenSubmits(
         bool vehicleSelectable,
@@ -149,7 +149,7 @@ public sealed class DecisionEngineFrontEndTests
             },
             availableFetters = new[]
             {
-                new { index = 7, fetterEnum = "Fire_Train" }
+                new { index = 7, fetterEnum = "Fire_Train", instanceId = 1234, path = "Canvas/Fetter/Fire" }
             }
         });
         DecisionEngine engine = new();
@@ -164,6 +164,9 @@ public sealed class DecisionEngineFrontEndTests
             result,
             new AutomationRunOptions { Mode = AutomationGameMode.Random, RandomFetterIndex = 7 });
         Assert.Equal("Fire_Train", fetter.Arguments.Value<string>("fetterEnum"));
+        Assert.Equal(1234, fetter.Arguments.Value<int>("targetInstanceId"));
+        Assert.Equal("Canvas/Fetter/Fire", fetter.Arguments.Value<string>("targetPath"));
+        Assert.Null(fetter.Arguments["index"]);
     }
 
     private static JObject FrontEndState(object state) => JObject.FromObject(new

@@ -240,6 +240,7 @@ public sealed class OpeningDefensePreparationPlanner
     private OpeningDefensePreparationPhase _phase = OpeningDefensePreparationPhase.QueryCatapults;
     private OpeningDefenseGrid? _selectedGrid;
     private JObject? _catapultResult;
+    private JObject? _vehicleResult;
     private AutomationAction? _drawAction;
     private JObject? _railBaselineResult;
     private JObject? _drawResult;
@@ -261,6 +262,9 @@ public sealed class OpeningDefensePreparationPlanner
     private int _vehicleReadAttempts;
     private int _railPreviewReadAttempts;
     private int _railBaselineReadAttempts;
+    private int _cleanDrawRetryAttempts;
+    private double _recommendedRetryDelaySeconds;
+    private string _lastCleanDrawFailureFingerprint = string.Empty;
     private OpeningDefenseGrid? _submittedAttributeGrid;
     private bool _drawSubmitted;
     private bool _vehiclePlacementSubmitted;
@@ -275,6 +279,8 @@ public sealed class OpeningDefensePreparationPlanner
     public int SelectedVehicleInstanceId => _selectedVehicleInstanceId;
     public int VerifiedRailInstanceId => _expectedRailInstanceId;
     public bool DrawSubmitted => _drawSubmitted;
+    public int CleanDrawRetryAttempts => _cleanDrawRetryAttempts;
+    public double RecommendedRetryDelaySeconds => _recommendedRetryDelaySeconds;
     public bool HasCommittedWrite =>
         _submittedAttributeGrid.HasValue || _drawSubmitted || _vehiclePlacementSubmitted;
     public string VehiclePlacementCommand => _vehiclePlacementAction?.Command ?? string.Empty;
@@ -287,6 +293,7 @@ public sealed class OpeningDefensePreparationPlanner
         _probe.Reset();
         _selectedGrid = null;
         _catapultResult = null;
+        _vehicleResult = null;
         _drawAction = null;
         _railBaselineResult = null;
         _drawResult = null;
@@ -308,6 +315,9 @@ public sealed class OpeningDefensePreparationPlanner
         _vehicleReadAttempts = 0;
         _railPreviewReadAttempts = 0;
         _railBaselineReadAttempts = 0;
+        _cleanDrawRetryAttempts = 0;
+        _recommendedRetryDelaySeconds = 0d;
+        _lastCleanDrawFailureFingerprint = string.Empty;
         _submittedAttributeGrid = null;
         _drawSubmitted = false;
         _vehiclePlacementSubmitted = false;
@@ -438,6 +448,23 @@ public sealed class OpeningDefensePreparationPlanner
                     return Failure("开局轨道写入已经提交过；拒绝重复画轨。");
                 }
 
+                string currentFingerprint = BuildDrawRetryFingerprint();
+                if (_cleanDrawRetryAttempts >= 3 &&
+                    string.Equals(currentFingerprint, _lastCleanDrawFailureFingerprint, StringComparison.Ordinal))
+                {
+                    _recommendedRetryDelaySeconds = 3d;
+                    _phase = OpeningDefensePreparationPhase.QueryCatapults;
+                    return Wait("同一画轨快照连续未提交；只读等待站点、战车、轨道或交互状态变化后再尝试。");
+                }
+
+                if (_cleanDrawRetryAttempts > 0 &&
+                    !string.Equals(currentFingerprint, _lastCleanDrawFailureFingerprint, StringComparison.Ordinal))
+                {
+                    _cleanDrawRetryAttempts = 0;
+                    _recommendedRetryDelaySeconds = 0d;
+                    _lastCleanDrawFailureFingerprint = string.Empty;
+                }
+
                 return CloneRailAction("drawRailPath", "按已验证的站点身份创建开局闭环。");
 
             case OpeningDefensePreparationPhase.VerifyRail:
@@ -549,7 +576,7 @@ public sealed class OpeningDefensePreparationPlanner
                 break;
 
             case "drawRailPath":
-                ObserveRailDraw(result);
+                ObserveRailDraw(result, accepted);
                 break;
 
             case "queryTrain":
@@ -768,6 +795,7 @@ public sealed class OpeningDefensePreparationPlanner
         }
 
         _selectedVehicleInstanceId = ReadInt(vehicle["instanceId"], 0);
+        _vehicleResult = result?.DeepClone() as JObject;
         if (!TryBuildRailAction(_catapultResult, _selectedGrid, out AutomationAction? action, out string error))
         {
             Fail(error);
@@ -838,13 +866,50 @@ public sealed class OpeningDefensePreparationPlanner
         }
     }
 
-    private void ObserveRailDraw(JObject? result)
+    private void ObserveRailDraw(JObject? result, bool accepted)
     {
+        if (!accepted && RuntimeResultInspector.IsCleanUncommittedRailDrawFailure(result))
+        {
+            string fingerprint = BuildDrawRetryFingerprint();
+            _cleanDrawRetryAttempts = string.Equals(
+                fingerprint,
+                _lastCleanDrawFailureFingerprint,
+                StringComparison.Ordinal)
+                ? _cleanDrawRetryAttempts + 1
+                : 1;
+            _lastCleanDrawFailureFingerprint = fingerprint;
+            _recommendedRetryDelaySeconds = _cleanDrawRetryAttempts < 3 ? 0.75d : 3d;
+            _drawSubmitted = false;
+            _drawResult = null;
+            _expectedRailInstanceId = 0;
+            _railBaselineResult = null;
+            _railVerificationAttempts = 0;
+            _catapultReadAttempts = 0;
+            _vehicleReadAttempts = 0;
+            _railPreviewReadAttempts = 0;
+            _railBaselineReadAttempts = 0;
+            _phase = OpeningDefensePreparationPhase.QueryCatapults;
+            return;
+        }
+
         _drawSubmitted = true;
+        _recommendedRetryDelaySeconds = 0d;
         _drawResult = result?.DeepClone() as JObject ?? new JObject();
         _expectedRailInstanceId = _railVerifier.ReadDrawnRailInstanceId(result);
         _railVerificationAttempts = 0;
         _phase = OpeningDefensePreparationPhase.VerifyRail;
+    }
+
+    private string BuildDrawRetryFingerprint()
+    {
+        JObject fingerprint = new()
+        {
+            ["catapults"] = State(_catapultResult).DeepClone(),
+            ["vehicle"] = State(_vehicleResult).DeepClone(),
+            ["railBaseline"] = State(_railBaselineResult).DeepClone(),
+            ["drawArguments"] = _drawAction?.Arguments.DeepClone() ?? new JObject()
+        };
+        return fingerprint.ToString(Newtonsoft.Json.Formatting.None);
     }
 
     private void ObserveCommittedRail(JObject? result, bool accepted, bool finalCheck)

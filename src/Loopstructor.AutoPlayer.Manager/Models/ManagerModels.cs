@@ -118,6 +118,9 @@ public sealed class ManagerSettings
     public int MaxRunMinutes { get; set; } = 120;
     public bool SkipStory { get; set; }
     public AutomationDecisionPriority DecisionPriority { get; set; } = AutomationDecisionPriority.CatapultPoints;
+    public UiScaleMode UiScaleMode { get; set; } = UiScaleMode.System;
+    public int CustomUiScalePercent { get; set; } = 100;
+    public int CharacterCfgIndex { get; set; } = -1;
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
     public bool CheckUpdatesOnStart { get; set; } = true;
@@ -133,10 +136,37 @@ public sealed class ManagerSettings
             GitHubOwner = DefaultGitHubOwner;
             GitHubRepository = DefaultGitHubRepository;
         }
+
+        if (!Enum.IsDefined(UiScaleMode)) UiScaleMode = UiScaleMode.System;
+        CustomUiScalePercent = Math.Clamp(CustomUiScalePercent, 75, 200);
     }
 
     private static string NormalizeCoordinate(string? value, string defaultValue) =>
         string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
+}
+
+public enum UiScaleMode
+{
+    System,
+    Custom
+}
+
+internal sealed class AutomationModeOption
+{
+    public AutomationGameMode Mode { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
+    public bool Available { get; init; }
+    public string Reason { get; init; } = string.Empty;
+    public string Label => Available ? DisplayName : DisplayName + " · 不可用";
+}
+
+internal sealed class AutomationCharacterOption
+{
+    public int CfgIndex { get; init; }
+    public int RuntimeIndex { get; init; }
+    public int DifficultyIndex { get; init; }
+    public int SuperModuleIndex { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
 }
 
 public sealed class GameInstallValidation
