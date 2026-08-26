@@ -27,6 +27,7 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition eventWait = RequireMethod(controller, "TryWaitForEventOptions");
         MethodDefinition merge = RequireMethod(controller, "RunMergeAutomationStep");
         MethodDefinition ensureMapOpen = RequireMethod(controller, "TryEnsureMapOpenForSelectionPreview");
+        MethodDefinition continueMapAnimation = RequireMethod(controller, "TryContinueMapOpenAnimationWait");
         MethodDefinition show = RequireMethod(highlighter, "Show");
 
         Assert.Contains(controller.Fields, field => field.Name == "_selectionHighlighter");
@@ -45,8 +46,10 @@ public sealed class PluginRuntimeHostContractTests
             Calls(RequireMethod(controller, "TickInGame")),
             IsCall("Loopstructor.AutoPlayer.Core.MapRouteSelectionPolicy", "IsSelectionOutstanding"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "InvalidateFullWaveQueryCache"));
-        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleContinuationFrame"));
-        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleMapOpenAnimationPoll"));
+        Assert.Contains(Calls(continueMapAnimation), IsCall(ControllerType, "ScheduleContinuationFrame"));
+        Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "TryContinueMapOpenAnimationWait"));
+        Assert.Contains(Calls(RequireMethod(controller, "TickInGame")), IsCall(ControllerType, "TryContinueMapOpenAnimationWait"));
+        Assert.Contains(Calls(continueMapAnimation), IsCall(ControllerType, "ScheduleMapOpenAnimationPoll"));
         Assert.Contains(Calls(ensureMapOpen), IsCall(ControllerType, "ScheduleNormalPoll"));
         Assert.Contains(LoadedStrings(show), value => value == "UnityEngine.UI.Image");
         Assert.Contains(LoadedStrings(show), value => value == "raycastTarget");
@@ -73,10 +76,12 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "uiClickMapButton");
         Assert.Contains(LoadedStrings(initializeBridgeContract), value => value == "UiClickMapButton");
         MethodDefinition mapAnimation = RequireMethod(bridge, "TryGetMapOpenAnimationProgress");
-        Assert.Contains(Calls(ensureMapOpen), IsCall(BridgeType, "TryGetMapOpenAnimationProgress"));
+        Assert.Contains(Calls(continueMapAnimation), IsCall(BridgeType, "TryGetMapOpenAnimationProgress"));
         Assert.Contains(
-            Calls(ensureMapOpen),
+            Calls(continueMapAnimation),
             IsCall("Loopstructor.AutoPlayer.Core.MapOpenAnimationPolicy", "IsReady"));
+        Assert.DoesNotContain(Calls(continueMapAnimation), IsCall(BridgeType, "Invoke"));
+        Assert.DoesNotContain(Calls(continueMapAnimation), IsCall(ControllerType, "TryQueryAdaptiveWaveState"));
         Assert.Contains(Calls(mapAnimation), call =>
             call.DeclaringType.FullName == "UnityEngine.Animator" &&
             call.Name == "GetCurrentAnimatorStateInfo");
@@ -84,6 +89,13 @@ public sealed class PluginRuntimeHostContractTests
             call.DeclaringType.FullName == "UnityEngine.Animator" &&
             call.Name == "IsInTransition");
         Assert.Single(LoadedStrings(ensureMapOpen), value => value == "uiClickMapButton");
+
+        TypeDefinition follower = RequireType(assembly, "Loopstructor.AutoPlayer.Plugin.NativeSelectionBorderFollower");
+        MethodDefinition refreshBorder = RequireMethod(follower, "Refresh");
+        Assert.Contains(Calls(show), call => call.Name == "GetComponentsInParent");
+        Assert.Contains(Calls(show), IsCall("UnityEngine.CanvasGroup", "set_blocksRaycasts"));
+        Assert.Contains(Calls(refreshBorder), IsCall("UnityEngine.RectTransformUtility", "WorldToScreenPoint"));
+        Assert.Contains(Calls(refreshBorder), IsCall("UnityEngine.RectTransformUtility", "ScreenPointToLocalPointInRectangle"));
 
         MethodDefinition drawOverlay = RequireMethod(RequireType(assembly, SessionType), "DrawOverlay");
         Assert.DoesNotContain(Calls(drawOverlay), IsCall(ControllerType, "ShowSelectionHighlight"));
@@ -1070,8 +1082,24 @@ public sealed class PluginRuntimeHostContractTests
             Calls(RequireMethod(controller, "TickFrontEnd")),
             IsCall(fetterReader.FullName, "Matches"));
         Assert.Contains(controller.Fields, field => field.Name == "_pendingRandomFetterEnum");
-        Assert.Contains(LoadedStrings(RequireMethod(fetterReader, "ReadVisible")), value =>
+        Assert.Contains(LoadedStrings(RequireMethod(fetterReader, "EnsureContract")), value =>
             value == "Systems.UISystem.RandomMode_Selected_Fetter");
+        Assert.DoesNotContain(Calls(RequireMethod(fetterReader, "Matches")),
+            call => call.DeclaringType.FullName == "UnityEngine.Resources" &&
+                    call.Name == "FindObjectsOfTypeAll");
+
+        TypeDefinition bridge = RequireType(assembly, BridgeType);
+        Assert.Contains(
+            Calls(RequireMethod(bridge, "Invoke")),
+            IsCall(fetterReader.FullName, "SelectExact"));
+        Assert.Contains(LoadedStrings(RequireMethod(fetterReader, "EnsureContract")), value => value == "InitFetter");
+        Assert.Contains(
+            Calls(RequireMethod(fetterReader, "SelectExact")),
+            IsCall("System.Reflection.MethodBase", "Invoke"));
+
+        Assert.DoesNotContain(
+            AllMethods(setupReader).SelectMany(Calls),
+            call => call.DeclaringType.FullName == "HarmonyLib.AccessTools");
     }
 
     private static AssemblyDefinition ReadPlugin()

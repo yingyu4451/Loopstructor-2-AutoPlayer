@@ -29,6 +29,7 @@ internal sealed class RuntimeBridge
     private PropertyInfo? _waveFunctionOptionFlowHasPendingFlow;
     private PropertyInfo? _waveFunctionOptionFlowDescription;
     private PropertyInfo? _roomMapUiInstance;
+    private Animator? _roomMapAnimator;
 
     private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
@@ -255,6 +256,12 @@ internal sealed class RuntimeBridge
                 return InvokeLightweightRewardQuery();
             }
 
+            if (string.Equals(command, "selectRandomFetter", StringComparison.OrdinalIgnoreCase) &&
+                (arguments?["targetInstanceId"]?.Value<int>() ?? 0) != 0)
+            {
+                return RandomModeVisibleFetterReader.SelectExact(arguments, out mutationInvocationStarted);
+            }
+
             if (string.Equals(command, "chooseRewardOption", StringComparison.OrdinalIgnoreCase))
             {
                 return InvokeLightweightRewardSelection(arguments);
@@ -450,7 +457,12 @@ internal sealed class RuntimeBridge
                 return false;
             }
 
-            Animator? animator = component.GetComponent<Animator>();
+            Animator? animator = _roomMapAnimator;
+            if (animator == null || animator.gameObject != component.gameObject)
+            {
+                animator = component.GetComponent<Animator>();
+                _roomMapAnimator = animator;
+            }
             if (animator == null || !animator.isActiveAndEnabled || animator.layerCount <= 0)
             {
                 return false;
@@ -518,6 +530,7 @@ internal sealed class RuntimeBridge
 
     private void InitializeMapAnimationContract()
     {
+        _roomMapAnimator = null;
         Type? mapType = FindType("MetroTD.RoomSystem.RoomMapUI");
         _roomMapUiInstance = mapType?.GetProperty(
             "Instance",

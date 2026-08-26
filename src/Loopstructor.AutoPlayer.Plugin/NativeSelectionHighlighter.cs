@@ -16,6 +16,7 @@ internal sealed class NativeSelectionHighlighter
     private const float BorderInset = 2f;
     private static readonly Color BorderColor = new Color32(0x79, 0xD5, 0x3B, 0xFF);
     private GameObject? _borderRoot;
+    private NativeSelectionBorderFollower? _borderFollower;
     private string _targetKey = string.Empty;
 
     public bool Show(NativeSelectionTarget target, out string error)
@@ -25,7 +26,7 @@ internal sealed class NativeSelectionHighlighter
         if (string.Equals(_targetKey, target.Key, StringComparison.Ordinal) && _borderRoot != null)
         {
             _borderRoot.transform.SetAsLastSibling();
-            return true;
+            return _borderFollower?.Refresh() == true;
         }
 
         Clear();
@@ -45,6 +46,14 @@ internal sealed class NativeSelectionHighlighter
             return false;
         }
 
+        Canvas? rootCanvas = targetRect.GetComponentsInParent<Canvas>(true).LastOrDefault();
+        RectTransform? canvasRect = rootCanvas?.transform as RectTransform;
+        if (rootCanvas == null || canvasRect == null)
+        {
+            error = "目标游戏 UI 不属于可描边的 Canvas。";
+            return false;
+        }
+
         Type? imageType = AccessTools.TypeByName("UnityEngine.UI.Image");
         PropertyInfo? colorProperty = imageType == null ? null : AccessTools.Property(imageType, "color");
         PropertyInfo? raycastTargetProperty = imageType == null ? null : AccessTools.Property(imageType, "raycastTarget");
@@ -61,12 +70,14 @@ internal sealed class NativeSelectionHighlighter
                 hideFlags = HideFlags.HideAndDontSave
             };
             RectTransform rootRect = (RectTransform)_borderRoot.transform;
-            rootRect.SetParent(targetRect, false);
-            rootRect.anchorMin = Vector2.zero;
-            rootRect.anchorMax = Vector2.one;
-            rootRect.offsetMin = new Vector2(BorderInset, BorderInset);
-            rootRect.offsetMax = new Vector2(-BorderInset, -BorderInset);
+            rootRect.SetParent(canvasRect, false);
+            rootRect.anchorMin = new Vector2(0.5f, 0.5f);
+            rootRect.anchorMax = new Vector2(0.5f, 0.5f);
+            rootRect.pivot = new Vector2(0.5f, 0.5f);
             rootRect.localScale = Vector3.one;
+            CanvasGroup canvasGroup = _borderRoot.AddComponent<CanvasGroup>();
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
             Type? layoutElementType = AccessTools.TypeByName("UnityEngine.UI.LayoutElement");
             PropertyInfo? ignoreLayoutProperty = layoutElementType == null
                 ? null
@@ -81,6 +92,14 @@ internal sealed class NativeSelectionHighlighter
             AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Bottom", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, BorderThickness));
             AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Left", Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(BorderThickness, 0f));
             AddBar(rootRect, imageType, colorProperty, raycastTargetProperty, "Right", new Vector2(1f, 0f), Vector2.one, new Vector2(-BorderThickness, 0f), Vector2.zero);
+            _borderFollower = _borderRoot.AddComponent<NativeSelectionBorderFollower>();
+            _borderFollower.Initialize(targetRect, canvasRect, rootCanvas, BorderInset);
+            if (!_borderFollower.Refresh())
+            {
+                error = "目标游戏 UI 的可见区域尚未稳定。";
+                Clear();
+                return false;
+            }
             rootRect.SetAsLastSibling();
             return true;
         }
@@ -99,6 +118,7 @@ internal sealed class NativeSelectionHighlighter
         _borderRoot.SetActive(false);
         UnityEngine.Object.Destroy(_borderRoot);
         _borderRoot = null;
+        _borderFollower = null;
     }
 
     private static void AddBar(
@@ -129,6 +149,15 @@ internal sealed class NativeSelectionHighlighter
 
     private static Component? ResolveTarget(NativeSelectionTarget target)
     {
+        if (string.Equals(
+                target.ComponentTypeName,
+                RandomModeVisibleFetterReader.ComponentTypeName,
+                StringComparison.Ordinal) &&
+            RandomModeVisibleFetterReader.TryResolve(target.InstanceId, null, out Component? visibleFetter))
+        {
+            return visibleFetter;
+        }
+
         Type? componentType = ResolveType(target.ComponentTypeName);
         if (componentType == null || !typeof(Component).IsAssignableFrom(componentType)) return null;
 
@@ -192,6 +221,64 @@ internal sealed class NativeSelectionHighlighter
 
         return path;
     }
+}
+
+internal sealed class NativeSelectionBorderFollower : MonoBehaviour
+{
+    private readonly Vector3[] _worldCorners = new Vector3[4];
+    private RectTransform? _target;
+    private RectTransform? _canvasRect;
+    private Canvas? _canvas;
+    private RectTransform? _borderRect;
+    private float _inset;
+
+    public void Initialize(RectTransform target, RectTransform canvasRect, Canvas canvas, float inset)
+    {
+        _target = target;
+        _canvasRect = canvasRect;
+        _canvas = canvas;
+        _borderRect = transform as RectTransform;
+        _inset = inset;
+    }
+
+    public bool Refresh()
+    {
+        if (_target == null || _canvasRect == null || _canvas == null || _borderRect == null ||
+            _target.gameObject == null || !_target.gameObject.activeInHierarchy)
+        {
+            if (gameObject.activeSelf) gameObject.SetActive(false);
+            return false;
+        }
+
+        Camera? camera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
+        _target.GetWorldCorners(_worldCorners);
+        Vector2 minimum = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 maximum = new(float.NegativeInfinity, float.NegativeInfinity);
+        for (int index = 0; index < _worldCorners.Length; index++)
+        {
+            Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, _worldCorners[index]);
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, camera, out Vector2 local))
+            {
+                return false;
+            }
+
+            minimum = Vector2.Min(minimum, local);
+            maximum = Vector2.Max(maximum, local);
+        }
+
+        minimum += new Vector2(_inset, _inset);
+        maximum -= new Vector2(_inset, _inset);
+        Vector2 size = maximum - minimum;
+        if (size.x <= 0f || size.y <= 0f) return false;
+
+        if (!gameObject.activeSelf) gameObject.SetActive(true);
+        _borderRect.anchoredPosition = (minimum + maximum) * 0.5f;
+        _borderRect.sizeDelta = size;
+        _borderRect.SetAsLastSibling();
+        return true;
+    }
+
+    private void LateUpdate() => Refresh();
 }
 
 internal sealed class NativeSelectionTarget

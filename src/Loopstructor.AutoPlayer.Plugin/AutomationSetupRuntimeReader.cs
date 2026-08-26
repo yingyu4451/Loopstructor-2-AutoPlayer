@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -12,12 +11,37 @@ namespace Loopstructor.AutoPlayer.Plugin;
 
 internal static class AutomationSetupRuntimeReader
 {
+    private const BindingFlags AllMembers = BindingFlags.Public | BindingFlags.NonPublic |
+                                            BindingFlags.Instance | BindingFlags.Static |
+                                            BindingFlags.FlattenHierarchy;
+    private static readonly object ReflectionSync = new();
+    private static readonly Dictionary<string, Type?> TypeCache = new(StringComparer.Ordinal);
+    private static readonly Dictionary<(Type Type, string Name), MemberInfo?> MemberCache = new();
+    private static readonly Dictionary<(Type Type, string Name), MethodInfo?> MethodCache = new();
+
     public static bool TryQuery(out JObject data, out string message)
     {
         data = new JObject();
         try
         {
             string sceneName = SceneManager.GetActiveScene().name ?? string.Empty;
+            bool atStartMenu = string.Equals(sceneName, "StartGameScene", StringComparison.OrdinalIgnoreCase);
+            if (!atStartMenu)
+            {
+                data = new JObject
+                {
+                    ["sceneName"] = sceneName,
+                    ["characters"] = new JArray(),
+                    ["modes"] = new JArray
+                    {
+                        Mode("common", "普通模式", false, "请回到开始菜单读取普通模式"),
+                        Mode("random", "随机模式", false, "请回到开始菜单读取随机模式")
+                    }
+                };
+                message = "当前不在开始菜单；已跳过新游戏目录读取。";
+                return true;
+            }
+
             IList? runtimeCharacters = ReadRuntimeCharacters();
             JArray characters = new();
             if (runtimeCharacters != null)
@@ -52,15 +76,12 @@ internal static class AutomationSetupRuntimeReader
                 }
             }
 
-            bool atStartMenu = string.Equals(sceneName, "StartGameScene", StringComparison.OrdinalIgnoreCase);
-            bool commonAvailable = atStartMenu && characters.Count > 0;
-            string commonReason = !atStartMenu
-                ? "请回到开始菜单读取普通模式"
-                : characters.Count == 0
+            bool commonAvailable = characters.Count > 0;
+            string commonReason = characters.Count == 0
                     ? "当前没有同时具备可用难度和初始遗物的已解锁角色"
                     : string.Empty;
 
-            bool randomEntryAvailable = atStartMenu && HasActiveComponent("StartGameButton");
+            bool randomEntryAvailable = HasActiveComponent("StartGameButton");
             int randomCharacterCount = InvokeStaticListCount(
                 "Systems.UISystem.RandomMode_Item_Character",
                 "BuildRandomModeCharacterCandidates");
@@ -72,9 +93,7 @@ internal static class AutomationSetupRuntimeReader
                 "GetRandomModeBasicFetterPool");
             bool randomAvailable = randomEntryAvailable && randomCharacterCount > 0 &&
                                    randomVehicleCount > 0 && randomFetterCount > 0;
-            string randomReason = !atStartMenu
-                ? "请回到开始菜单读取随机模式"
-                : !randomEntryAvailable
+            string randomReason = !randomEntryAvailable
                     ? "当前没有可用的随机模式入口"
                     : randomCharacterCount == 0
                         ? "当前没有可选角色"
@@ -140,7 +159,7 @@ internal static class AutomationSetupRuntimeReader
     private static bool IsUnlocked(object? condition)
     {
         if (condition == null) return true;
-        MethodInfo? method = AccessTools.Method(condition.GetType(), "IsUnLock", Type.EmptyTypes);
+        MethodInfo? method = ResolveNoArgumentMethod(condition.GetType(), "IsUnLock");
         return method?.Invoke(condition, null) as bool? == true;
     }
 
@@ -150,7 +169,7 @@ internal static class AutomationSetupRuntimeReader
     private static int InvokeStaticListCount(string typeName, string methodName)
     {
         Type? type = ResolveType(typeName);
-        MethodInfo? method = type == null ? null : AccessTools.Method(type, methodName, Type.EmptyTypes);
+        MethodInfo? method = type == null ? null : ResolveNoArgumentMethod(type, methodName);
         return method?.Invoke(null, null) is IList list ? list.Count : 0;
     }
 
@@ -166,14 +185,12 @@ internal static class AutomationSetupRuntimeReader
     private static object? ReadStaticSingleton(Type? type)
     {
         if (type == null) return null;
-        return AccessTools.Property(type, "Instance")?.GetValue(null, null) ??
-               AccessTools.Field(type, "Instance")?.GetValue(null) ??
-               AccessTools.Field(type, "instance")?.GetValue(null);
+        return ReadMemberValue(null, ResolveMember(type, "Instance")) ??
+               ReadMemberValue(null, ResolveMember(type, "instance"));
     }
 
     private static object? ReadMember(object target, string name) =>
-        AccessTools.Property(target.GetType(), name)?.GetValue(target, null) ??
-        AccessTools.Field(target.GetType(), name)?.GetValue(target);
+        ReadMemberValue(target, ResolveMember(target.GetType(), name));
 
     private static int ReadInt(object target, string name, int fallback) =>
         ReadMember(target, name) is int value ? value : fallback;
@@ -186,8 +203,8 @@ internal static class AutomationSetupRuntimeReader
         if (localized == null) return fallback;
         try
         {
-            MethodInfo? method = AccessTools.Method(localized.GetType(), "GetText", Type.EmptyTypes) ??
-                                 AccessTools.Method(localized.GetType(), "GetLocalizedString", Type.EmptyTypes);
+            MethodInfo? method = ResolveNoArgumentMethod(localized.GetType(), "GetText") ??
+                                 ResolveNoArgumentMethod(localized.GetType(), "GetLocalizedString");
             string? value = method?.Invoke(localized, null) as string;
             return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         }
@@ -197,8 +214,14 @@ internal static class AutomationSetupRuntimeReader
         }
     }
 
-    private static Type? ResolveType(string typeName) =>
-        AccessTools.TypeByName(typeName) ?? AppDomain.CurrentDomain.GetAssemblies()
+    private static Type? ResolveType(string typeName)
+    {
+        lock (ReflectionSync)
+        {
+            if (TypeCache.TryGetValue(typeName, out Type? cached)) return cached;
+        }
+
+        Type? resolved = Type.GetType(typeName, false) ?? AppDomain.CurrentDomain.GetAssemblies()
             .SelectMany(assembly =>
             {
                 try { return assembly.GetTypes(); }
@@ -207,4 +230,53 @@ internal static class AutomationSetupRuntimeReader
             .FirstOrDefault(type => type != null &&
                 (string.Equals(type.FullName, typeName, StringComparison.Ordinal) ||
                  string.Equals(type.Name, typeName, StringComparison.Ordinal)));
+        lock (ReflectionSync)
+        {
+            TypeCache[typeName] = resolved;
+        }
+
+        return resolved;
+    }
+
+    private static MemberInfo? ResolveMember(Type type, string name)
+    {
+        (Type Type, string Name) key = (type, name);
+        lock (ReflectionSync)
+        {
+            if (MemberCache.TryGetValue(key, out MemberInfo? cached)) return cached;
+        }
+
+        MemberInfo? resolved = type.GetProperty(name, AllMembers) ??
+                               (MemberInfo?)type.GetField(name, AllMembers);
+        lock (ReflectionSync)
+        {
+            MemberCache[key] = resolved;
+        }
+
+        return resolved;
+    }
+
+    private static MethodInfo? ResolveNoArgumentMethod(Type type, string name)
+    {
+        (Type Type, string Name) key = (type, name);
+        lock (ReflectionSync)
+        {
+            if (MethodCache.TryGetValue(key, out MethodInfo? cached)) return cached;
+        }
+
+        MethodInfo? resolved = type.GetMethod(name, AllMembers, null, Type.EmptyTypes, null);
+        lock (ReflectionSync)
+        {
+            MethodCache[key] = resolved;
+        }
+
+        return resolved;
+    }
+
+    private static object? ReadMemberValue(object? target, MemberInfo? member) => member switch
+    {
+        PropertyInfo property => property.GetValue(target, null),
+        FieldInfo field => field.GetValue(target),
+        _ => null
+    };
 }

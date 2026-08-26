@@ -875,7 +875,9 @@ internal sealed partial class MainForm : Window
                 ApplyStatus(response.Status);
             }
 
-            if (_sessionTrusted && DateTime.UtcNow >= _nextAutomationSetupQueryUtc)
+            if (_sessionTrusted &&
+                ShouldRefreshAutomationSetup(_status) &&
+                DateTime.UtcNow >= _nextAutomationSetupQueryUtc)
             {
                 await RefreshAutomationSetupAsync();
             }
@@ -894,6 +896,9 @@ internal sealed partial class MainForm : Window
             SetOperationAvailability();
         }
     }
+
+    internal static bool ShouldRefreshAutomationSetup(AutoPlayerStatus? status) =>
+        status?.RunState is not (AutoPlayerRunState.Running or AutoPlayerRunState.Paused);
 
     private async Task SendControlAsync(string command)
     {

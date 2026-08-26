@@ -1126,6 +1126,7 @@ internal sealed class AutoPlayController
     {
         if (!EnsureInGameRuntimeReady()) return;
         ObserveMapProgress();
+        if (TryContinueMapOpenAnimationWait()) return;
 
         // Once opening-defense preparation starts, it owns the frame. This prevents the normal
         // queryWave/queryMap polling path from stacking another runtime command beside a planner
@@ -1489,50 +1490,12 @@ internal sealed class AutoPlayController
             return false;
         }
 
-        float now = Time.realtimeSinceStartup;
         if (_mapPreviewOpenPending)
         {
-            if (!mapOpen)
-            {
-                ResetMapPreviewOpenWait();
-                InvalidateFullWaveQueryCache();
-                ScheduleNormalPoll();
-                SetStage(AutomationStage.SelectingRoute, "地图在预览完成前关闭；已取消本次预览，稍后重新读取路线状态。");
-                return true;
-            }
-
-            float elapsed = Math.Max(0f, now - _mapPreviewOpenRequestedAt);
-            bool animationReadable = _bridge.TryGetMapOpenAnimationProgress(
-                out bool animationObserved,
-                out bool animationCompleted,
-                out float normalizedTime);
-            bool animationObservedBefore = _mapPreviewOpenAnimationObserved;
-            bool animationReady = MapOpenAnimationPolicy.IsReady(
-                animationReadable,
-                animationObserved,
-                animationObservedBefore,
-                animationCompleted,
-                elapsed,
-                MapOpenAnimationFallbackSeconds);
-            _mapPreviewOpenAnimationObserved |= animationObserved;
-            if (!animationReady)
-            {
-                InvalidateFullWaveQueryCache();
-                ScheduleMapOpenAnimationPoll();
-                string progress = animationReadable && _mapPreviewOpenAnimationObserved
-                    ? $"（{Math.Min(100f, Math.Max(0f, normalizedTime * 100f)):0}%）"
-                    : string.Empty;
-                SetStage(AutomationStage.SelectingRoute, "游戏原生地图正在播放打开动画" + progress + "；动画结束后再显示目标节点。");
-                return true;
-            }
-
-            ResetMapPreviewOpenWait();
-            InvalidateFullWaveQueryCache();
-            ScheduleContinuationFrame();
-            SetStage(AutomationStage.SelectingRoute, "游戏原生地图打开动画已结束；正在重新读取节点并准备 1 秒绿色边框预览。");
-            return true;
+            return TryContinueMapOpenAnimationWait();
         }
 
+        float now = Time.realtimeSinceStartup;
         if (mapOpen)
         {
             bool animationReadable = _bridge.TryGetMapOpenAnimationProgress(
@@ -1581,6 +1544,43 @@ internal sealed class AutoPlayController
         InvalidateFullWaveQueryCache();
         ScheduleMapOpenAnimationPoll();
         SetStage(AutomationStage.SelectingRoute, "游戏原生地图已开始打开；等待原生过渡动画结束后再显示绿色边框。");
+        return true;
+    }
+
+    private bool TryContinueMapOpenAnimationWait()
+    {
+        if (!_mapPreviewOpenPending) return false;
+
+        float now = Time.realtimeSinceStartup;
+        float elapsed = Math.Max(0f, now - _mapPreviewOpenRequestedAt);
+        bool animationReadable = _bridge.TryGetMapOpenAnimationProgress(
+            out bool animationObserved,
+            out bool animationCompleted,
+            out float normalizedTime);
+        bool animationReady = MapOpenAnimationPolicy.IsReady(
+            animationReadable,
+            animationObserved,
+            _mapPreviewOpenAnimationObserved,
+            animationCompleted,
+            elapsed,
+            MapOpenAnimationFallbackSeconds);
+        _mapPreviewOpenAnimationObserved |= animationObserved;
+        if (!animationReady)
+        {
+            ScheduleMapOpenAnimationPoll();
+            string progress = animationReadable && _mapPreviewOpenAnimationObserved
+                ? $"（{Math.Min(100f, Math.Max(0f, normalizedTime * 100f)):0}%）"
+                : string.Empty;
+            SetStage(
+                AutomationStage.SelectingRoute,
+                "游戏原生地图正在播放打开动画" + progress + "；动画结束前暂停完整状态查询。");
+            return true;
+        }
+
+        ResetMapPreviewOpenWait();
+        InvalidateFullWaveQueryCache();
+        ScheduleContinuationFrame();
+        SetStage(AutomationStage.SelectingRoute, "游戏原生地图打开动画已结束；正在重新读取节点并准备 1 秒绿色边框预览。");
         return true;
     }
 

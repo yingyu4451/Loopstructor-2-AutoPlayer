@@ -8,6 +8,21 @@ namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class ManagerDemoTests
 {
+    [Theory]
+    [InlineData(AutoPlayerRunState.Running, false)]
+    [InlineData(AutoPlayerRunState.Paused, false)]
+    [InlineData(AutoPlayerRunState.Standby, true)]
+    [InlineData(AutoPlayerRunState.Completed, true)]
+    public void AutomationSetupRefresh_IsSuppressedDuringActiveRun(
+        AutoPlayerRunState runState,
+        bool expected)
+    {
+        Assert.Equal(expected, MainForm.ShouldRefreshAutomationSetup(new AutoPlayerStatus
+        {
+            RunState = runState
+        }));
+    }
+
     [Fact]
     public void AutomationSpeed_DefaultUsesNormalGameSpeed()
     {
