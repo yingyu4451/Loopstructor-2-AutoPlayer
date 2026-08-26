@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.34 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.35 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.34
+.\scripts\package.ps1 -Version 0.6.35
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.34-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.35-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -90,7 +90,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 玩家模式安装后，插件可从当前用户的本机控制注册进入后台待命，手动启动游戏也无需一次性票据。两种模式都由隐藏的独立运行时根对象持有控制通道，不再依赖会被游戏首次场景装载清理的 BepInEx 管理对象；场景切换若意外清除独立宿主，静态会话会在主线程重建它，而只有游戏进程真正退出才释放管道和补丁。该保护不会开始自动游玩，也不会为玩家模式启用存档、平台写入或诊断产物重定向。控制服务使用有界读写和四路监听，并且至少一个监听器成功绑定后才报告激活；耗时命令会释放监听通道，Manager 使用同一请求 ID 获取最终缓存结果，同一操作不会重复执行。
 
-战败、普通超时、只读查询失败或有界重试耗尽可以进入 Faulted，但不会因此设置 `NeedsProcessRestart`；修正现场后仍可在同一游戏进程中开始新一轮。只有写命令已经开始后结果不确定、当前结果明确返回 `statePolluted=true` / `needsReset=true`、无法验证部分写入已完整回滚，或隔离门禁失效时，才回传 `NeedsProcessRestart = true`。此时 Manager 显示“必须彻底重启”，禁用“开始”并在命令发送层再次拒绝 `start`。单纯执行过作弊写操作只会标记结果，不再触发该门禁。开发截图可使用 `--demo-restart-required` 复现真正的重启门禁；该参数隐含 demo 模式，不连接真实游戏。
+战败会在原生结算页确实出现后记录为 `Completed + Defeat`，不进入故障，也不要求重启；用户再次点击“开始”时，插件调用游戏原生“再来一局”入口并按当前设置重新开始。普通超时、只读查询失败或有界重试耗尽仍可进入 Faulted，但不会因此设置 `NeedsProcessRestart`。只有写命令已经开始后结果不确定、当前结果明确返回 `statePolluted=true` / `needsReset=true`、无法验证部分写入已完整回滚，或隔离门禁失效时，才回传 `NeedsProcessRestart = true`。此时 Manager 显示“必须彻底重启”，禁用“开始”并在命令发送层再次拒绝 `start`。单纯执行过作弊写操作只会标记结果，不再触发该门禁。开发截图可使用 `--demo-restart-required` 复现真正的重启门禁；该参数隐含 demo 模式，不连接真实游戏。
 
 安全握手通过后的运行按钮矩阵如下；“安装、启动测试包、更新”等管理按钮不属于此矩阵：
 
@@ -148,9 +148,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.34-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.35-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.35` 使用统一拓扑与几何验证器判定轨道，拒绝重复边、断裂、多连通分量、站点度数异常、自交及未包围基地的伪闭环；布局规划以始发站为首点按极角生成顺序并用 2-opt 消除交叉。地图节点提交后会等待站点集合稳定，再对新增或未入轨中继站触发一次完整防线维护。战败改为正常的 `Completed + Defeat` 结算，下一次开始通过游戏原生“再来一局”重新进入流程。轨道变化时会低频保存带编号与异常边标记的截图证据，但不会用像素识别驱动操作。本版本以 `v0.6.34` 作为相邻增量更新基线。
 
 `v0.6.34` 将 Manager 的游戏日志严格绑定到当前 Skyspine 进程：后台等待时不再回放旧 `Player.log`，附着到既有进程时只显示新写入内容，由 Manager 启动新游戏时将上一局轮换为 `Player.previous.log`。这会避免安装或重启后把旧版进程累积的 WARN/ERROR 误显示为当前插件故障。本版本以 `v0.6.33` 作为相邻增量更新基线。
 

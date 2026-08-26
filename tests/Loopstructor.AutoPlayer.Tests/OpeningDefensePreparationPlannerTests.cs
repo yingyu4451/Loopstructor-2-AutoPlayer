@@ -25,9 +25,9 @@ public sealed class OpeningDefensePreparationPlannerTests
         IReadOnlyList<OpeningDefenseGrid> ranked = OpeningDefenseGridRanker.Rank(candidates, anchors);
 
         Assert.Equal(3, ranked.Count);
-        Assert.Equal(new OpeningDefenseGrid(2, -1), ranked[0]);
-        Assert.Equal(new OpeningDefenseGrid(8, 8), ranked[1]);
-        Assert.Equal(new OpeningDefenseGrid(2, 1), ranked[2]);
+        Assert.Equal(new OpeningDefenseGrid(2, 1), ranked[0]);
+        Assert.Equal(new OpeningDefenseGrid(2, -1), ranked[1]);
+        Assert.Equal(new OpeningDefenseGrid(8, 8), ranked[2]);
     }
 
     [Fact]

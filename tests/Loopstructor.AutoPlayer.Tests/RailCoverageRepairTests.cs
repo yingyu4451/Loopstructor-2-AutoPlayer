@@ -59,8 +59,8 @@ public sealed class RailCoverageRepairTests
             {
                 new RailLayoutPoint(-4, 0),
                 new RailLayoutPoint(-3, 2),
-                new RailLayoutPoint(-3, -2),
-                new RailLayoutPoint(4, 0)
+                new RailLayoutPoint(4, 0),
+                new RailLayoutPoint(-3, -2)
             },
             stationCount: 4,
             loopCycleSeconds: 10d);

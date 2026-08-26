@@ -30,6 +30,8 @@ internal sealed class RuntimeBridge
     private PropertyInfo? _waveFunctionOptionFlowDescription;
     private PropertyInfo? _roomMapUiInstance;
     private Animator? _roomMapAnimator;
+    private PropertyInfo? _settlementUiInstance;
+    private MethodInfo? _settlementUiAgain;
 
     private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
@@ -162,6 +164,7 @@ internal sealed class RuntimeBridge
         InitializeWavePulseContract();
         InitializeWaveFunctionOptionFlowContract();
         InitializeMapAnimationContract();
+        InitializeSettlementRestartContract();
         _liveEnemyThreatReader.Initialize();
         MissingMembers = missing;
         IsAvailable = missing.Count == 0;
@@ -535,6 +538,54 @@ internal sealed class RuntimeBridge
         _roomMapUiInstance = mapType?.GetProperty(
             "Instance",
             BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+    }
+
+    private void InitializeSettlementRestartContract()
+    {
+        Type? settlementType = FindType("MetroTD.UISystem.SettlementUI");
+        _settlementUiInstance = settlementType?.GetProperty(
+            "Instance",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+        _settlementUiAgain = settlementType?.GetMethod(
+            "Again",
+            BindingFlags.Public | BindingFlags.Instance,
+            null,
+            Type.EmptyTypes,
+            null);
+    }
+
+    public bool TryRestartAfterDefeat(out string message)
+    {
+        if (_settlementUiInstance == null || _settlementUiAgain == null)
+        {
+            InitializeSettlementRestartContract();
+        }
+        if (_settlementUiInstance == null || _settlementUiAgain == null)
+        {
+            message = "当前游戏版本暂未提供可读取的原生再来一局入口。";
+            return false;
+        }
+
+        try
+        {
+            object? settlement = _settlementUiInstance.GetValue(null, null);
+            if (settlement == null || settlement is Component component && !component.gameObject.activeInHierarchy)
+            {
+                message = "正在等待失败结算页的原生再来一局入口可用。";
+                return false;
+            }
+            _settlementUiAgain.Invoke(settlement, Array.Empty<object>());
+            message = "已通过游戏原生再来一局入口开始新局。";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Exception actual = exception is TargetInvocationException target && target.InnerException != null
+                ? target.InnerException
+                : exception;
+            message = "原生再来一局入口暂时不可用：" + actual.Message;
+            return false;
+        }
     }
 
     private JObject AdaptRuntimeResult(object result)

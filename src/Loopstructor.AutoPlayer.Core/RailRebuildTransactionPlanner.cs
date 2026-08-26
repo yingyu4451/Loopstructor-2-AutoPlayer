@@ -87,6 +87,44 @@ public sealed class RailRebuildTransactionPlanner
         AutomationStage.Battle,
         "通过始发站的玩家右键语义断开闭环，并由游戏原生始发站缓存暂存车列。");
 
+    public bool ApplyStablePointOrder(
+        RailRebuildSnapshot snapshot,
+        JObject? railResult,
+        IReadOnlyList<int> orderedStablePointIds)
+    {
+        if (snapshot == null || orderedStablePointIds == null || orderedStablePointIds.Count < 3)
+            return false;
+        JObject? rail = Rails(railResult).SingleOrDefault(item =>
+            ReadInt(item["instanceId"]) == snapshot.RailInstanceId);
+        JObject[] stations = ((rail?["orderedStations"] as JArray) ?? (rail?["points"] as JArray))?
+            .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+        Dictionary<int, int> instanceByStableId = stations
+            .Select(item => new
+            {
+                StableId = ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))),
+                InstanceId = ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))
+            })
+            .Where(item => item.StableId != 0 && item.InstanceId != 0)
+            .GroupBy(item => item.StableId)
+            .ToDictionary(group => group.Key, group => group.First().InstanceId);
+        if (orderedStablePointIds.Distinct().Count() != orderedStablePointIds.Count ||
+            orderedStablePointIds.Any(id => !instanceByStableId.ContainsKey(id))) return false;
+        int[] orderedInstances = orderedStablePointIds.Select(id => instanceByStableId[id]).ToArray();
+        if (orderedInstances[0] != snapshot.OriginLinePointInstanceId) return false;
+        snapshot.OrderedPointIds = orderedStablePointIds.ToArray();
+        snapshot.OrderedLinePointInstanceIds = orderedInstances;
+        if (rail?["lines"] is JArray lines && lines.Count == stations.Length)
+        {
+            RailRuntimeValidation baseline = RailRuntimeTopologyInspector.InspectRail(rail);
+            if (!baseline.Loop.IsValid)
+            {
+                // A malformed baseline must never be restored after a failed repair attempt.
+                snapshot.OriginalOrderedLinePointInstanceIds = orderedInstances;
+            }
+        }
+        return true;
+    }
+
     public AutomationAction BuildPreviewAction(RailRebuildSnapshot snapshot)
     {
         JObject arguments = new()
@@ -274,6 +312,12 @@ public sealed class RailRebuildTransactionPlanner
         JObject rail = matches[0];
         if (rail["isLegalPlayerLoop"]?.Value<bool>() != true || rail["isLoop"]?.Value<bool>() != true)
             return Failure("目标轨道已经出现，但尚未形成合法闭环。", false);
+        if ((rail["lines"] as JArray)?.Count > 0)
+        {
+            RailRuntimeValidation topology = RailRuntimeTopologyInspector.InspectRail(rail);
+            if (!topology.Loop.IsValid)
+                return Failure("目标轨道是伪闭环：" + string.Join("；", topology.Loop.Errors), false);
+        }
         int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Where(id => id != 0).Distinct().OrderBy(id => id).ToArray()
                        ?? Array.Empty<int>();
         bool vehiclesRestored = snapshot.TrainInstanceIds.Count == 0 ||

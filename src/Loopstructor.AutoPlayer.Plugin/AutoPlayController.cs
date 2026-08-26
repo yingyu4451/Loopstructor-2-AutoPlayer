@@ -100,6 +100,14 @@ internal sealed class AutoPlayController
         VerifyReleased
     }
 
+    private enum PostMapTopologyObservationStep
+    {
+        None,
+        ReadStations,
+        ConfirmStations,
+        ValidateRails
+    }
+
     private const int MaxTimelineEvents = 500;
     private const float SaveVerificationTimeoutSeconds = 30f;
     private const float OutcomeVerificationTimeoutSeconds = 10f;
@@ -174,6 +182,7 @@ internal sealed class AutoPlayController
     private readonly List<TimelineEvent> _timeline = new();
     private readonly SceneTransitionGate _frontEndTransitionGate = new();
     private readonly NativeSelectionHighlighter _selectionHighlighter = new();
+    private readonly RailVisualVerifier _railVisualVerifier = new();
 
     private AutomationRunOptions _options = new();
     private AutoPlayerRunState _runState;
@@ -209,6 +218,14 @@ internal sealed class AutoPlayController
     private string _normalEventFingerprint = string.Empty;
     private int _normalEventProbeFailures;
     private AutomationAction? _pendingMapAction;
+    private AutomationAction? _deferredMapSelectionAction;
+    private string _preMapStationFingerprint = string.Empty;
+    private PostMapTopologyObservationStep _postMapTopologyObservationStep;
+    private string _postMapObservedStationFingerprint = string.Empty;
+    private JObject? _postMapObservedCatapults;
+    private float _postMapTopologyObservationStartedAt = -1f;
+    private int _mapSubmissionSequence;
+    private string _lastPostMapTopologyCheckpoint = string.Empty;
     private string _selectionHighlightOwner = string.Empty;
     private string _selectionHighlightFingerprint = string.Empty;
     private string _selectionPreviewFingerprint = string.Empty;
@@ -233,6 +250,7 @@ internal sealed class AutoPlayController
     private JObject? _rewardVehicleContextResult;
     private bool _wasInWave;
     private bool _wishReturnClicked;
+    private bool _restartFromDefeatSettlementPending;
     private bool _needsProcessRestart;
     private bool _cheatAvailable;
     private bool _cheatModeEnabled;
@@ -409,6 +427,8 @@ internal sealed class AutoPlayController
     {
         lock (_sync)
         {
+            bool restartFromDefeatSettlement =
+                _runState == AutoPlayerRunState.Completed && _outcome == AutomationOutcome.Defeat;
             if (_ownedPreviewReleaseOperation != OwnedPreviewReleaseOperation.None)
             {
                 message = "正在确认并清理由自动游玩创建的道具预览；清理完成前不能开始新的自动游玩。";
@@ -490,9 +510,13 @@ internal sealed class AutoPlayController
             _normalEventProbeRequired = true;
             ResetRewardOptionObservation();
             _pendingMapAction = null;
+            ResetPostMapTopologyObservation();
+            _deferredMapSelectionAction = null;
+            _preMapStationFingerprint = string.Empty;
             _wasInWave = false;
             _battleTrainIdentitiesMovedThisWave.Clear();
             _wishReturnClicked = false;
+            _restartFromDefeatSettlementPending = restartFromDefeatSettlement;
             _frontEndReadinessObserved = false;
             _gameModeVerified = false;
             _runtimeInitialized = false;
@@ -517,11 +541,14 @@ internal sealed class AutoPlayController
             _lastProgressAt = Time.realtimeSinceStartup;
             _nextTickAt = 0f;
             _evidenceDirectory = _evidence.CreateRunDirectory();
+            _railVisualVerifier.Reset();
             _rejectedDefenseExpansionPaths.Clear();
             _defenseExpansionSuspended = false;
             _timeline.Clear();
             AddTimeline("start", $"已使用{ModeDisplayName(_options.Mode)}模式开始自动游玩。");
-            message = "自动游玩已开始。";
+            message = restartFromDefeatSettlement
+                ? "自动游玩已开始，正在通过失败结算页的原生入口重新开始。"
+                : "自动游玩已开始。";
             return true;
         }
     }
@@ -764,6 +791,23 @@ internal sealed class AutoPlayController
             ? Math.Max(MinimumBattlePollIntervalSeconds, configuredInterval)
             : configuredInterval;
         _nextTickAt = Time.realtimeSinceStartup + tickInterval;
+
+        if (_restartFromDefeatSettlementPending)
+        {
+            if (_bridge.TryRestartAfterDefeat(out string restartMessage))
+            {
+                _restartFromDefeatSettlementPending = false;
+                GameOutcomeObserver.Reset();
+                _gameOverDetectedAt = -1f;
+                _frontEndTransitionGate.Reset();
+                _runtimeInitialized = false;
+                _frontEndReadinessObserved = false;
+                MarkProgress();
+                AddTimeline("restart", restartMessage);
+            }
+            SetStage(AutomationStage.FrontEnd, restartMessage);
+            return;
+        }
 
         string activeScene = activeSceneInfo.name;
         if (_defensePendingDisposableMutationGuard.IsArmed)
@@ -1167,9 +1211,18 @@ internal sealed class AutoPlayController
             return;
         }
 
+        if (_deferredMapSelectionAction != null)
+        {
+            AutomationAction deferredMapSelection = _deferredMapSelectionAction;
+            _deferredMapSelectionAction = null;
+            Execute(deferredMapSelection);
+            return;
+        }
+
         if (TryHandleNormalEventUi()) return;
         if (TryHandleObservedWave()) return;
         if (TryHandlePendingMapSelection()) return;
+        if (TryObservePostMapTopology()) return;
         if (_defensePrepared &&
             _defenseMaintenanceRequested &&
             _defenseMaintenanceReady &&
@@ -1837,6 +1890,7 @@ internal sealed class AutoPlayController
         bool completedTransition = _frontEndTransitionGate.ObserveScene(sceneName);
         _scene = sceneName;
         _sceneHandle = sceneHandle;
+        _railVisualVerifier.Reset();
         _defensePrepared = false;
         ResetOpeningDefensePreparation();
         _speedConfigured = !_options.OverrideGameSpeed;
@@ -1851,6 +1905,9 @@ internal sealed class AutoPlayController
         _rewardObjectCollectionLedger.Clear();
         ResetRewardOptionObservation();
         _pendingMapAction = null;
+        _deferredMapSelectionAction = null;
+        _preMapStationFingerprint = string.Empty;
+        ResetPostMapTopologyObservation();
         ClearSelectionHighlight();
         _deferredFrontEndAction = null;
         _pendingRandomFetterEnum = string.Empty;
@@ -2252,6 +2309,21 @@ internal sealed class AutoPlayController
                 {
                     return;
                 }
+
+                if (TryInvokeOptionalReadOnly("queryCatapults", null, out JObject preMapCatapults))
+                {
+                    _preMapStationFingerprint = BuildStationFingerprint(preMapCatapults);
+                }
+                else
+                {
+                    _preMapStationFingerprint = string.Empty;
+                }
+                _deferredMapSelectionAction = action;
+                ScheduleContinuationFrame();
+                SetStage(
+                    AutomationStage.SelectingRoute,
+                    "已记录选择前的站点拓扑；下一帧提交地图节点，之后等待新中继站生成稳定。");
+                return;
             }
 
             Execute(action);
@@ -3666,6 +3738,15 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseRailExpansionBaseline = expansionRailState;
+                RailRuntimeTopologyInspection baselineTopology =
+                    RailRuntimeTopologyInspector.Inspect(expansionRailState);
+                if (baselineTopology.HasRails && !baselineTopology.AllValid)
+                {
+                    _defenseRailMaintenanceStableLayoutFingerprint = string.Empty;
+                    AddWarning(
+                        "检测到现有轨道不是合法简单闭环，将忽略旧连接顺序并执行完整重规划：" +
+                        baselineTopology.Detail);
+                }
                 _defenseRailMaintenanceLayoutFingerprint =
                     BuildDefenseRailMaintenanceLayoutFingerprint(
                         expansionRailState,
@@ -3823,7 +3904,8 @@ internal sealed class AutoPlayController
                 AddTimeline(
                     "rail-layout-plan",
                     BuildJointRailLayoutPlanTimeline(_defenseJointLayoutPlan));
-                if (_defenseBattleSpecialMoveOnly && _bridge.HasCommand("deleteLinePoint"))
+                if ((_defenseBattleSpecialMoveOnly || _defenseJointLayoutPlan.RequiresReconnect) &&
+                    _bridge.HasCommand("deleteLinePoint"))
                 {
                     _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
                         _defenseRailExpansionBaseline,
@@ -3833,6 +3915,17 @@ internal sealed class AutoPlayController
                     {
                         MarkDefenseRailMaintenanceStable();
                         FinishDefenseMaintenance("联合布局已算出，但无法建立始发站重连快照；没有发送任何移动。", warning: true);
+                        return true;
+                    }
+                    if (!_railRebuildPlanner.ApplyStablePointOrder(
+                            _defenseRailRebuildSnapshot,
+                            _defenseRailExpansionBaseline,
+                            _defenseJointLayoutPlan.OrderedStablePointIds))
+                    {
+                        MarkDefenseRailMaintenanceStable();
+                        FinishDefenseMaintenance(
+                            "联合布局无法把稳定站点顺序映射到当前运行时实例；没有发送断环命令。",
+                            warning: true);
                         return true;
                     }
                     _defenseRailRebuildRecoveryAttempted = false;
@@ -4990,6 +5083,27 @@ internal sealed class AutoPlayController
                     return true;
                 }
                 _defenseVerifiedRailResult = rebuiltRails;
+                RailRuntimeTopologyInspection rebuiltTopology =
+                    RailRuntimeTopologyInspector.Inspect(rebuiltRails);
+                CaptureRailVisualEvidenceIfChanged(rebuiltRails, rebuiltTopology);
+                if (rebuiltTopology.HasRails && !rebuiltTopology.AllValid)
+                {
+                    _defenseStructuralMutationGuard.Reset();
+                    if (_defenseRailRebuildRecoveryAttempted)
+                    {
+                        FinishDefenseMaintenance(
+                            "安全恢复后的实际线段仍未形成简单闭环，但运行时没有明确报告污染；" +
+                            "已停止本轮并等待重新读取，不会重复绘制。" + rebuiltTopology.Detail,
+                            warning: true);
+                    }
+                    else
+                    {
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.RecoverRailRebuild;
+                        ScheduleDefenseMaintenanceStep(
+                            "实际线段未通过简单闭环验收；将按安全顺序只恢复一次。" + rebuiltTopology.Detail);
+                    }
+                    return true;
+                }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildVehicles;
                 ScheduleDefenseMaintenanceStep("已读取重连轨道；下一帧核对始发站恢复的原战车身份。");
                 return true;
@@ -5716,6 +5830,10 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
+                RailRuntimeTopologyInspection currentTopology =
+                    RailRuntimeTopologyInspector.Inspect(currentRails);
+                CaptureRailVisualEvidenceIfChanged(currentRails, currentTopology);
+
                 DefenseExpansionRailVerification railVerification =
                     _battleDecisionEngine.VerifyDefenseExpansionRail(
                         _defenseRailBaselineResult,
@@ -5725,6 +5843,17 @@ internal sealed class AutoPlayController
                         _defenseExpectedRailInstanceId);
                 if (railVerification.Verified && railVerification.Rail != null)
                 {
+                    RailRuntimeValidation exactRailTopology =
+                        RailRuntimeTopologyInspector.InspectRail(railVerification.Rail);
+                    if (!exactRailTopology.Loop.IsValid)
+                    {
+                        _defenseExpansionSuspended = true;
+                        FinishDefenseMaintenance(
+                            "新增轨道实例存在，但实际线段不是包围基地的简单闭环；本局已停止重复扩建：" +
+                            string.Join("；", exactRailTopology.Loop.Errors),
+                            warning: true);
+                        return true;
+                    }
                     _defenseVerifiedRailResult = new JObject
                     {
                         ["rail"] = railVerification.Rail.DeepClone()
@@ -8289,6 +8418,9 @@ internal sealed class AutoPlayController
         _deferredRewardAction = null;
         _deferredSettlementAction = null;
         _pendingMapAction = null;
+        _deferredMapSelectionAction = null;
+        _preMapStationFingerprint = string.Empty;
+        ResetPostMapTopologyObservation();
         _pendingMapDecisionState = null;
         _pendingOpeningVehicleState = null;
     }
@@ -8327,14 +8459,7 @@ internal sealed class AutoPlayController
         }
 
         AutomationOutcome observedOutcome = GameOutcomeObserver.Outcome;
-        if (observedOutcome == AutomationOutcome.Defeat)
-        {
-            _outcome = AutomationOutcome.Defeat;
-            Fault("已观察到游戏失败事件；本轮自动游玩没有获胜。");
-            return;
-        }
-
-        if (observedOutcome != AutomationOutcome.Victory)
+        if (observedOutcome is not (AutomationOutcome.Victory or AutomationOutcome.Defeat))
         {
             if (Time.realtimeSinceStartup - _gameOverDetectedAt >= OutcomeVerificationTimeoutSeconds)
             {
@@ -8346,7 +8471,7 @@ internal sealed class AutoPlayController
             return;
         }
 
-        _outcome = AutomationOutcome.Victory;
+        _outcome = observedOutcome;
 
         if (_deferredSettlementAction != null)
         {
@@ -8376,7 +8501,15 @@ internal sealed class AutoPlayController
         _consecutiveFailures = 0;
         if (RuntimeResultInspector.HasActiveSettlementInteractable(interactables))
         {
-            Complete("已通过可交互的结算界面确认本局结束。");
+            Complete(observedOutcome == AutomationOutcome.Defeat
+                ? "已通过可交互的失败结算界面确认本局结束；可从 Manager 再次开始。"
+                : "已通过可交互的胜利结算界面确认本局结束。");
+            return;
+        }
+
+        if (observedOutcome == AutomationOutcome.Defeat)
+        {
+            SetStage(AutomationStage.Completed, "已确认游戏失败，正在等待可交互的失败结算界面。");
             return;
         }
 
@@ -8621,6 +8754,8 @@ internal sealed class AutoPlayController
         {
             if (RuntimeResultInspector.IsSuccess(result))
             {
+                if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
+                    BeginPostMapTopologyObservation();
                 _pendingActionKey = actionKey;
                 if (IsRewardPanelCommand(action.Command) && !rewardSelectionCommand) ResetRewardOptionObservation();
                 if (IsRewardAcquisitionCommand(action.Command) && !rewardSelectionCommand) RequestDefenseMaintenance();
@@ -8647,6 +8782,7 @@ internal sealed class AutoPlayController
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase) &&
             !RuntimeResultInspector.HasCommittedMapNode(result))
         {
+            BeginPostMapTopologyObservation();
             _consecutiveFailures = 0;
             _mapSelectionPending = true;
             _mapSelectionPendingAt = Time.realtimeSinceStartup;
@@ -8672,6 +8808,7 @@ internal sealed class AutoPlayController
 
         if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
         {
+            BeginPostMapTopologyObservation();
             _mapSelectionPending = !_pendingSublevel;
             _mapSelectionPendingAt = _mapSelectionPending ? Time.realtimeSinceStartup : -1f;
             ResetEventOptionObservation();
@@ -8785,6 +8922,144 @@ internal sealed class AutoPlayController
             panelName + "选项已经点击，正在等待完整界面快照证明目标选项消失；不会重复点击。");
         return true;
     }
+
+    private void BeginPostMapTopologyObservation()
+    {
+        if (_postMapTopologyObservationStep != PostMapTopologyObservationStep.None) return;
+        _mapSubmissionSequence++;
+        _postMapTopologyObservationStep = PostMapTopologyObservationStep.ReadStations;
+        _postMapObservedStationFingerprint = string.Empty;
+        _postMapObservedCatapults = null;
+        _postMapTopologyObservationStartedAt = Time.realtimeSinceStartup;
+    }
+
+    private bool TryObservePostMapTopology()
+    {
+        if (_postMapTopologyObservationStep == PostMapTopologyObservationStep.None) return false;
+        if (_mapSelectionPending || _pendingSublevel || !string.IsNullOrWhiteSpace(_pendingEventPanel)) return false;
+
+        if (_postMapTopologyObservationStartedAt >= 0f &&
+            Time.realtimeSinceStartup - _postMapTopologyObservationStartedAt >= MapSelectionTransitionTimeoutSeconds)
+        {
+            AddWarning("地图节点后的站点生成在安全时限内没有稳定；已安排一次完整防线重读。" );
+            ResetPostMapTopologyObservation();
+            RequestDefenseMaintenance();
+            _defenseMaintenanceReady = true;
+            return true;
+        }
+
+        if (_postMapTopologyObservationStep is PostMapTopologyObservationStep.ReadStations or
+            PostMapTopologyObservationStep.ConfirmStations)
+        {
+            if (!TryInvokeOptionalReadOnly("queryCatapults", null, out JObject catapults))
+            {
+                ScheduleContinuationFrame();
+                SetStage(AutomationStage.SelectingRoute, "正在等待地图节点产生的站点可以稳定读取。" );
+                return true;
+            }
+
+            string fingerprint = BuildStationFingerprint(catapults);
+            if (_postMapTopologyObservationStep == PostMapTopologyObservationStep.ReadStations ||
+                !string.Equals(fingerprint, _postMapObservedStationFingerprint, StringComparison.Ordinal))
+            {
+                _postMapObservedStationFingerprint = fingerprint;
+                _postMapObservedCatapults = catapults;
+                _postMapTopologyObservationStep = PostMapTopologyObservationStep.ConfirmStations;
+                ScheduleContinuationFrame();
+                SetStage(AutomationStage.SelectingRoute, "已读取地图后的站点集合；下一帧再次确认生成已经稳定。" );
+                return true;
+            }
+
+            _postMapObservedCatapults = catapults;
+            _postMapTopologyObservationStep = PostMapTopologyObservationStep.ValidateRails;
+            ScheduleContinuationFrame();
+            SetStage(AutomationStage.SelectingRoute, "地图后的站点集合已连续两次一致；正在验证实际闭环。" );
+            return true;
+        }
+
+        if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject railResult))
+        {
+            ScheduleContinuationFrame();
+            SetStage(AutomationStage.SelectingRoute, "正在等待地图后的轨道拓扑可读取。" );
+            return true;
+        }
+
+        RailRuntimeTopologyInspection topology = RailRuntimeTopologyInspector.Inspect(railResult);
+        CaptureRailVisualEvidenceIfChanged(railResult, topology);
+        string checkpoint = _mapSubmissionSequence + ":" + _postMapObservedStationFingerprint + ":" + topology.Fingerprint;
+        bool stationChanged = !string.Equals(
+            _preMapStationFingerprint,
+            _postMapObservedStationFingerprint,
+            StringComparison.Ordinal);
+        bool unassignedStation = HasUnassignedActiveStation(_postMapObservedCatapults);
+        bool needsMaintenance = stationChanged || unassignedStation || !topology.AllValid;
+        bool duplicate = string.Equals(checkpoint, _lastPostMapTopologyCheckpoint, StringComparison.Ordinal);
+        ResetPostMapTopologyObservation();
+        if (!duplicate) _lastPostMapTopologyCheckpoint = checkpoint;
+        if (needsMaintenance && !duplicate)
+        {
+            RequestDefenseMaintenance();
+            _defenseMaintenanceReady = true;
+            AddTimeline(
+                "post-map-topology",
+                "地图节点后的拓扑已稳定；" +
+                (stationChanged ? "检测到站点集合变化；" : string.Empty) +
+                (unassignedStation ? "检测到未接入闭环的站点；" : string.Empty) +
+                (!topology.AllValid ? topology.Detail : "现有闭环合法；") +
+                "已安排一次完整联合布局规划。" );
+        }
+        else
+        {
+            AddTimeline("post-map-topology", duplicate
+                ? "地图后的站点和轨道指纹已处理过，不重复重连。"
+                : "地图后的站点与闭环均未变化，无需重连。" );
+        }
+        ScheduleContinuationFrame();
+        return true;
+    }
+
+    private void ResetPostMapTopologyObservation()
+    {
+        _postMapTopologyObservationStep = PostMapTopologyObservationStep.None;
+        _postMapObservedStationFingerprint = string.Empty;
+        _postMapObservedCatapults = null;
+        _postMapTopologyObservationStartedAt = -1f;
+    }
+
+    private static string BuildStationFingerprint(JObject? catapultResult)
+    {
+        return string.Join("|", ((State(catapultResult)["catapults"] as JArray)?.OfType<JObject>() ??
+            Enumerable.Empty<JObject>())
+            .Where(item => item["active"]?.Value<bool>() != false)
+            .Select(item => new
+            {
+                PointId = item["pointId"]?.Value<int?>() ??
+                          item["linePointInstanceId"]?.Value<int?>() ??
+                          item["instanceId"]?.Value<int?>() ?? 0,
+                X = item.SelectToken("grid.x")?.Value<int?>() ?? int.MinValue,
+                Y = item.SelectToken("grid.y")?.Value<int?>() ?? int.MinValue,
+                Attribute = item["isAttribute"]?.Value<bool>() == true,
+                Membership = item["railMembershipCount"]?.Value<int?>() ?? 0
+            })
+            .OrderBy(item => item.PointId).ThenBy(item => item.X).ThenBy(item => item.Y)
+            .Select(item => $"{item.PointId}:{item.X},{item.Y}:{(item.Attribute ? 1 : 0)}:{item.Membership}"));
+    }
+
+    private static bool HasUnassignedActiveStation(JObject? catapultResult) =>
+        ((State(catapultResult)["catapults"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+        .Any(item => item["active"]?.Value<bool>() != false &&
+                     (item["linePointInstanceId"]?.Value<int?>() ?? 0) != 0 &&
+                     (item["railMembershipCount"]?.Value<int?>() ?? 0) == 0);
+
+    private void CaptureRailVisualEvidenceIfChanged(
+        JObject railResult,
+        RailRuntimeTopologyInspection topology) =>
+        _railVisualVerifier.CaptureIfChanged(
+            railResult,
+            topology,
+            EnsureEvidenceDirectory(),
+            _evidence,
+            _log);
 
     private bool HandleWaveFunctionOptionSettlementFromWaveState(JObject state, JArray blockers)
     {
@@ -9729,9 +10004,9 @@ internal sealed class AutoPlayController
 
     private void Complete(string reason)
     {
-        if (_outcome != AutomationOutcome.Victory)
+        if (_outcome is not (AutomationOutcome.Victory or AutomationOutcome.Defeat))
         {
-            Fault("拒绝把未验证为胜利的运行标记为完成：" + reason);
+            Fault("拒绝把未验证胜负结果的运行标记为完成：" + reason);
             return;
         }
 

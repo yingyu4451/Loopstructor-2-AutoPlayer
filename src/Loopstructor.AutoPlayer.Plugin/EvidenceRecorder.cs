@@ -1,5 +1,9 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Loopstructor.AutoPlayer.Core;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -63,6 +67,49 @@ internal sealed class EvidenceRecorder
         return CaptureScreenshot(directory, timestamp + "-complete");
     }
 
+    public void CaptureRailTopology(
+        string directory,
+        string fingerprint,
+        RailRuntimeTopologyInspection topology,
+        IReadOnlyList<RailVisualNode> nodes,
+        IReadOnlyList<RailVisualEdge> edges,
+        RailLoopValidationResult? screenValidation,
+        string projectionMessage)
+    {
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Directory.CreateDirectory(directory);
+        string timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
+        string stem = timestamp + "-rail-topology";
+        string screenshot = CaptureScreenshot(directory, stem);
+        AtomicWrite(Path.Combine(directory, stem + ".json"), JsonConvert.SerializeObject(new
+        {
+            fingerprint,
+            topology,
+            projectionMessage,
+            screenValidation,
+            nodes,
+            edges
+        }, Formatting.Indented));
+
+        int width = Math.Max(1, Screen.width);
+        int height = Math.Max(1, Screen.height);
+        StringBuilder svg = new();
+        svg.AppendLine($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">");
+        svg.AppendLine($"<image href=\"{Path.GetFileName(screenshot)}\" width=\"{width}\" height=\"{height}\" />");
+        foreach (RailVisualEdge edge in edges)
+        {
+            string color = edge.IsValid ? "#79D53B" : "#E2473F";
+            svg.AppendLine($"<line x1=\"{edge.FromX:0.##}\" y1=\"{edge.FromY:0.##}\" x2=\"{edge.ToX:0.##}\" y2=\"{edge.ToY:0.##}\" stroke=\"{color}\" stroke-width=\"3\" />");
+        }
+        foreach (RailVisualNode node in nodes)
+        {
+            svg.AppendLine($"<circle cx=\"{node.X:0.##}\" cy=\"{node.Y:0.##}\" r=\"10\" fill=\"#11110F\" stroke=\"#D7A84B\" stroke-width=\"2\" />");
+            svg.AppendLine($"<text x=\"{node.X:0.##}\" y=\"{node.Y + 5:0.##}\" fill=\"#FFFFFF\" text-anchor=\"middle\" font-size=\"12\">{node.PointId}</text>");
+        }
+        svg.AppendLine("</svg>");
+        AtomicWrite(Path.Combine(directory, stem + "-overlay.svg"), svg.ToString());
+    }
+
     public static void AtomicWrite(string path, string content)
     {
         string temp = path + ".tmp";
@@ -86,4 +133,22 @@ internal sealed class EvidenceRecorder
 
         return screenshot;
     }
+}
+
+internal sealed class RailVisualNode
+{
+    public int PointId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+}
+
+internal sealed class RailVisualEdge
+{
+    public int FromPointId { get; set; }
+    public int ToPointId { get; set; }
+    public double FromX { get; set; }
+    public double FromY { get; set; }
+    public double ToX { get; set; }
+    public double ToY { get; set; }
+    public bool IsValid { get; set; }
 }

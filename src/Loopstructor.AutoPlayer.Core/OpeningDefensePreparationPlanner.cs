@@ -939,6 +939,13 @@ public sealed class OpeningDefensePreparationPlanner
             _expectedRailInstanceId);
         if (verification.Verified && verification.Rail != null)
         {
+            RailRuntimeValidation topology = RailRuntimeTopologyInspector.InspectRail(verification.Rail);
+            if (HasVerifiableRuntimeGeometry(verification.Rail) && !topology.Loop.IsValid)
+            {
+                Fail("游戏返回的开局轨道不是包围基地的简单闭环：" +
+                     string.Join("；", topology.Loop.Errors));
+                return;
+            }
             _expectedRailInstanceId = verification.RailInstanceId;
             _verifiedRailResult = new JObject { ["rail"] = verification.Rail.DeepClone() };
             if (finalCheck)
@@ -971,6 +978,17 @@ public sealed class OpeningDefensePreparationPlanner
         }
 
         Fail(verification.Detail + " 已保留现场并拒绝重画或删除轨道。");
+    }
+
+    private static bool HasVerifiableRuntimeGeometry(JObject rail)
+    {
+        JObject[] stations = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+        JObject[] lines = (rail["lines"] as JArray)?.OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+        return stations.Length >= 3 && lines.Length >= 3 &&
+               stations.All(station => station.SelectToken("grid.x") != null && station.SelectToken("grid.y") != null) &&
+               lines.All(line => line.SelectToken("from.x") != null && line.SelectToken("from.y") != null &&
+                                 line.SelectToken("to.x") != null && line.SelectToken("to.y") != null);
     }
 
     private void ObservePlacementTrain(JObject? result, bool accepted)

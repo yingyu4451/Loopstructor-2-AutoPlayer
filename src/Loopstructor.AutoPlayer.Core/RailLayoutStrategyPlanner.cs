@@ -35,6 +35,7 @@ public readonly struct RailLayoutPoint : IEquatable<RailLayoutPoint>
 public sealed class RailLayoutScore
 {
     public bool IsValid { get; set; }
+    public bool IsSimpleCycle { get; set; }
     public bool EncirclesBase { get; set; }
     public int CoveredQuadrants { get; set; }
     public double AngularCoverageDegrees { get; set; }
@@ -118,22 +119,30 @@ public static class RailLayoutStrategyPlanner
     {
         RailLayoutPoint[] rawPoints = points?.ToArray() ?? Array.Empty<RailLayoutPoint>();
         bool[] rawKinds = isAttribute?.ToArray() ?? Array.Empty<bool>();
-        List<RailLayoutPoint> uniquePoints = new();
-        List<bool> uniqueKinds = new();
+        List<RailLayoutPoint> orderedPoints = new();
+        List<bool> orderedKinds = new();
         for (int index = 0; index < rawPoints.Length; index++)
         {
             RailLayoutPoint point = rawPoints[index];
-            if (!IsFinite(point) || uniquePoints.Contains(point)) continue;
-            uniquePoints.Add(point);
-            uniqueKinds.Add(index < rawKinds.Length && rawKinds[index]);
+            if (!IsFinite(point)) continue;
+            orderedPoints.Add(point);
+            orderedKinds.Add(index < rawKinds.Length && rawKinds[index]);
         }
-        RailLayoutPoint[] source = uniquePoints.ToArray();
+        RailLayoutPoint[] source = orderedPoints.ToArray();
         if (source.Length < 3 || stationCount < 1 || !IsPositiveFinite(loopCycleSeconds))
         {
             return new RailLayoutScore();
         }
 
-        RailLayoutPoint[] hull = BuildConvexHull(source);
+        RailLoopValidationResult geometry = RailLoopValidator.ValidateOrdered(
+            source.Select((point, index) => new RailLoopNode
+            {
+                Id = index + 1,
+                IsAttribute = orderedKinds.Count == source.Length && orderedKinds.Count(kind => kind) == 1
+                    ? orderedKinds[index]
+                    : index == 0,
+                Point = point
+            }));
         double loopLength = CalculateClosedLength(source);
         double maxAngularGap = CalculateMaxAngularGap(source);
         double angularCoverage = Math.Max(0d, 360d - maxAngularGap);
@@ -152,8 +161,9 @@ public static class RailLayoutStrategyPlanner
 
         return new RailLayoutScore
         {
-            IsValid = hull.Length >= 3 && loopLength > Epsilon,
-            EncirclesBase = hull.Length >= 3 && ContainsOrigin(hull),
+            IsValid = geometry.IsSingleCycle && geometry.IsSimpleGeometry && loopLength > Epsilon,
+            IsSimpleCycle = geometry.IsSingleCycle && geometry.IsSimpleGeometry,
+            EncirclesBase = geometry.EncirclesBase,
             CoveredQuadrants = coveredQuadrants,
             AngularCoverageDegrees = angularCoverage,
             MaxAngularGapDegrees = maxAngularGap,
@@ -163,15 +173,15 @@ public static class RailLayoutStrategyPlanner
             StationCount = stationCount,
             LoopCycleSeconds = loopCycleSeconds,
             TriggerRate = stationCount / loopCycleSeconds,
-            SpacingRulesKnown = spacingRules.IsKnown && uniqueKinds.Count == source.Length,
-            AdjacentSpacingSurpluses = spacingRules.IsKnown && uniqueKinds.Count == source.Length
-                ? CalculateSpacingSurpluses(source, uniqueKinds, spacingRules)
+            SpacingRulesKnown = spacingRules.IsKnown && orderedKinds.Count == source.Length,
+            AdjacentSpacingSurpluses = spacingRules.IsKnown && orderedKinds.Count == source.Length
+                ? CalculateSpacingSurpluses(source, orderedKinds, spacingRules)
                 : Array.Empty<double>(),
             DefenseUtility = CalculateDefenseUtility(
                 stationCount / loopCycleSeconds,
                 coveredQuadrants,
                 angularCoverage,
-                hull.Length >= 3 && ContainsOrigin(hull))
+                geometry.EncirclesBase)
         };
     }
 
@@ -371,7 +381,8 @@ public static class RailLayoutStrategyPlanner
 
     public static bool IsStrictDefenseImprovement(RailLayoutScore baseline, RailLayoutScore candidate)
     {
-        if (!baseline.IsValid || !candidate.IsValid) return false;
+        if (!candidate.IsValid) return false;
+        if (!baseline.IsValid) return true;
         int coverage = CompareCoverage(candidate, baseline);
         if (coverage < 0) return true;
         if (coverage > 0) return false;
@@ -382,15 +393,14 @@ public static class RailLayoutStrategyPlanner
         IEnumerable<RailLoopPointCandidate> selected,
         int attributeInstanceId)
     {
-        RailLoopPointCandidate[] polar = selected
-            .OrderBy(candidate => PolarAngle(candidate.Grid))
-            .ThenBy(candidate => RadiusSquared(candidate.Grid))
-            .ThenBy(candidate => candidate.InstanceId)
+        RailLoopPointCandidate[] source = selected
+            .Where(candidate => candidate != null && candidate.InstanceId != 0 && IsFinite(candidate.Grid))
+            .GroupBy(candidate => candidate.InstanceId)
+            .Select(group => group.First())
             .ToArray();
-        int attributeIndex = Array.FindIndex(polar, candidate => candidate.InstanceId == attributeInstanceId);
-        RailLoopPointCandidate[] ordered = attributeIndex <= 0
-            ? polar
-            : polar.Skip(attributeIndex).Concat(polar.Take(attributeIndex)).ToArray();
+        IReadOnlyList<int> orderedIds = OrderSimplePlayerLoop(source, attributeInstanceId);
+        Dictionary<int, RailLoopPointCandidate> byId = source.ToDictionary(candidate => candidate.InstanceId);
+        RailLoopPointCandidate[] ordered = orderedIds.Where(byId.ContainsKey).Select(id => byId[id]).ToArray();
         RailLayoutPoint[] grids = ordered.Select(candidate => candidate.Grid).ToArray();
         return new RailLoopPlan
         {
@@ -398,6 +408,57 @@ public static class RailLayoutStrategyPlanner
             OrderedPoints = grids,
             Score = EvaluateEstimated(grids)
         };
+    }
+
+    public static IReadOnlyList<int> OrderSimplePlayerLoop(
+        IEnumerable<RailLoopPointCandidate>? candidates,
+        int attributeInstanceId)
+    {
+        RailLoopPointCandidate[] polar = (candidates ?? Enumerable.Empty<RailLoopPointCandidate>())
+            .Where(candidate => candidate != null && candidate.InstanceId != 0 && IsFinite(candidate.Grid))
+            .GroupBy(candidate => candidate.InstanceId)
+            .Select(group => group.First())
+            .OrderBy(candidate => PolarAngle(candidate.Grid))
+            .ThenBy(candidate => RadiusSquared(candidate.Grid))
+            .ThenBy(candidate => candidate.InstanceId)
+            .ToArray();
+        int attributeIndex = Array.FindIndex(polar, candidate => candidate.InstanceId == attributeInstanceId);
+        if (attributeIndex < 0 || polar.Length < 3) return Array.Empty<int>();
+        RailLoopPointCandidate[] clockwise = attributeIndex == 0
+            ? polar
+            : polar.Skip(attributeIndex).Concat(polar.Take(attributeIndex)).ToArray();
+        clockwise = ImproveWithTwoOpt(clockwise);
+        RailLoopPointCandidate[] counterClockwise = new[] { clockwise[0] }
+            .Concat(clockwise.Skip(1).Reverse())
+            .ToArray();
+        int[] clockwiseIds = clockwise.Select(candidate => candidate.InstanceId).ToArray();
+        int[] counterClockwiseIds = counterClockwise.Select(candidate => candidate.InstanceId).ToArray();
+        return CompareIdentity(clockwiseIds, counterClockwiseIds) <= 0 ? clockwiseIds : counterClockwiseIds;
+    }
+
+    private static RailLoopPointCandidate[] ImproveWithTwoOpt(RailLoopPointCandidate[] source)
+    {
+        RailLoopPointCandidate[] result = source.ToArray();
+        bool improved;
+        do
+        {
+            improved = false;
+            for (int first = 1; first < result.Length - 1 && !improved; first++)
+            for (int last = first + 1; last < result.Length; last++)
+            {
+                RailLayoutPoint beforeFirst = result[first - 1].Grid;
+                RailLayoutPoint firstPoint = result[first].Grid;
+                RailLayoutPoint lastPoint = result[last].Grid;
+                RailLayoutPoint afterLast = result[(last + 1) % result.Length].Grid;
+                double before = Distance(beforeFirst, firstPoint) + Distance(lastPoint, afterLast);
+                double after = Distance(beforeFirst, lastPoint) + Distance(firstPoint, afterLast);
+                if (after + Epsilon >= before) continue;
+                Array.Reverse(result, first, last - first + 1);
+                improved = true;
+                break;
+            }
+        } while (improved);
+        return result;
     }
 
     private static int CompareIdentity(IReadOnlyList<int> left, IReadOnlyList<int> right)
@@ -530,6 +591,13 @@ public static class RailLayoutStrategyPlanner
     }
 
     private static double RadiusSquared(RailLayoutPoint point) => point.X * point.X + point.Y * point.Y;
+
+    private static double Distance(RailLayoutPoint left, RailLayoutPoint right)
+    {
+        double x = left.X - right.X;
+        double y = left.Y - right.Y;
+        return Math.Sqrt(x * x + y * y);
+    }
 
     private static double PolarAngle(RailLayoutPoint point)
     {

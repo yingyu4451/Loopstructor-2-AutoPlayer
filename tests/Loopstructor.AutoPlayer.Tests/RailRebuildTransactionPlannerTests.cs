@@ -95,6 +95,76 @@ public sealed class RailRebuildTransactionPlannerTests
     }
 
     [Fact]
+    public void ApplyStablePointOrderReplacesOldConnectionOrderWithPlannedCycle()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 701,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    orderedStations = new[]
+                    {
+                        new { pointId = 1, linePointInstanceId = 101, isAttribute = true, grid = new { x = 0, y = 3 } },
+                        new { pointId = 3, linePointInstanceId = 103, isAttribute = false, grid = new { x = 0, y = -3 } },
+                        new { pointId = 2, linePointInstanceId = 102, isAttribute = false, grid = new { x = 3, y = 0 } },
+                        new { pointId = 4, linePointInstanceId = 104, isAttribute = false, grid = new { x = -3, y = 0 } }
+                    }
+                }
+            }
+        });
+        RailRebuildSnapshot snapshot = Assert.IsType<RailRebuildSnapshot>(_planner.Capture(rails, 701));
+
+        bool applied = _planner.ApplyStablePointOrder(snapshot, rails, new[] { 1, 2, 3, 4 });
+
+        Assert.True(applied);
+        Assert.Equal(new[] { 1, 2, 3, 4 }, snapshot.OrderedPointIds);
+        Assert.Equal(new[] { 101, 102, 103, 104 }, snapshot.OrderedLinePointInstanceIds);
+        Assert.Equal(new[] { 101, 103, 102, 104 }, snapshot.OriginalOrderedLinePointInstanceIds);
+    }
+
+    [Fact]
+    public void ApplyStablePointOrderNeverRestoresMalformedBaselineOrder()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 701,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    orderedStations = new[]
+                    {
+                        new { pointId = 1, linePointInstanceId = 101, isAttribute = true, grid = new { x = 0, y = 3 } },
+                        new { pointId = 3, linePointInstanceId = 103, isAttribute = false, grid = new { x = 0, y = -3 } },
+                        new { pointId = 2, linePointInstanceId = 102, isAttribute = false, grid = new { x = 3, y = 0 } },
+                        new { pointId = 4, linePointInstanceId = 104, isAttribute = false, grid = new { x = -3, y = 0 } }
+                    },
+                    lines = new[]
+                    {
+                        new { from = new { x = 0, y = 3 }, to = new { x = 0, y = -3 } },
+                        new { from = new { x = 0, y = -3 }, to = new { x = 3, y = 0 } },
+                        new { from = new { x = 3, y = 0 }, to = new { x = -3, y = 0 } },
+                        new { from = new { x = -3, y = 0 }, to = new { x = 0, y = 3 } }
+                    }
+                }
+            }
+        });
+        RailRebuildSnapshot snapshot = Assert.IsType<RailRebuildSnapshot>(_planner.Capture(rails, 701));
+
+        bool applied = _planner.ApplyStablePointOrder(snapshot, rails, new[] { 1, 2, 3, 4 });
+
+        Assert.True(applied);
+        Assert.Equal(new[] { 101, 102, 103, 104 }, snapshot.OrderedLinePointInstanceIds);
+        Assert.Equal(new[] { 101, 102, 103, 104 }, snapshot.OriginalOrderedLinePointInstanceIds);
+    }
+
+    [Fact]
     public void VerifyRestoredRequiresSameStationsAndTrainIdentity()
     {
         RailRebuildSnapshot snapshot = new()

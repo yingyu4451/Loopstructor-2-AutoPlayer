@@ -22,6 +22,9 @@ public sealed class RailJointLayoutRuntimeContractTests
         Assert.Contains(controller.Fields, field => field.Name == "_defenseJointMovedPointIds");
         Assert.Contains(Calls(maintain), call => call.DeclaringType.FullName == ProbeType && call.Name == "TryInitialize");
         Assert.Contains(Calls(maintain), call => call.DeclaringType.FullName == ProbeType && call.Name == "ProbeNext");
+        Assert.Contains(Calls(maintain), call =>
+            call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.RailRebuildTransactionPlanner" &&
+            call.Name == "ApplyStablePointOrder");
         Assert.Contains(Calls(maintain), call => call.DeclaringType.FullName == ControllerType && call.Name == "AdvanceJointLayoutAfterMove");
         Assert.Contains(advance.Body.Instructions, instruction =>
             instruction.Operand is MethodReference call && call.Name == "get_StationPointId");

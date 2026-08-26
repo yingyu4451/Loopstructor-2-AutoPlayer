@@ -32,6 +32,7 @@ public sealed class RailJointLayoutPlan
     public IReadOnlyList<RailJointMoveTarget> Targets { get; set; } = Array.Empty<RailJointMoveTarget>();
     public IReadOnlyList<AutoPlayerGrid> OrderedTargetGrids { get; set; } = Array.Empty<AutoPlayerGrid>();
     public IReadOnlyList<int> OrderedStablePointIds { get; set; } = Array.Empty<int>();
+    public bool RequiresReconnect { get; set; }
     public int EvaluatedLayoutCount { get; set; }
 }
 
@@ -232,7 +233,7 @@ public sealed class RailJointLayoutSearch
                 .ToArray() as IReadOnlyList<AutoPlayerGrid>).ToArray();
             if (options.Any(list => list.Count == 0)) return null;
             RailLayoutScore baseline = Score(canonical, canonical.OrderedStationGrids);
-            return baseline.IsValid ? new RailSearchState(stations, options, baseline) : null;
+            return new RailSearchState(stations, options, baseline);
         }
 
         public bool AdvanceOne(out RailJointLayoutPlan? plan, out bool evaluatedLayout)
@@ -309,12 +310,30 @@ public sealed class RailJointLayoutSearch
             RailStationMoveCandidate canonical = _stations[0];
             Dictionary<int, AutoPlayerGrid> targetByPointId = new();
             for (int index = 0; index < _stations.Length; index++) targetByPointId[_stations[index].StationPointId] = assignment[index];
-            AutoPlayerGrid[] ordered = canonical.OrderedStationPointIds.Select((pointId, index) =>
+            Dictionary<int, AutoPlayerGrid> gridByPointId = canonical.OrderedStationPointIds.Select((pointId, index) =>
+                new KeyValuePair<int, AutoPlayerGrid>(pointId,
                 targetByPointId.TryGetValue(pointId, out AutoPlayerGrid target)
                     ? target
-                    : canonical.OrderedStationGrids[index]).ToArray();
-            if (!IsFullyLegal(ordered, canonical.OrderedStationKinds, canonical.SpacingRules)) return null;
-            RailLayoutScore score = Score(canonical, ordered);
+                    : canonical.OrderedStationGrids[index])).ToDictionary(pair => pair.Key, pair => pair.Value);
+            Dictionary<int, bool> kindByPointId = canonical.OrderedStationPointIds.Select((pointId, index) =>
+                new KeyValuePair<int, bool>(pointId, canonical.OrderedStationKinds[index]))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            int attributePointId = kindByPointId.Count(pair => pair.Value) == 1
+                ? kindByPointId.Single(pair => pair.Value).Key
+                : 0;
+            IReadOnlyList<int> orderedPointIds = RailLayoutStrategyPlanner.OrderSimplePlayerLoop(
+                gridByPointId.Select(pair => new RailLoopPointCandidate
+                {
+                    InstanceId = pair.Key,
+                    IsAttribute = kindByPointId[pair.Key],
+                    Grid = new RailLayoutPoint(pair.Value.X, pair.Value.Y)
+                }),
+                attributePointId);
+            if (orderedPointIds.Count != canonical.OrderedStationPointIds.Count) return null;
+            AutoPlayerGrid[] ordered = orderedPointIds.Select(pointId => gridByPointId[pointId]).ToArray();
+            bool[] orderedKinds = orderedPointIds.Select(pointId => kindByPointId[pointId]).ToArray();
+            if (!IsFullyLegal(ordered, orderedKinds, canonical.SpacingRules)) return null;
+            RailLayoutScore score = Score(canonical, ordered, orderedKinds);
             if (!score.EncirclesBase || !score.CoversAllQuadrants || !score.HasNoLargeBlindArc ||
                 !RailLayoutStrategyPlanner.IsStrictDefenseImprovement(_baseline, score)) return null;
             RailJointMoveTarget[] targets = _stations.Select((candidate, index) => new RailJointMoveTarget
@@ -326,7 +345,9 @@ public sealed class RailJointLayoutSearch
                 .Where(target => !target.OriginalGrid.Equals(target.TargetGrid))
                 .OrderBy(target => target.StablePointId)
                 .ToArray();
-            if (targets.Length == 0) return null;
+            bool requiresReconnect = !_baseline.IsValid ||
+                                     !IsEquivalentCycle(canonical.OrderedStationPointIds, orderedPointIds);
+            if (targets.Length == 0 && !requiresReconnect) return null;
             return new RailJointLayoutPlan
             {
                 RailInstanceId = canonical.RailInstanceId,
@@ -338,8 +359,16 @@ public sealed class RailJointLayoutSearch
                 PredictedScore = score,
                 Targets = targets,
                 OrderedTargetGrids = ordered,
-                OrderedStablePointIds = canonical.OrderedStationPointIds.ToArray()
+                OrderedStablePointIds = orderedPointIds.ToArray(),
+                RequiresReconnect = requiresReconnect
             };
+        }
+
+        private static bool IsEquivalentCycle(IReadOnlyList<int> current, IReadOnlyList<int> candidate)
+        {
+            if (current.Count != candidate.Count || current.Count == 0 || current[0] != candidate[0]) return false;
+            if (current.SequenceEqual(candidate)) return true;
+            return current.Skip(1).Reverse().SequenceEqual(candidate.Skip(1));
         }
 
         private RailLayoutScore PartialScore(IReadOnlyList<AutoPlayerGrid> assigned)
@@ -347,9 +376,27 @@ public sealed class RailJointLayoutSearch
             RailStationMoveCandidate canonical = _stations[0];
             Dictionary<int, AutoPlayerGrid> positions = new();
             for (int index = 0; index < assigned.Count; index++) positions[_stations[index].StationPointId] = assigned[index];
-            AutoPlayerGrid[] ordered = canonical.OrderedStationPointIds.Select((pointId, index) =>
-                positions.TryGetValue(pointId, out AutoPlayerGrid grid) ? grid : canonical.OrderedStationGrids[index]).ToArray();
-            return Score(canonical, ordered);
+            Dictionary<int, AutoPlayerGrid> gridByPointId = canonical.OrderedStationPointIds.Select((pointId, index) =>
+                new KeyValuePair<int, AutoPlayerGrid>(pointId,
+                    positions.TryGetValue(pointId, out AutoPlayerGrid grid) ? grid : canonical.OrderedStationGrids[index]))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            Dictionary<int, bool> kindByPointId = canonical.OrderedStationPointIds.Select((pointId, index) =>
+                    new KeyValuePair<int, bool>(pointId, canonical.OrderedStationKinds[index]))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            int attributePointId = kindByPointId.Count(pair => pair.Value) == 1
+                ? kindByPointId.Single(pair => pair.Value).Key
+                : 0;
+            IReadOnlyList<int> ids = RailLayoutStrategyPlanner.OrderSimplePlayerLoop(
+                gridByPointId.Select(pair => new RailLoopPointCandidate
+                {
+                    InstanceId = pair.Key,
+                    IsAttribute = kindByPointId[pair.Key],
+                    Grid = new RailLayoutPoint(pair.Value.X, pair.Value.Y)
+                }),
+                attributePointId);
+            return ids.Count == gridByPointId.Count
+                ? Score(canonical, ids.Select(id => gridByPointId[id]).ToArray(), ids.Select(id => kindByPointId[id]).ToArray())
+                : new RailLayoutScore();
         }
 
         private bool IsPartialLegal(IReadOnlyList<AutoPlayerGrid> assigned)
@@ -380,7 +427,10 @@ public sealed class RailJointLayoutSearch
             return true;
         }
 
-        private static RailLayoutScore Score(RailStationMoveCandidate candidate, IReadOnlyList<AutoPlayerGrid> ordered)
+        private static RailLayoutScore Score(
+            RailStationMoveCandidate candidate,
+            IReadOnlyList<AutoPlayerGrid> ordered,
+            IReadOnlyList<bool>? orderedKinds = null)
         {
             double baselineLength = ClosedLength(candidate.OrderedStationGrids);
             double targetLength = ClosedLength(ordered);
@@ -389,7 +439,7 @@ public sealed class RailJointLayoutSearch
                 : double.PositiveInfinity;
             return RailLayoutStrategyPlanner.EvaluateWithSpacing(
                 ordered.Select(grid => new RailLayoutPoint(grid.X, grid.Y)),
-                candidate.OrderedStationKinds,
+                orderedKinds ?? candidate.OrderedStationKinds,
                 candidate.StationCount,
                 cycle,
                 candidate.SpacingRules);
@@ -404,7 +454,14 @@ public sealed class RailJointLayoutSearch
             for (int left = 0; left < grids.Count; left++)
             for (int right = left + 1; right < grids.Count; right++)
                 if (!SpacingLegal(grids[left], kinds[left], grids[right], kinds[right], rules)) return false;
-            return true;
+            RailLoopValidationResult geometry = RailLoopValidator.ValidateOrdered(
+                grids.Select((grid, index) => new RailLoopNode
+                {
+                    Id = index + 1,
+                    IsAttribute = kinds[index],
+                    Point = new RailLayoutPoint(grid.X, grid.Y)
+                }));
+            return geometry.IsSingleCycle && geometry.IsSimpleGeometry;
         }
 
         private static bool SpacingLegal(

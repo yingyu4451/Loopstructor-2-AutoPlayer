@@ -104,9 +104,9 @@ public sealed class RailThroughputLayoutPlannerTests
             OrderedStationGrids = new[]
             {
                 new AutoPlayerGrid(0, 2),
+                new AutoPlayerGrid(2, 0),
                 new AutoPlayerGrid(0, -2),
-                new AutoPlayerGrid(-2, 0),
-                new AutoPlayerGrid(2, 0)
+                new AutoPlayerGrid(-2, 0)
             },
             StationIsAttribute = true
         };
@@ -153,14 +153,14 @@ public sealed class RailThroughputLayoutPlannerTests
             StationCount = 4,
             CurrentLoopCycleSeconds = 4d,
             RailLength = 12d,
-            CurrentGrid = new AutoPlayerGrid(-4, 2),
-            NeighborGrids = new[] { new AutoPlayerGrid(-2, 2), new AutoPlayerGrid(-4, -2) },
+            CurrentGrid = new AutoPlayerGrid(-2, 2),
+            NeighborGrids = new[] { new AutoPlayerGrid(-2, -2), new AutoPlayerGrid(-4, 2) },
             OrderedStationGrids = new[]
             {
+                new AutoPlayerGrid(-2, 2),
                 new AutoPlayerGrid(-4, 2),
                 new AutoPlayerGrid(-4, -2),
-                new AutoPlayerGrid(-2, -2),
-                new AutoPlayerGrid(-2, 2)
+                new AutoPlayerGrid(-2, -2)
             }
         };
         RailExpansionPlanner planner = new();
@@ -187,7 +187,7 @@ public sealed class RailThroughputLayoutPlannerTests
             stationCount: 4,
             loopCycleSeconds: 4d);
         RailLayoutScore repaired = RailLayoutStrategyPlanner.Evaluate(
-            new[] { Point(-4, 2), Point(-4, -2), Point(-2, -2), Point(-2, 2), Point(2, 0) },
+            new[] { Point(-4, 2), Point(0, 3), Point(2, 0), Point(0, -3), Point(-4, -2) },
             stationCount: 5,
             loopCycleSeconds: 6d);
         RailInsertionPreviewScore repair = new()

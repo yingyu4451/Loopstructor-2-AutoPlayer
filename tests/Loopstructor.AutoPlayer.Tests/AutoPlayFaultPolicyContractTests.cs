@@ -47,9 +47,9 @@ public sealed class AutoPlayFaultPolicyContractTests
         AssertOutcomeRoutesToSoftFault(
             RequireMethod(controller, "TickInGame"),
             (int)AutomationOutcome.WaveLimit);
-        AssertOutcomeRoutesToSoftFault(
-            RequireMethod(controller, "TickSettlement"),
-            (int)AutomationOutcome.Defeat);
+        MethodDefinition settlement = RequireMethod(controller, "TickSettlement");
+        Assert.Contains(Calls(settlement), IsControllerCall("Complete"));
+        Assert.DoesNotContain(Calls(settlement), IsControllerCall("FaultRequiringProcessRestart"));
 
         foreach (string methodName in new[] { "RegisterFailure", "CheckForStall" })
         {

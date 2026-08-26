@@ -28,7 +28,7 @@ public sealed class BattleCoverageStrategyTests
 
         Assert.NotNull(action);
         Assert.Equal("drawRailPath", action.Command);
-        Assert.Equal(new[] { 100, 101, 201, 202, 102 }, SelectedPointIds(action));
+        Assert.Equal(new[] { 100, 102, 101, 201, 202 }, SelectedPointIds(action));
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class BattleCoverageStrategyTests
 
         Assert.NotNull(action);
         Assert.Equal("drawRailPath", action.Command);
-        Assert.Equal(new[] { 100, 102, 202, 201, 101 }, SelectedPointIds(action));
+        Assert.Equal(new[] { 100, 101, 102, 202, 201 }, SelectedPointIds(action));
     }
 
     [Fact]
