@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.33
+.\scripts\package.ps1 -Version 0.6.34
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.33 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.34 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.33-win-x64.zip
-Loopstructor.AutoPlayer-0.6.33-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.32-to-0.6.33-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.32-to-0.6.33-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.34-win-x64.zip
+Loopstructor.AutoPlayer-0.6.34-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.33-to-0.6.34-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.33-to-0.6.34-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.33-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.34-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.33",
+  "version": "0.6.34",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.33-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.34-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 64969988,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.32",
-      "assetName": "Loopstructor.AutoPlayer-0.6.32-to-0.6.33-win-x64.delta.zip",
+      "fromVersion": "0.6.33",
+      "assetName": "Loopstructor.AutoPlayer-0.6.33-to-0.6.34-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2391960
     }
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.33
-git push origin v0.6.33
+git tag v0.6.34
+git push origin v0.6.34
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

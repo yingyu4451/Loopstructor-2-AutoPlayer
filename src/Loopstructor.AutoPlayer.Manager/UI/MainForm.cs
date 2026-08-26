@@ -489,7 +489,7 @@ internal sealed partial class MainForm : Window
             return;
         }
 
-        AdoptSession(result.Session);
+        AdoptSession(result.Session, includeExistingLog: true);
         SetConnectionState("等待插件", GoldBrush);
         SetStageState("启动中 / 安全握手", "正在核对进程路径、程序集指纹与本机控制凭据", SignalBrush, NormalStageBackground);
         AppendLog("INFO", result.Message, BlueBrush);
@@ -542,7 +542,7 @@ internal sealed partial class MainForm : Window
         }
     }
 
-    private void AdoptSession(ActivationSession session)
+    private void AdoptSession(ActivationSession session, bool includeExistingLog = false)
     {
         _session = session;
         _hello = null;
@@ -555,7 +555,9 @@ internal sealed partial class MainForm : Window
         _restartWarningReported = false;
         _cheatMarkerReported = false;
         _cheatForm?.UpdateSession(false, null, null);
-        _logTail.Reset(session.LogPath);
+        // Persistent player sessions reuse one artifact directory. When Manager
+        // attaches, old Player.log content belongs to an earlier game process.
+        _logTail.Reset(session.LogPath, startAtEnd: !includeExistingLog);
     }
 
     private void ResetSession()
@@ -716,6 +718,7 @@ internal sealed partial class MainForm : Window
         _lastStatusSignature = string.Empty;
         _lastTrustError = string.Empty;
         _cheatForm?.UpdateSession(false, null, null);
+        _logTail.Reset(_session.LogPath, startAtEnd: true);
         SetOperationAvailability();
 
         if (nextProcessId is > 0)
@@ -742,11 +745,12 @@ internal sealed partial class MainForm : Window
         _pollInProgress = true;
         try
         {
-            ReadPlayerLog();
             if (!EnsureResidentProcessTarget())
             {
                 return;
             }
+
+            ReadPlayerLog();
 
             PipeCallResult call = _hello == null || !_sessionTrusted
                 ? await _pipeClient.HelloAsync(_session, _lifetime.Token)

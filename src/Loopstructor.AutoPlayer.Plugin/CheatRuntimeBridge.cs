@@ -3388,11 +3388,20 @@ internal sealed class CheatRuntimeBridge
 
     private static object? TryGetSingleton(Type type)
     {
-        PropertyInfo? property = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy);
-        if (property != null) return property.GetValue(null, null);
-        FieldInfo? field = type.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy)
-                           ?? type.GetField("instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy);
-        return field?.GetValue(null);
+        try
+        {
+            PropertyInfo? property = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            if (property != null) return property.GetValue(null, null);
+            FieldInfo? field = type.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+                               ?? type.GetField("instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            return field?.GetValue(null);
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is NullReferenceException)
+        {
+            // Several game singleton getters dereference the scene module before
+            // it exists. A Try method treats that transition as "not ready".
+            return null;
+        }
     }
 
     private static object? GetMember(object? target, string name)

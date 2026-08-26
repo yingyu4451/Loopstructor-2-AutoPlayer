@@ -32,7 +32,7 @@ internal sealed class CheatController : IDisposable
         _activation = activation;
         _log = log;
         _baseContractAccepted = baseContractAccepted;
-        _runtime.Initialize(_activation.ArtifactRoot, message => _log.LogWarning(message));
+        _runtime.Initialize(_activation.ArtifactRoot, message => _log.LogDebug(message));
         _sceneHandle = SceneManager.GetActiveScene().handle;
         _lastManagerHeartbeatUtcTicks = DateTime.UtcNow.Ticks;
 
@@ -135,7 +135,14 @@ internal sealed class CheatController : IDisposable
         {
             Exception error = CheatRuntimeBridge.Unwrap(exception);
             result = CheatExecutionResult.Fail("执行作弊命令时发生异常：" + error.Message);
-            _log.LogError("作弊命令执行异常：" + error);
+            if (error is InvalidOperationException)
+            {
+                _log.LogDebug("作弊命令等待游戏状态就绪：" + error.Message);
+            }
+            else
+            {
+                _log.LogError("作弊命令执行异常：" + error);
+            }
         }
 
         // A multi-step reflection call can change the game before a later step

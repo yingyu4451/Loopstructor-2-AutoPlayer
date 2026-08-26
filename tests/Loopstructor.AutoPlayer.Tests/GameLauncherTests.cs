@@ -92,4 +92,27 @@ public sealed class GameLauncherTests
         Assert.Equal(expected, second);
         Assert.DoesNotContain(Path.DirectorySeparatorChar + "cheat" + Path.DirectorySeparatorChar, first, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void RotatePreviousLog_PreservesOnlyTheImmediatelyPreviousGameLog()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "Loopstructor.AutoPlayer.LaunchLogTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string current = Path.Combine(root, "Player.log");
+            string previous = Path.Combine(root, "Player.previous.log");
+            File.WriteAllText(current, "latest old process");
+            File.WriteAllText(previous, "older process");
+
+            GameLauncher.RotatePreviousLog(current);
+
+            Assert.False(File.Exists(current));
+            Assert.Equal("latest old process", File.ReadAllText(previous));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
 }

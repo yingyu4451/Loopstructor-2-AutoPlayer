@@ -43,13 +43,14 @@ internal sealed partial class UpdateForm : Window
 
     public UpdateForm(
         string currentVersion,
-        Func<IProgress<UpdateProgressSnapshot>, CancellationToken, Func<bool>, Task<UpdaterResult>> operation)
+        Func<IProgress<UpdateProgressSnapshot>, CancellationToken, Func<bool>, Task<UpdaterResult>> operation,
+        bool applySavedUiScale = true)
     {
         _currentVersion = string.IsNullOrWhiteSpace(currentVersion) ? "0.0.0" : currentVersion.Trim();
         _operation = operation ?? throw new ArgumentNullException(nameof(operation));
 
         InitializeComponent();
-        ApplySavedUiScale();
+        if (applySavedUiScale) ApplySavedUiScale();
         VersionLabel.Text = $"当前版本 v{_currentVersion}";
         DetailsBox.Document.PagePadding = new Thickness(0);
         DetailsBox.Document.Blocks.Clear();
@@ -120,7 +121,10 @@ internal sealed partial class UpdateForm : Window
         }
     }
 
-    public static UpdateForm CreateDemo(string currentVersion, string latestVersion)
+    public static UpdateForm CreateDemo(
+        string currentVersion,
+        string latestVersion,
+        bool applySavedUiScale = true)
     {
         string targetVersion = string.IsNullOrWhiteSpace(latestVersion) ? "0.1.7" : latestVersion.Trim();
         UpdateForm form = new(
@@ -129,7 +133,8 @@ internal sealed partial class UpdateForm : Window
             {
                 Success = true,
                 Message = "演示更新已完成。"
-            }))
+            }),
+            applySavedUiScale)
         {
             _demoMode = true,
             _allowClose = true,

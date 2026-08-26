@@ -22,9 +22,10 @@ internal sealed class ManagerSingleInstance : IDisposable
 
     public bool IsPrimary => _ownsMutex;
 
-    public static ManagerSingleInstance Create()
+    public static ManagerSingleInstance Create(string? isolationKey = null)
     {
         string identity = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+        if (!string.IsNullOrWhiteSpace(isolationKey)) identity += "|" + isolationKey;
         string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).Substring(0, 16);
         string mutexName = "Local\\Loopstructor.AutoPlayer.Manager." + suffix;
         string pipeName = "Loopstructor.AutoPlayer.Manager.Activate." + suffix;

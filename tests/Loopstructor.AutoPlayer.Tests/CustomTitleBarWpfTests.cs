@@ -95,7 +95,7 @@ public sealed class CustomTitleBarWpfTests
     {
         RunSta(() =>
         {
-            UpdateForm form = UpdateForm.CreateDemo("0.5.4", "0.5.5");
+            UpdateForm form = UpdateForm.CreateDemo("0.5.4", "0.5.5", applySavedUiScale: false);
             form.Width = 720;
             form.Height = 600;
             form.ShowInTaskbar = false;

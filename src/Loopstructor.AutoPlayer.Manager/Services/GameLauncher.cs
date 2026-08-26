@@ -50,6 +50,7 @@ public sealed class GameLauncher
         try
         {
             _configWriter.Write(game.GameRoot, game.AssemblySha256);
+            RotatePreviousLog(session.LogPath);
             ProcessStartInfo startInfo = CreateStartInfo(game, session);
 
             Process? process = Process.Start(startInfo);
@@ -104,6 +105,18 @@ public sealed class GameLauncher
         }
 
         return startInfo;
+    }
+
+    internal static void RotatePreviousLog(string logPath)
+    {
+        string current = Path.GetFullPath(logPath);
+        string directory = Path.GetDirectoryName(current)
+            ?? throw new InvalidOperationException("Player.log 缺少父目录。");
+        Directory.CreateDirectory(directory);
+        if (!File.Exists(current)) return;
+
+        string previous = Path.Combine(directory, "Player.previous.log");
+        File.Move(current, previous, overwrite: true);
     }
 
     private static void WriteLaunchMetadata(ActivationSession session, GameInstallValidation game)

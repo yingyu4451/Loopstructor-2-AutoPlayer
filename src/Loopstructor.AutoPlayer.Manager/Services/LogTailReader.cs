@@ -7,10 +7,12 @@ public sealed class LogTailReader
     private string _path = string.Empty;
     private long _position;
 
-    public void Reset(string path)
+    public void Reset(string path, bool startAtEnd = false)
     {
         _path = Path.GetFullPath(path);
-        _position = 0;
+        _position = startAtEnd && File.Exists(_path)
+            ? new FileInfo(_path).Length
+            : 0;
     }
 
     public IReadOnlyList<string> ReadAvailable(int maximumLines = 250)
