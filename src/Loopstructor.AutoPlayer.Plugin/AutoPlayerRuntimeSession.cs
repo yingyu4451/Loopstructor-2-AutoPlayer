@@ -142,6 +142,10 @@ internal sealed class AutoPlayerRuntimeSession : IDisposable
             }
 
             GameOutcomeObserver.Install(_harmony, _logger.LogInfo);
+            if (!IndependentVehiclePlacementPatch.Install(_harmony, _logger.LogInfo))
+            {
+                _logger.LogWarning("独立战车放车容量补丁未安装；自动游玩不会向已有车列的轨道追加独立战车。");
+            }
             if (!MapSkipPatch.Install(_harmony, _logger.LogInfo))
             {
                 _logger.LogWarning("地图跳关未能接入游戏地图输入流程；该功能将保持不可用。");

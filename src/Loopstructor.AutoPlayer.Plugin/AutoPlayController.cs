@@ -332,6 +332,7 @@ internal sealed class AutoPlayController
     private bool _defensePendingDisposableQueryCatapults;
     private JObject? _defensePendingDisposableObservation;
     private bool _defenseNeedsNewLoopExpansion;
+    private bool _defenseIndependentVehicleMode;
     private string _defensePlacementDisposableEnum = "FreePoint_Attribute";
     private int _defensePlacementCountBefore;
     private JObject? _defenseRailExpansionBaseline;
@@ -3540,8 +3541,13 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseTrain = train;
+                _defenseIndependentVehicleMode =
+                    _bridge.TryGetIndependentVehicleMode(out bool independentVehicleMode) &&
+                    independentVehicleMode;
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryVehicle;
-                ScheduleDefenseMaintenanceStep("正在检查现有车列容量。");
+                ScheduleDefenseMaintenanceStep(_defenseIndependentVehicleMode
+                    ? "当前游戏采用一辆战车一个车列；正在读取每条轨道的实时车列容量。"
+                    : "正在检查现有车列容量。");
                 return true;
 
             case DefenseMaintenanceStep.QueryVehicle:
@@ -3552,6 +3558,30 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseVehicle = vehicles;
+                JObject? reinforcementRails = null;
+                if (_defenseIndependentVehicleMode)
+                {
+                    if (!IndependentVehiclePlacementPatch.Applied ||
+                        !_bridge.HasCommand("queryRail") ||
+                        !_bridge.HasCommand("placeVehicleOnLine"))
+                    {
+                        FinishDefenseMaintenance(
+                            "当前游戏采用独立战车车列，但玩家等价放车容量接口不可用；已保留现有防线。",
+                            warning: true);
+                        return true;
+                    }
+
+                    if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject liveCapacityRails))
+                    {
+                        FinishDefenseMaintenance(
+                            "无法读取轨道实时车列容量，已跳过本轮战车部署。",
+                            warning: true);
+                        return true;
+                    }
+
+                    reinforcementRails = liveCapacityRails;
+                    _defenseRailExpansionBaseline = liveCapacityRails;
+                }
                 bool hasPotentialMerge = _mergeAutomationPlanner.HasPotentialMergeCandidate(vehicles);
                 if (!_mergeExhausted && hasPotentialMerge)
                 {
@@ -3600,7 +3630,9 @@ internal sealed class AutoPlayController
                     new BattleDecisionContext
                     {
                         AllowDisposableUse = false,
-                        AllowVehicleReinforcement = true
+                        AllowVehicleReinforcement = true,
+                        RailResult = reinforcementRails,
+                        IndependentVehicleMode = _defenseIndependentVehicleMode
                     },
                     null,
                     null,
@@ -3615,7 +3647,11 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseNeedsNewLoopExpansion =
-                    _battleDecisionEngine.NeedsDefenseExpansion(_defenseTrain, vehicles);
+                    _battleDecisionEngine.NeedsDefenseExpansion(
+                        _defenseTrain,
+                        vehicles,
+                        reinforcementRails,
+                        _defenseIndependentVehicleMode);
 
                 if (_defenseNeedsNewLoopExpansion && _defenseExpansionSuspended)
                 {
@@ -3680,7 +3716,9 @@ internal sealed class AutoPlayController
                         _defenseTrain,
                         _defenseVehicle,
                         catapults,
-                        _rejectedDefenseExpansionPaths)
+                        _rejectedDefenseExpansionPaths,
+                        _defenseRailExpansionBaseline,
+                        _defenseIndependentVehicleMode)
                     : null;
                 if (_defenseExpansionAction == null)
                 {
@@ -3805,7 +3843,7 @@ internal sealed class AutoPlayController
                 if (_defenseBattleSpecialMoveOnly)
                 {
                     _defenseRailRebuildCandidates =
-                        _railRebuildPlanner.BuildSpecialInsertionCandidates(
+                        _railRebuildPlanner.BuildUnassignedInsertionCandidates(
                             expansionRailState,
                             _battleTrain,
                             _defenseCatapults);
@@ -3816,7 +3854,8 @@ internal sealed class AutoPlayController
                         _defenseRailRebuildCandidateIndex = 0;
                         _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate;
                         ScheduleDefenseMaintenanceStep(
-                            $"发现 {_defenseRailRebuildCandidates.Count} 个特殊中继站玩家重连候选；将逐帧比较真实回转周期。");
+                            $"发现 {_defenseRailRebuildCandidates.Count} 个未接入中继站的玩家重连候选；" +
+                            "普通地图站点与可移动特殊站点都将按真实回转周期比较。");
                         return true;
                     }
                     if (_bridge.HasCommand("queryDisposable") &&
@@ -3881,7 +3920,7 @@ internal sealed class AutoPlayController
                     if (_defenseBattleSpecialMoveOnly)
                     {
                         _defenseRailRebuildCandidates =
-                            _railRebuildPlanner.BuildSpecialInsertionCandidates(
+                            _railRebuildPlanner.BuildUnassignedInsertionCandidates(
                                 _defenseRailExpansionBaseline,
                                 _battleTrain,
                                 _defenseCatapults);
@@ -3890,7 +3929,7 @@ internal sealed class AutoPlayController
                             _defenseRailRebuildScores.Clear();
                             _defenseRailRebuildCandidateIndex = 0;
                             _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewBattleSpecialRebuildCandidate;
-                            ScheduleDefenseMaintenanceStep(jointProbe.Detail + " 正在检查可插入的特殊中继站。");
+                            ScheduleDefenseMaintenanceStep(jointProbe.Detail + " 正在检查可接入的普通或特殊中继站。");
                             return true;
                         }
                     }
@@ -3950,7 +3989,7 @@ internal sealed class AutoPlayController
                 if (_defenseRailRebuildCandidateIndex >= _defenseRailRebuildCandidates.Count)
                 {
                     _defenseMaintenanceStep = DefenseMaintenanceStep.SelectBattleSpecialRebuild;
-                    ScheduleDefenseMaintenanceStep("特殊中继站重连候选预览完成；正在选择站点触发率严格改善的方案。");
+                    ScheduleDefenseMaintenanceStep("未接入中继站重连候选预览完成；正在选择站点触发率严格改善的方案。");
                     return true;
                 }
                 RailRebuildSnapshot battleRebuildCandidate =
@@ -3969,7 +4008,7 @@ internal sealed class AutoPlayController
                     _defenseRailRebuildScores.Add((battleRebuildCandidate, battleRebuildCycle));
                 }
                 ScheduleDefenseMaintenanceStep(
-                    $"已预览 {_defenseRailRebuildCandidateIndex}/{_defenseRailRebuildCandidates.Count} 个特殊站点重连候选。");
+                    $"已预览 {_defenseRailRebuildCandidateIndex}/{_defenseRailRebuildCandidates.Count} 个中继站重连候选。");
                 return true;
 
             case DefenseMaintenanceStep.SelectBattleSpecialRebuild:
@@ -3991,11 +4030,11 @@ internal sealed class AutoPlayController
                         _defensePlacementDisposableEnum = "__runtime_movable_station__";
                         _defenseMaintenanceStep = DefenseMaintenanceStep.QueryExpansionAttributeDisposable;
                         ScheduleDefenseMaintenanceStep(
-                            "现有特殊站点没有触发率严格改善的重连方案；正在检查背包中的可移动特殊站点。");
+                            "现有未接入站点没有触发率严格改善的重连方案；正在检查背包中的可移动特殊站点。");
                         return true;
                     }
                     MarkDefenseRailMaintenanceStable();
-                    FinishDefenseMaintenance("本波没有站点触发率严格改善的特殊站点重连方案。", warning: false);
+                    FinishDefenseMaintenance("本波没有站点触发率严格改善的中继站重连方案。", warning: false);
                     return true;
                 }
                 _defenseRailRebuildSnapshot = selectedBattleRebuild.Value.Snapshot;
@@ -4007,7 +4046,7 @@ internal sealed class AutoPlayController
                 _defenseRailRebuildScores.Clear();
                 _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
                 ScheduleDefenseMaintenanceStep(
-                    $"已选择特殊中继站重连，预测周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；下一帧从始发站断环。");
+                    $"已选择未接入中继站重连，预测周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；下一帧从始发站断环。");
                 return true;
 
             case DefenseMaintenanceStep.PreviewRailInsertionCandidate:
@@ -7151,6 +7190,7 @@ internal sealed class AutoPlayController
         _defenseTrainCountBeforeExpansion = 0;
         _defenseExpansionVerificationAttempts = 0;
         _defenseNeedsNewLoopExpansion = false;
+        _defenseIndependentVehicleMode = false;
         _defensePlacementDisposableEnum = "FreePoint_Attribute";
         _defensePlacementCountBefore = 0;
         _defenseRailExpansionBaseline = null;

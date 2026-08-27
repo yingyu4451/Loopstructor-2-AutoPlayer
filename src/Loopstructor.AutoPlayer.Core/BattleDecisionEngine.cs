@@ -19,6 +19,8 @@ public sealed class BattleDecisionContext
     public bool AllowVehicleReinforcement { get; set; } = true;
     public JObject? DisposableConfirmationArguments { get; set; }
     public JObject? DisposableGridOptionsResult { get; set; }
+    public JObject? RailResult { get; set; }
+    public bool IndependentVehicleMode { get; set; }
 }
 
 public sealed class DefenseExpansionRailVerification
@@ -122,7 +124,11 @@ public sealed class BattleDecisionEngine
         }
 
         return context.AllowVehicleReinforcement
-            ? DecideVehicleReinforcement(State(trainResult), State(vehicleResult))
+            ? DecideVehicleReinforcement(
+                State(trainResult),
+                State(vehicleResult),
+                State(context.RailResult),
+                context.IndependentVehicleMode)
             : null;
     }
 
@@ -300,15 +306,32 @@ public sealed class BattleDecisionEngine
     }
 
     public bool NeedsDefenseExpansion(JObject? trainResult, JObject? vehicleResult)
+        => NeedsDefenseExpansion(trainResult, vehicleResult, null, independentVehicleMode: false);
+
+    public bool NeedsDefenseExpansion(
+        JObject? trainResult,
+        JObject? vehicleResult,
+        JObject? railResult,
+        bool independentVehicleMode)
     {
         JObject trainsState = State(trainResult);
         JObject vehiclesState = State(vehicleResult);
-        JArray? trains = trainsState["trains"] as JArray;
-        bool hasExistingTrain = trains?.OfType<JObject>().Any() == true;
-        bool hasFreeCapacity = trains?.OfType<JObject>().Any(HasTrainCapacity) == true;
         bool hasBagVehicle = (vehiclesState["vehicles"] as JArray)?
             .OfType<JObject>()
             .Any(IsBagVehicle) == true;
+        if (independentVehicleMode)
+        {
+            JObject railsState = State(railResult);
+            List<JObject> rails = (railsState["rails"] as JArray)?
+                .OfType<JObject>()
+                .Where(IsUsablePlayerRail)
+                .ToList() ?? new List<JObject>();
+            return hasBagVehicle && rails.Count > 0 && rails.All(rail => !RailHasDriverCapacity(rail));
+        }
+
+        JArray? trains = trainsState["trains"] as JArray;
+        bool hasExistingTrain = trains?.OfType<JObject>().Any() == true;
+        bool hasFreeCapacity = trains?.OfType<JObject>().Any(HasTrainCapacity) == true;
         return hasExistingTrain && hasBagVehicle && !hasFreeCapacity;
     }
 
@@ -316,9 +339,11 @@ public sealed class BattleDecisionEngine
         JObject? trainResult,
         JObject? vehicleResult,
         JObject? catapultResult,
-        ISet<string>? rejectedPathKeys = null)
+        ISet<string>? rejectedPathKeys = null,
+        JObject? railResult = null,
+        bool independentVehicleMode = false)
     {
-        if (!NeedsDefenseExpansion(trainResult, vehicleResult))
+        if (!NeedsDefenseExpansion(trainResult, vehicleResult, railResult, independentVehicleMode))
         {
             return null;
         }
@@ -1150,7 +1175,11 @@ public sealed class BattleDecisionEngine
             $"确认消耗品 {name} 的有效目标。");
     }
 
-    private static AutomationAction? DecideVehicleReinforcement(JObject trainsState, JObject vehiclesState)
+    private static AutomationAction? DecideVehicleReinforcement(
+        JObject trainsState,
+        JObject vehiclesState,
+        JObject railsState,
+        bool independentVehicleMode)
     {
         JObject? vehicle = (vehiclesState["vehicles"] as JArray)?
             .OfType<JObject>()
@@ -1161,6 +1190,53 @@ public sealed class BattleDecisionEngine
         if (vehicle == null)
         {
             return null;
+        }
+
+        if (independentVehicleMode)
+        {
+            JObject? rail = (railsState["rails"] as JArray)?
+                .OfType<JObject>()
+                .Where(IsUsablePlayerRail)
+                .Where(RailHasDriverCapacity)
+                .OrderByDescending(item => ReadInt(item["driverCount"], 0) > 0)
+                .ThenByDescending(item =>
+                    ReadInt(item["driverMaxCount"], 0) - ReadInt(item["driverCount"], 0))
+                .ThenBy(item => ReadDouble(item["loopCycleSeconds"], double.MaxValue))
+                .ThenBy(item => ReadInt(item["railInternalId"], ReadInt(item["id"], int.MaxValue)))
+                .FirstOrDefault();
+            JObject? line = (rail?["lines"] as JArray)?
+                .OfType<JObject>()
+                .Where(item => ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], 0)) != 0)
+                .OrderBy(item => ReadInt(item["index"], int.MaxValue))
+                .ThenBy(item => ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], int.MaxValue)))
+                .FirstOrDefault();
+            if (rail == null || line == null)
+            {
+                return null;
+            }
+
+            JObject independentVehicleIdentity = BuildIdentity(vehicle, preferItemInstanceId: false);
+            if (!independentVehicleIdentity.HasValues)
+            {
+                return null;
+            }
+
+            int lineInstanceId = ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0));
+            int driverCount = ReadInt(rail["driverCount"], 0);
+            int driverMaxCount = ReadInt(rail["driverMaxCount"], 0);
+            JObject independentArguments = (JObject)independentVehicleIdentity.DeepClone();
+            independentArguments["lineInstanceId"] = lineInstanceId;
+            independentArguments["forward"] = true;
+            string independentName = vehicle["name"]?.Value<string>()
+                                     ?? vehicle["vehicleType"]?.Value<string>()
+                                     ?? "未知战车";
+            int independentLevel = ReadInt(vehicle["level"], 0);
+            return new AutomationAction(
+                "placeVehicleOnLine",
+                independentArguments,
+                AutomationStage.PreparingDefense,
+                $"把背包战车 {independentName}（等级 {independentLevel}）作为独立车列放入现有轨道；" +
+                $"实时车列容量 {driverCount}/{driverMaxCount}。" );
         }
 
         JObject? train = (trainsState["trains"] as JArray)?
@@ -1197,6 +1273,20 @@ public sealed class BattleDecisionEngine
             arguments,
             AutomationStage.PreparingDefense,
             $"把背包中等级最高的战车 {name}（等级 {level}）编入车列 {trainIndex}。");
+    }
+
+    private static bool IsUsablePlayerRail(JObject rail) =>
+        rail["isLegalPlayerLoop"]?.Value<bool>() == true &&
+        rail["isLoop"]?.Value<bool>() == true &&
+        rail["isOnField"]?.Value<bool>() != false;
+
+    private static bool RailHasDriverCapacity(JObject rail)
+    {
+        int driverCount = ReadInt(rail["driverCount"], 0);
+        int driverMaxCount = ReadInt(rail["driverMaxCount"], 0);
+        return rail["isDriverReachToMax"]?.Value<bool>() != true &&
+               driverMaxCount > 0 &&
+               driverCount < driverMaxCount;
     }
 
     private static bool IsActiveBattle(JObject wave)
@@ -1503,7 +1593,7 @@ public sealed class BattleDecisionEngine
             bool sameRail = sourceRailId.HasValue && targetRailId.HasValue && sourceRailId.Value == targetRailId.Value;
             int driverCount = ReadInt(rail["driverCount"], 0);
             int driverMaxCount = ReadInt(rail["driverMaxCount"], 0);
-            if (sameRail ? driverCount != 1 : driverCount != 0)
+            if (sameRail ? driverCount <= 0 : driverCount != 0)
             {
                 continue;
             }
@@ -1524,7 +1614,7 @@ public sealed class BattleDecisionEngine
                                      string.Equals(lineName, currentLineName, StringComparison.Ordinal);
                 int lineDriverCount = ReadInt(line["driverCount"], 0);
                 if (lineInstanceId == 0 ||
-                    (isCurrentLine ? lineDriverCount != 1 : lineDriverCount != 0) ||
+                    (isCurrentLine ? lineDriverCount <= 0 : lineDriverCount != 0) ||
                     (!isCurrentLine && line["hasDriver"]?.Value<bool>() == true) ||
                     !TryReadPoint(line["from"], out double fromX, out double fromY)
                     || !TryReadPoint(line["to"], out double toX, out double toY))
@@ -2104,6 +2194,9 @@ public sealed class BattleDecisionEngine
         y = 0d;
         return false;
     }
+
+    private static double ReadDouble(JToken? token, double fallback) =>
+        TryReadDouble(token, out double value) ? value : fallback;
 
     private static bool TryReadDouble(JToken? token, out double value)
     {

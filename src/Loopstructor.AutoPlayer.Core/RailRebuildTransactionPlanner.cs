@@ -56,7 +56,7 @@ public sealed class RailRebuildTransactionPlanner
         if (origin == 0 || originStation == null || ordered.Length < 3 || ordered[0] != origin ||
             stablePointIds.Length != ordered.Length) return null;
 
-        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Where(id => id != 0).ToArray()
+        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().ToArray()
                        ?? Array.Empty<int>();
         return new RailRebuildSnapshot
         {
@@ -237,19 +237,44 @@ public sealed class RailRebuildTransactionPlanner
     public IReadOnlyList<RailRebuildSnapshot> BuildSpecialInsertionCandidates(
         JObject? railResult,
         JObject? trainResult,
-        JObject? catapultResult)
+        JObject? catapultResult) =>
+        BuildUnassignedInsertionCandidates(
+            railResult,
+            trainResult,
+            catapultResult,
+            movableSpecialOnly: true);
+
+    public IReadOnlyList<RailRebuildSnapshot> BuildUnassignedInsertionCandidates(
+        JObject? railResult,
+        JObject? trainResult,
+        JObject? catapultResult) =>
+        BuildUnassignedInsertionCandidates(
+            railResult,
+            trainResult,
+            catapultResult,
+            movableSpecialOnly: false);
+
+    private IReadOnlyList<RailRebuildSnapshot> BuildUnassignedInsertionCandidates(
+        JObject? railResult,
+        JObject? trainResult,
+        JObject? catapultResult,
+        bool movableSpecialOnly)
     {
-        JObject[] availableSpecials = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
+        JObject[] availableStations = (State(catapultResult)["catapults"] as JArray)?.OfType<JObject>()
             .Where(item => item["active"]?.Value<bool>() != false &&
                            item["isAttribute"]?.Value<bool>() != true &&
-                           item["isSpecial"]?.Value<bool>() == true &&
-                           item["canMove"]?.Value<bool>() == true &&
+                           (!movableSpecialOnly ||
+                            item["isSpecial"]?.Value<bool>() == true &&
+                            item["canMove"]?.Value<bool>() == true) &&
                            item["canUseForNewRail"]?.Value<bool>() == true &&
+                           item["canPickLine"]?.Value<bool>() != false &&
+                           item["frozen"]?.Value<bool>() != true &&
+                           item["railReachMax"]?.Value<bool>() != true &&
                            ReadInt(item["railMembershipCount"]) == 0 &&
                            ReadInt(item["linePointInstanceId"]) != 0)
             .OrderBy(item => ReadInt(item["linePointInstanceId"]))
             .ToArray() ?? Array.Empty<JObject>();
-        if (availableSpecials.Length == 0) return Array.Empty<RailRebuildSnapshot>();
+        if (availableStations.Length == 0) return Array.Empty<RailRebuildSnapshot>();
 
         List<RailRebuildSnapshot> result = new();
         foreach (JObject rail in Rails(railResult).OrderBy(item => ReadInt(item["instanceId"])))
@@ -257,10 +282,10 @@ public sealed class RailRebuildTransactionPlanner
             int railInstanceId = ReadInt(rail["instanceId"]);
             RailRebuildSnapshot? baseline = Capture(railResult, railInstanceId, trainResult);
             if (baseline == null || baseline.VehicleInstanceIds.Count == 0) continue;
-            foreach (JObject special in availableSpecials)
+            foreach (JObject station in availableStations)
             {
-                int pointId = ReadInt(special["linePointInstanceId"]);
-                if (!TryReadGrid(special["grid"], out double specialX, out double specialY)) continue;
+                int pointId = ReadInt(station["linePointInstanceId"]);
+                if (!TryReadGrid(station["grid"], out double stationX, out double stationY)) continue;
                 JObject[] orderedStations = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
                     .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
                 for (int edgeIndex = 0; edgeIndex < orderedStations.Length; edgeIndex++)
@@ -269,8 +294,8 @@ public sealed class RailRebuildTransactionPlanner
                     if (!TryReadGrid(orderedStations[edgeIndex]["grid"], out double fromX, out double fromY) ||
                         !TryReadGrid(orderedStations[next]["grid"], out double toX, out double toY)) continue;
                     RailRebuildSnapshot candidate = BuildInsertionSnapshot(baseline, pointId, edgeIndex);
-                    double detour = Distance(fromX, fromY, specialX, specialY) +
-                                     Distance(specialX, specialY, toX, toY) -
+                    double detour = Distance(fromX, fromY, stationX, stationY) +
+                                     Distance(stationX, stationY, toX, toY) -
                                      Distance(fromX, fromY, toX, toY);
                     candidate.EstimatedDetour = detour;
                     result.Add(candidate);
@@ -315,15 +340,23 @@ public sealed class RailRebuildTransactionPlanner
             if (!topology.Loop.IsValid)
                 return Failure("目标轨道是伪闭环：" + string.Join("；", topology.Loop.Errors), false);
         }
-        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Where(id => id != 0).Distinct().OrderBy(id => id).ToArray()
+        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Distinct().OrderBy(id => id).ToArray()
                        ?? Array.Empty<int>();
-        bool vehiclesRestored = snapshot.TrainInstanceIds.Count == 0 ||
-                                snapshot.TrainInstanceIds.SequenceEqual(trains);
+        bool vehiclesRestored = snapshot.VehicleInstanceIds.Count > 0 || snapshot.VehicleBusinessIds.Count > 0
+            ? trains.Length > 0
+            : snapshot.TrainInstanceIds.Count == 0 ||
+              snapshot.TrainInstanceIds.OrderBy(id => id).SequenceEqual(trains.OrderBy(id => id));
         if (!vehiclesRestored) return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，正在等待始发站还原原车列身份。" };
         if (trainResult != null)
         {
-            int[] restoredVehicleInstances = ReadVehicleIds(trainResult, trains, "instanceId").ToArray();
-            int[] restoredVehicleBusinessIds = ReadVehicleIds(trainResult, trains, "vehicleId").ToArray();
+            int[] restoredVehicleInstances = ReadRailVehicleIds(
+                trainResult,
+                snapshot.RailInternalId,
+                "instanceId");
+            int[] restoredVehicleBusinessIds = ReadRailVehicleIds(
+                trainResult,
+                snapshot.RailInternalId,
+                "vehicleId");
             if (snapshot.VehicleInstanceIds.Count > 0 &&
                 !snapshot.VehicleInstanceIds.SequenceEqual(restoredVehicleInstances))
                 return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，原战车实例身份尚未完整回到车列。" };
@@ -382,6 +415,16 @@ public sealed class RailRebuildTransactionPlanner
                 .Where(id => id != 0).Distinct().OrderBy(id => id).ToArray())
                ?? Array.Empty<int>();
     }
+
+    private static int[] ReadRailVehicleIds(JObject? trainResult, int railInternalId, string key) =>
+        ((State(trainResult)["trains"] as JArray)?.OfType<JObject>()
+            .Where(train => ReadInt(train["railId"]) == railInternalId)
+            .SelectMany(train => (train["vehicles"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            .Select(vehicle => ReadInt(vehicle[key]))
+            .Where(id => id != 0)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray()) ?? Array.Empty<int>();
 
     private static RailRebuildVerification Failure(string detail, bool polluted) => new()
     {

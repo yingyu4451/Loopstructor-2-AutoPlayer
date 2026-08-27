@@ -435,6 +435,92 @@ public sealed class BattleDecisionEngineTests
     }
 
     [Fact]
+    public void Decide_IndependentVehicleModeUsesSecondLiveRailDriverSlot()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    id = 7,
+                    railInternalId = 7,
+                    isLegalPlayerLoop = true,
+                    isLoop = true,
+                    isOnField = true,
+                    driverCount = 1,
+                    driverMaxCount = 2,
+                    isDriverReachToMax = false,
+                    loopCycleSeconds = 6.5,
+                    lines = new[] { Line(701, -2, -2, 3, 0, hasDriver: true) }
+                }
+            }
+        });
+        JObject vehicles = VehicleResult(
+            Vehicle(201, 2, true, "Low"),
+            Vehicle(202, 5, true, "High"));
+
+        AutomationAction? action = Decide(
+            new BattleDecisionContext
+            {
+                AllowDisposableUse = false,
+                IndependentVehicleMode = true,
+                RailResult = rails
+            },
+            Result(new { isInWaving = false }),
+            null,
+            TrainResult(1, 1, 101),
+            vehicles);
+
+        Assert.NotNull(action);
+        Assert.Equal("placeVehicleOnLine", action.Command);
+        Assert.Equal(202, action.Arguments["instanceId"]?.Value<int>());
+        Assert.Equal(701, action.Arguments["lineInstanceId"]?.Value<int>());
+        Assert.Contains("1/2", action.Reason);
+    }
+
+    [Fact]
+    public void IndependentVehicleModeUsesLiveBonusCapacityAndExpandsOnlyWhenFull()
+    {
+        BattleDecisionEngine engine = new();
+        JObject vehicles = VehicleResult(Vehicle(202, 5, true, "High"));
+        JObject bonusCapacityRail = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    id = 7,
+                    railInternalId = 7,
+                    isLegalPlayerLoop = true,
+                    isLoop = true,
+                    isOnField = true,
+                    driverCount = 2,
+                    driverMaxCount = 3,
+                    isDriverReachToMax = false,
+                    lines = new[] { Line(701, -2, -2, 3, 0, hasDriver: true) }
+                }
+            }
+        });
+
+        Assert.False(engine.NeedsDefenseExpansion(
+            TrainResult(1, 1, 101),
+            vehicles,
+            bonusCapacityRail,
+            independentVehicleMode: true));
+
+        JObject fullRail = (JObject)bonusCapacityRail.DeepClone();
+        JObject rail = (JObject)fullRail.SelectToken("data.state.rails[0]")!;
+        rail["driverCount"] = 3;
+        rail["isDriverReachToMax"] = true;
+        Assert.True(engine.NeedsDefenseExpansion(
+            TrainResult(1, 1, 101),
+            vehicles,
+            fullRail,
+            independentVehicleMode: true));
+    }
+
+    [Fact]
     public void Decide_DoesNotInterleaveDefenseWhileWaitingForDisposablePreview()
     {
         AutomationAction? action = Decide(

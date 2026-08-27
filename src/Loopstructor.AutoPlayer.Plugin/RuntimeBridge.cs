@@ -32,6 +32,8 @@ internal sealed class RuntimeBridge
     private Animator? _roomMapAnimator;
     private PropertyInfo? _settlementUiInstance;
     private MethodInfo? _settlementUiAgain;
+    private PropertyInfo? _trainConfigInstance;
+    private FieldInfo? _independentVehicleMode;
 
     private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
@@ -165,6 +167,7 @@ internal sealed class RuntimeBridge
         InitializeWaveFunctionOptionFlowContract();
         InitializeMapAnimationContract();
         InitializeSettlementRestartContract();
+        InitializeTrainPolicyContract();
         _liveEnemyThreatReader.Initialize();
         MissingMembers = missing;
         IsAvailable = missing.Count == 0;
@@ -177,6 +180,32 @@ internal sealed class RuntimeBridge
          string.Equals(command, "queryMergeUiState", StringComparison.OrdinalIgnoreCase) ||
          string.Equals(command, "closeMergePanel", StringComparison.OrdinalIgnoreCase) ||
          string.Equals(command, "confirmMergeSettlement", StringComparison.OrdinalIgnoreCase));
+
+    public bool TryGetIndependentVehicleMode(out bool enabled)
+    {
+        enabled = false;
+        if (_trainConfigInstance == null || _independentVehicleMode == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            object? config = _trainConfigInstance.GetValue(null, null);
+            if (config == null || _independentVehicleMode.GetValue(config) is not bool value)
+            {
+                return false;
+            }
+
+            enabled = value;
+            return true;
+        }
+        catch
+        {
+            enabled = false;
+            return false;
+        }
+    }
 
     public bool TryGetWavePulse(out bool inWave, out bool gameOver, out int remainingEnemies)
     {
@@ -528,6 +557,17 @@ internal sealed class RuntimeBridge
             BindingFlags.Public | BindingFlags.Instance);
         _waveFunctionOptionFlowDescription = runtimeType?.GetProperty(
             "PendingFlowDescription",
+            BindingFlags.Public | BindingFlags.Instance);
+    }
+
+    private void InitializeTrainPolicyContract()
+    {
+        Type? configType = FindType("MetroTD.LineSystem.TrainConfigSO");
+        _trainConfigInstance = configType?.GetProperty(
+            "Instance",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+        _independentVehicleMode = configType?.GetField(
+            "independentVehicleMode",
             BindingFlags.Public | BindingFlags.Instance);
     }
 

@@ -338,6 +338,164 @@ public sealed class RailRebuildTransactionPlannerTests
         });
     }
 
+    [Fact]
+    public void BuildUnassignedInsertionCandidatesIncludesFixedMapRelay()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 701,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    loopCycleSeconds = 8d,
+                    trainIds = new[] { 2 },
+                    orderedStations = new[]
+                    {
+                        new { linePointInstanceId = 11, isAttribute = true, grid = new { x = 0, y = 0 } },
+                        new { linePointInstanceId = 12, isAttribute = false, grid = new { x = 3, y = 0 } },
+                        new { linePointInstanceId = 13, isAttribute = false, grid = new { x = 0, y = 3 } }
+                    }
+                }
+            }
+        });
+        JObject trains = Result(new
+        {
+            trains = new[]
+            {
+                new { index = 2, vehicles = new[] { new { instanceId = 101, vehicleId = 1001 } } }
+            }
+        });
+        JObject catapults = Result(new
+        {
+            catapults = new[]
+            {
+                new
+                {
+                    linePointInstanceId = 19,
+                    active = true,
+                    isAttribute = false,
+                    isSpecial = false,
+                    canMove = false,
+                    canUseForNewRail = true,
+                    canPickLine = true,
+                    frozen = false,
+                    railReachMax = false,
+                    railMembershipCount = 0,
+                    grid = new { x = 0, y = -3 }
+                }
+            }
+        });
+
+        IReadOnlyList<RailRebuildSnapshot> candidates =
+            _planner.BuildUnassignedInsertionCandidates(rails, trains, catapults);
+
+        Assert.Equal(3, candidates.Count);
+        Assert.All(candidates, candidate =>
+        {
+            Assert.Contains(19, candidate.OrderedLinePointInstanceIds);
+            Assert.Equal(4, candidate.OrderedLinePointInstanceIds.Count);
+            Assert.Equal(101, candidate.VehicleInstanceIds.Single());
+        });
+        Assert.Empty(_planner.BuildSpecialInsertionCandidates(rails, trains, catapults));
+    }
+
+    [Fact]
+    public void BuildUnassignedInsertionCandidatesKeepsZeroBasedFirstTrainAndAllIndependentVehicles()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 701,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    loopCycleSeconds = 8d,
+                    trainIds = new[] { 0, 1 },
+                    orderedStations = new[]
+                    {
+                        new { linePointInstanceId = 11, isAttribute = true, grid = new { x = 0, y = 0 } },
+                        new { linePointInstanceId = 12, isAttribute = false, grid = new { x = 3, y = 0 } },
+                        new { linePointInstanceId = 13, isAttribute = false, grid = new { x = 0, y = 3 } }
+                    }
+                }
+            }
+        });
+        JObject trains = Result(new
+        {
+            trains = new object[]
+            {
+                new { index = 0, railId = 71, vehicles = new[] { new { instanceId = 101, vehicleId = 1001 } } },
+                new { index = 1, railId = 71, vehicles = new[] { new { instanceId = 102, vehicleId = 1002 } } }
+            }
+        });
+        JObject catapults = Result(new
+        {
+            catapults = new[]
+            {
+                new
+                {
+                    linePointInstanceId = 19,
+                    active = true,
+                    isAttribute = false,
+                    isSpecial = false,
+                    canMove = false,
+                    canUseForNewRail = true,
+                    canPickLine = true,
+                    frozen = false,
+                    railReachMax = false,
+                    railMembershipCount = 0,
+                    grid = new { x = 0, y = -3 }
+                }
+            }
+        });
+
+        RailRebuildSnapshot candidate = _planner
+            .BuildUnassignedInsertionCandidates(rails, trains, catapults)
+            .First();
+
+        Assert.Equal(new[] { 0, 1 }, candidate.TrainInstanceIds);
+        Assert.Equal(new[] { 101, 102 }, candidate.VehicleInstanceIds);
+        Assert.Equal(new[] { 1001, 1002 }, candidate.VehicleBusinessIds);
+
+        JObject restoredRails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 801,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    isLoop = true,
+                    loopCycleSeconds = 7.5d,
+                    trainIds = new[] { 3, 4 },
+                    orderedStations = candidate.OrderedLinePointInstanceIds.Select((id, index) => new
+                    {
+                        linePointInstanceId = id,
+                        isAttribute = index == 0
+                    }).ToArray()
+                }
+            }
+        });
+        JObject restoredTrains = Result(new
+        {
+            trains = new object[]
+            {
+                new { index = 3, railId = 71, vehicles = new[] { new { instanceId = 101, vehicleId = 1001 } } },
+                new { index = 4, railId = 71, vehicles = new[] { new { instanceId = 102, vehicleId = 1002 } } }
+            }
+        });
+
+        RailRebuildVerification verification = _planner.VerifyRestored(restoredRails, candidate, restoredTrains);
+        Assert.True(verification.Verified, verification.Detail);
+        Assert.True(verification.VehiclesRestored);
+    }
+
     private static JObject Result(object state) => JObject.FromObject(new
     {
         success = true,
