@@ -300,6 +300,22 @@ public sealed class PluginRuntimeHostContractTests
     }
 
     [Fact]
+    public void InitializingNewGame_ProbesNormalEventBeforeCoreRuntimeGate()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tickInGame = RequireMethod(controller, "TickInGame");
+        Instruction[] instructions = tickInGame.Body.Instructions.ToArray();
+
+        int normalEvent = FindCall(instructions, ControllerType, "TryHandleNormalEventUi");
+        int ensureReady = FindCall(instructions, ControllerType, "EnsureInGameRuntimeReady");
+
+        Assert.True(
+            normalEvent >= 0 && normalEvent < ensureReady,
+            "EventUI_Normal must be probed before the NewGameScene core-object gate because the opening choice creates the main station and catapults.");
+    }
+
+    [Fact]
     public void NormalEvent_StartAndResumeForceOneProbeBeforeWaveDecisions()
     {
         using AssemblyDefinition assembly = ReadPlugin();

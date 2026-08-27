@@ -24,20 +24,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.38 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.39 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.38
+.\scripts\package.ps1 -Version 0.6.39
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.38-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.39-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -148,13 +148,13 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.38-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.39-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 
-`v0.6.38` 修复地图新增弹射点被普通防线维护饿死的问题：未接入站点会建立持续的流程门禁，优先于合成和战车部署完成轨道接入；所有活动站点接入并通过实际简单闭环复核前，不再继续选图或开波。地图强制维护允许选择保持周向覆盖、不要求立即严格提升 N/T 的最佳合法接入方案，并在运行时暂不可用时退避重试。本版本以 `v0.6.37` 作为相邻增量更新基线。
+`v0.6.39` 修复游戏 1.392 新开局普通事件与对局初始化互相等待的问题：插件会在主基地和初始弹射点尚未生成、`queryState` 仍返回 pending 时，优先只读探测 `EventUI_Normal`，通过原生高亮和延迟点击完成选择后再恢复完整运行时门禁。其他防线、地图和战斗写操作仍须等待核心对象就绪。本版本以 `v0.6.38` 作为相邻增量更新基线。
 
-`v0.6.37` 适配游戏当前的独立战车轨道规则：每辆战车作为单独车列，通过始发站按轨道实时 `driverMaxCount` 投放；默认容量 2 以及遗物、特殊站点提供的容量变化都从运行时读取，不再沿用“一轨一车列”或“向旧车列加车厢”的旧判断。地图节点生成的固定普通中继站也会进入始发站断环重连候选，不再只处理可移动特殊站点。本版本以 `v0.6.36` 作为相邻增量更新基线。
+`v0.6.38` 修复地图新增弹射点被普通防线维护饿死的问题：未接入站点会建立持续的流程门禁，优先于合成和战车部署完成轨道接入；所有活动站点接入并通过实际简单闭环复核前，不再继续选图或开波。地图强制维护允许选择保持周向覆盖、不要求立即严格提升 N/T 的最佳合法接入方案，并在运行时暂不可用时退避重试。本版本以 `v0.6.37` 作为相邻增量更新基线。
 
 `v0.6.35` 使用统一拓扑与几何验证器判定轨道，拒绝重复边、断裂、多连通分量、站点度数异常、自交及未包围基地的伪闭环；布局规划以始发站为首点按极角生成顺序并用 2-opt 消除交叉。地图节点提交后会等待站点集合稳定，再对新增或未入轨中继站触发一次完整防线维护。战败改为正常的 `Completed + Defeat` 结算，下一次开始通过游戏原生“再来一局”重新进入流程。轨道变化时会低频保存带编号与异常边标记的截图证据，但不会用像素识别驱动操作。本版本以 `v0.6.34` 作为相邻增量更新基线。
 

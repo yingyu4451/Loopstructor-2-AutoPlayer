@@ -1175,6 +1175,12 @@ internal sealed class AutoPlayController
 
     private void TickInGame()
     {
+        // In game 1.392 the opening EventUI_Normal choice is responsible for creating the
+        // main station and initial catapults. queryState therefore remains pending until the
+        // choice is submitted; probe that UI before applying the core-object readiness gate.
+        // The handler is read-only until it has identified the exact visible button, and then
+        // uses the same deferred, highlighted native click path as later ordinary events.
+        if (TryHandleNormalEventUi()) return;
         if (!EnsureInGameRuntimeReady()) return;
         ObserveMapProgress();
         if (TryContinueMapOpenAnimationWait()) return;
@@ -1226,7 +1232,6 @@ internal sealed class AutoPlayController
             return;
         }
 
-        if (TryHandleNormalEventUi()) return;
         if (TryHandleObservedWave()) return;
         if (TryHandlePendingMapSelection()) return;
         if (TryObservePostMapTopology()) return;
