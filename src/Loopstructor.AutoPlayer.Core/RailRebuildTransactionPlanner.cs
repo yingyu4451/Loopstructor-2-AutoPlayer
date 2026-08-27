@@ -50,13 +50,10 @@ public sealed class RailRebuildTransactionPlanner
         int origin = stations.Where(item => item["isAttribute"]?.Value<bool>() == true)
             .Select(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])))
             .FirstOrDefault();
-        int originPointId = stations.Where(item => item["isAttribute"]?.Value<bool>() == true)
-            .Select(item => ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))))
-            .FirstOrDefault();
-        int[] stablePointIds = stations.Select(item =>
-                ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))))
-            .Where(id => id != 0).ToArray();
-        if (origin == 0 || originPointId == 0 || ordered.Length < 3 || ordered[0] != origin ||
+        JObject? originStation = stations.FirstOrDefault(item => item["isAttribute"]?.Value<bool>() == true);
+        int originPointId = originStation == null ? 0 : ReadStablePointId(originStation);
+        int[] stablePointIds = stations.Select(ReadStablePointId).ToArray();
+        if (origin == 0 || originStation == null || ordered.Length < 3 || ordered[0] != origin ||
             stablePointIds.Length != ordered.Length) return null;
 
         int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Where(id => id != 0).ToArray()
@@ -101,10 +98,10 @@ public sealed class RailRebuildTransactionPlanner
         Dictionary<int, int> instanceByStableId = stations
             .Select(item => new
             {
-                StableId = ReadInt(item["pointId"], ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))),
+                StableId = ReadStablePointId(item),
                 InstanceId = ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"]))
             })
-            .Where(item => item.StableId != 0 && item.InstanceId != 0)
+            .Where(item => item.InstanceId != 0)
             .GroupBy(item => item.StableId)
             .ToDictionary(group => group.Key, group => group.First().InstanceId);
         if (orderedStablePointIds.Distinct().Count() != orderedStablePointIds.Count ||
@@ -351,6 +348,11 @@ public sealed class RailRebuildTransactionPlanner
 
     private static int ReadInt(JToken? token, int fallback = 0) =>
         token?.Type == JTokenType.Integer ? token.Value<int>() : fallback;
+
+    private static int ReadStablePointId(JObject station) =>
+        station["pointId"]?.Type == JTokenType.Integer
+            ? station["pointId"]!.Value<int>()
+            : ReadInt(station["linePointInstanceId"], ReadInt(station["instanceId"]));
 
     private static bool TryReadGrid(JToken? token, out double x, out double y)
     {

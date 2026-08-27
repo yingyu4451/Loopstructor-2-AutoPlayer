@@ -75,8 +75,8 @@ internal sealed class RailVisualVerifier
             .OfType<Component>()
             .Where(component => component.gameObject.scene.IsValid())
             .Select(component => new { Component = component, Id = ReadId(idProperty, component) })
-            .Where(item => item.Id != 0)
-            .GroupBy(item => item.Id)
+            .Where(item => item.Id.HasValue)
+            .GroupBy(item => item.Id!.Value)
             .ToDictionary(group => group.Key, group => group.First().Component);
         JObject state = result.SelectToken("data.state") as JObject ?? result["state"] as JObject ?? result;
         JObject[] rails = (state["rails"] as JArray)?.OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
@@ -92,8 +92,9 @@ internal sealed class RailVisualVerifier
             foreach (JObject station in ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
                          .OfType<JObject>() ?? Enumerable.Empty<JObject>())
             {
-                int pointId = station["pointId"]?.Value<int?>() ?? 0;
-                if (pointId == 0 || !components.TryGetValue(pointId, out Component component)) continue;
+                if (station["pointId"]?.Type != JTokenType.Integer) continue;
+                int pointId = station["pointId"]!.Value<int>();
+                if (!components.TryGetValue(pointId, out Component component)) continue;
                 Vector3 screen = camera.WorldToScreenPoint(component.transform.position);
                 if (screen.z <= 0f) continue;
                 RailVisualNode visual = new()
@@ -188,10 +189,10 @@ internal sealed class RailVisualVerifier
         return true;
     }
 
-    private static int ReadId(PropertyInfo property, object target)
+    private static int? ReadId(PropertyInfo property, object target)
     {
-        try { return property.GetValue(target, null) is int id ? id : 0; }
-        catch { return 0; }
+        try { return property.GetValue(target, null) is int id ? id : null; }
+        catch { return null; }
     }
 
     private static string GridKey(JToken? grid) =>

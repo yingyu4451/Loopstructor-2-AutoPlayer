@@ -206,7 +206,7 @@ public static class RailLayoutStrategyPlanner
     public static RailLoopPlan? PlanPlayerLoop(IEnumerable<RailLoopPointCandidate>? candidates)
     {
         RailLoopPointCandidate[] source = candidates?
-            .Where(candidate => candidate != null && candidate.InstanceId != 0 && IsFinite(candidate.Grid))
+            .Where(candidate => candidate != null && IsFinite(candidate.Grid))
             .GroupBy(candidate => candidate.InstanceId)
             .Select(group => group.First())
             .ToArray() ?? Array.Empty<RailLoopPointCandidate>();
@@ -246,7 +246,7 @@ public static class RailLayoutStrategyPlanner
             while (selected.Count > 3)
             {
                 RailLoopPlan? bestRemoval = null;
-                int bestRemovedId = 0;
+                int? bestRemovedId = null;
                 foreach (RailLoopPointCandidate removable in selected
                              .Where(candidate => !candidate.IsAttribute)
                              .OrderBy(candidate => candidate.InstanceId))
@@ -262,7 +262,7 @@ public static class RailLayoutStrategyPlanner
                     if (bestRemoval == null ||
                         CompareForDefense(proposal.Score, bestRemoval.Score) < 0 ||
                         (CompareForDefense(proposal.Score, bestRemoval.Score) == 0 &&
-                         removable.InstanceId < bestRemovedId))
+                          (!bestRemovedId.HasValue || removable.InstanceId < bestRemovedId.Value)))
                     {
                         bestRemoval = proposal;
                         bestRemovedId = removable.InstanceId;
@@ -274,7 +274,7 @@ public static class RailLayoutStrategyPlanner
                     break;
                 }
 
-                selected.RemoveAll(candidate => candidate.InstanceId == bestRemovedId);
+                selected.RemoveAll(candidate => candidate.InstanceId == bestRemovedId!.Value);
                 current = bestRemoval;
             }
 
@@ -394,7 +394,7 @@ public static class RailLayoutStrategyPlanner
         int attributeInstanceId)
     {
         RailLoopPointCandidate[] source = selected
-            .Where(candidate => candidate != null && candidate.InstanceId != 0 && IsFinite(candidate.Grid))
+            .Where(candidate => candidate != null && IsFinite(candidate.Grid))
             .GroupBy(candidate => candidate.InstanceId)
             .Select(group => group.First())
             .ToArray();
@@ -415,7 +415,7 @@ public static class RailLayoutStrategyPlanner
         int attributeInstanceId)
     {
         RailLoopPointCandidate[] polar = (candidates ?? Enumerable.Empty<RailLoopPointCandidate>())
-            .Where(candidate => candidate != null && candidate.InstanceId != 0 && IsFinite(candidate.Grid))
+            .Where(candidate => candidate != null && IsFinite(candidate.Grid))
             .GroupBy(candidate => candidate.InstanceId)
             .Select(group => group.First())
             .OrderBy(candidate => PolarAngle(candidate.Grid))

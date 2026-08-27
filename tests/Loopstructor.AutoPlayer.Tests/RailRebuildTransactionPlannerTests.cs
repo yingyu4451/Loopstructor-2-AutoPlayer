@@ -127,6 +127,36 @@ public sealed class RailRebuildTransactionPlannerTests
     }
 
     [Fact]
+    public void CaptureAndApplyOrderPreserveZeroBasedStablePointId()
+    {
+        JObject rails = Result(new
+        {
+            rails = new[]
+            {
+                new
+                {
+                    instanceId = 701,
+                    railInternalId = 71,
+                    isLegalPlayerLoop = true,
+                    orderedStations = new[]
+                    {
+                        new { pointId = 2, linePointInstanceId = 102, isAttribute = true, grid = new { x = 3, y = 0 } },
+                        new { pointId = 1, linePointInstanceId = 101, isAttribute = false, grid = new { x = -2, y = -2 } },
+                        new { pointId = 0, linePointInstanceId = 100, isAttribute = false, grid = new { x = -2, y = 2 } }
+                    }
+                }
+            }
+        });
+
+        RailRebuildSnapshot snapshot = Assert.IsType<RailRebuildSnapshot>(_planner.Capture(rails, 701));
+        bool applied = _planner.ApplyStablePointOrder(snapshot, rails, new[] { 2, 0, 1 });
+
+        Assert.True(applied);
+        Assert.Equal(new[] { 2, 0, 1 }, snapshot.OrderedPointIds);
+        Assert.Equal(new[] { 102, 100, 101 }, snapshot.OrderedLinePointInstanceIds);
+    }
+
+    [Fact]
     public void ApplyStablePointOrderNeverRestoresMalformedBaselineOrder()
     {
         JObject rails = Result(new

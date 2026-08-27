@@ -33,6 +33,19 @@ public sealed class RailRuntimeTopologyInspectorTests
     }
 
     [Fact]
+    public void Inspect_AcceptsLiveOpeningTriangleWithPointIdZero()
+    {
+        JObject state = State(
+            new[] { Station(1, false, -2, -2), Station(2, true, 3, 0), Station(0, false, -2, 2) },
+            new[] { Line(-2, -2, -2, 2), Line(3, 0, -2, -2), Line(-2, 2, 3, 0) });
+
+        RailRuntimeTopologyInspection result = RailRuntimeTopologyInspector.Inspect(state);
+
+        Assert.True(result.AllValid, result.Detail);
+        Assert.Contains("0:-2,2", result.Fingerprint);
+    }
+
+    [Fact]
     public void Inspect_RejectsDisconnectedLineEndpoint()
     {
         JObject state = State(

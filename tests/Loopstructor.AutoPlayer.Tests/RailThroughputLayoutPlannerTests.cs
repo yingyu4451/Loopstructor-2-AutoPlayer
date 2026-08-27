@@ -5,6 +5,21 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class RailThroughputLayoutPlannerTests
 {
     [Fact]
+    public void OrderSimplePlayerLoop_PreservesZeroBasedStableIdentity()
+    {
+        IReadOnlyList<int> ordered = RailLayoutStrategyPlanner.OrderSimplePlayerLoop(new[]
+        {
+            Candidate(2, true, 3, 0),
+            Candidate(1, false, -2, -2),
+            Candidate(0, false, -2, 2)
+        }, attributeInstanceId: 2);
+
+        Assert.Equal(3, ordered.Count);
+        Assert.Equal(2, ordered[0]);
+        Assert.Contains(0, ordered);
+    }
+
+    [Fact]
     public void Evaluate_BaseEnclosingLoopBeatsOneSidedClusterAtComparableTriggerRate()
     {
         RailLayoutScore oneSided = RailLayoutStrategyPlanner.Evaluate(

@@ -286,8 +286,8 @@ public sealed class RailExpansionPlanner
                     .ToArray();
             }
             IReadOnlyList<int> orderedStationPointIds = ReadRailStablePointIds(rail);
-            int stablePointId = ReadStablePointId(rail, linePointInstanceId);
-            if (stablePointId == 0 || orderedStationPointIds.Count != orderedStationGrids.Count)
+            if (!TryReadStablePointId(rail, linePointInstanceId, out int stablePointId) ||
+                orderedStationPointIds.Count != orderedStationGrids.Count)
             {
                 continue;
             }
@@ -325,7 +325,6 @@ public sealed class RailExpansionPlanner
                                 candidate.StationCatapultInstanceId != 0 &&
                                  candidate.StationGameObjectInstanceId != 0 &&
                                  candidate.StationLinePointInstanceId != 0 &&
-                                 candidate.StationPointId != 0 &&
                                 !string.IsNullOrWhiteSpace(candidate.StationPath) &&
                                 !string.IsNullOrWhiteSpace(candidate.StationFingerprint))
             .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
@@ -409,7 +408,7 @@ public sealed class RailExpansionPlanner
         out RailStationMoveCandidate refreshed)
     {
         refreshed = new RailStationMoveCandidate();
-        if (target == null || target.StablePointId == 0) return false;
+        if (target == null) return false;
         StationSpacingRules spacingRules = target.Candidate.SpacingRules;
         RailStationMoveCandidate[] candidates = BuildExistingSpecialMoveCandidates(
                 railResult,
@@ -441,7 +440,8 @@ public sealed class RailExpansionPlanner
                 .SelectMany(item => (item["orderedStations"] as JArray)?.OfType<JObject>() ??
                                     Enumerable.Empty<JObject>())
                 .Where(item =>
-                    ReadInt(item["pointId"], 0) == target.StablePointId &&
+                    item["pointId"]?.Type == JTokenType.Integer &&
+                    item["pointId"]!.Value<int>() == target.StablePointId &&
                     item.SelectToken("grid.x")?.Value<int?>() == target.TargetGrid.X &&
                     item.SelectToken("grid.y")?.Value<int?>() == target.TargetGrid.Y)
                 .ToArray();
@@ -1260,18 +1260,30 @@ public sealed class RailExpansionPlanner
         .OfType<JObject>()
         .Any(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == pointInstanceId) == true;
 
-    private static int ReadStablePointId(JObject rail, int linePointInstanceId) =>
-        ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
-        .OfType<JObject>()
-        .Where(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == linePointInstanceId)
-        .Select(point => ReadInt(point["pointId"], ReadInt(point["linePointInstanceId"], 0)))
-        .SingleOrDefault() ?? 0;
+    private static bool TryReadStablePointId(JObject rail, int linePointInstanceId, out int pointId)
+    {
+        pointId = 0;
+        JObject[] matches = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>()
+            .Where(point => ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)) == linePointInstanceId)
+            .ToArray() ?? Array.Empty<JObject>();
+        if (matches.Length != 1) return false;
+        JToken? stableToken = matches[0]["pointId"];
+        if (stableToken?.Type == JTokenType.Integer)
+        {
+            pointId = stableToken.Value<int>();
+            return true;
+        }
+        pointId = ReadInt(matches[0]["linePointInstanceId"], ReadInt(matches[0]["instanceId"], 0));
+        return pointId != 0;
+    }
 
     private static IReadOnlyList<int> ReadRailStablePointIds(JObject rail) =>
         ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
         .OfType<JObject>()
-        .Select(point => ReadInt(point["pointId"], ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0))))
-        .Where(pointId => pointId != 0)
+        .Select(point => point["pointId"]?.Type == JTokenType.Integer
+            ? point["pointId"]!.Value<int>()
+            : ReadInt(point["linePointInstanceId"], ReadInt(point["instanceId"], 0)))
         .ToArray() ?? Array.Empty<int>();
 
     private static bool TryReadPointIdentitySequence(JObject rail, out int[] pointIds)

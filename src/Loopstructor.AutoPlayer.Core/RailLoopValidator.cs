@@ -64,7 +64,8 @@ public static class RailLoopValidator
         List<string> errors = new();
 
         if (sourceNodes.Length < 3) errors.Add("闭环至少需要三个站点。");
-        if (sourceNodes.Any(node => node == null || node.Id == 0 || !IsFinite(node.Point)))
+        // LinePoint.ID is zero-based in the game. ID 0 is therefore a valid stable identity.
+        if (sourceNodes.Any(node => node == null || !IsFinite(node.Point)))
             errors.Add("站点身份或坐标无效。");
         if (sourceNodes.Select(node => node.Id).Distinct().Count() != sourceNodes.Length)
             errors.Add("轨道包含重复站点身份。");
@@ -76,7 +77,7 @@ public static class RailLoopValidator
             errors.Add("闭环至少需要两个中继站。");
 
         Dictionary<int, RailLoopNode> nodeById = sourceNodes
-            .Where(node => node != null && node.Id != 0)
+            .Where(node => node != null)
             .GroupBy(node => node.Id)
             .ToDictionary(group => group.Key, group => group.First());
         Dictionary<int, List<int>> adjacency = nodeById.Keys.ToDictionary(id => id, _ => new List<int>());
@@ -111,11 +112,12 @@ public static class RailLoopValidator
         if (adjacency.Any(pair => pair.Value.Count != 2))
             errors.Add("闭环中每个站点必须恰好连接两条线段。");
 
-        int startId = sourceNodes.FirstOrDefault(node => node.IsAttribute)?.Id
-                      ?? sourceNodes.FirstOrDefault()?.Id
-                      ?? 0;
-        List<int> ordered = BuildOrderedCycle(startId, adjacency, sourceNodes.Length);
-        bool connected = startId != 0 && CountReachable(startId, adjacency) == nodeById.Count;
+        RailLoopNode? startNode = sourceNodes.FirstOrDefault(node => node.IsAttribute)
+                                  ?? sourceNodes.FirstOrDefault();
+        List<int> ordered = startNode == null
+            ? new List<int>()
+            : BuildOrderedCycle(startNode.Id, adjacency, sourceNodes.Length);
+        bool connected = startNode != null && CountReachable(startNode.Id, adjacency) == nodeById.Count;
         bool singleCycle = sourceNodes.Length >= 3 && connected && ordered.Count == sourceNodes.Length &&
                            uniqueEdges.Count == sourceNodes.Length &&
                            adjacency.All(pair => pair.Value.Count == 2);
@@ -132,15 +134,11 @@ public static class RailLoopValidator
         bool containsBase = simple && ContainsPointStrict(polygon, origin);
         if (simple && !containsBase) errors.Add("实际闭环没有包围基地。");
 
-        int quadrants = polygon
-            .Where(point => DistanceSquared(point, origin) > Epsilon)
-            .Select(point => Quadrant(point, origin))
-            .Distinct()
-            .Count();
-        bool coversAllQuadrants = quadrants >= 4;
+        // Coverage belongs to the continuous rail boundary, not only to station vertices. A
+        // three-station triangle can cover all four directions when its edges enclose the base.
+        bool coversAllQuadrants = simple && containsBase && CardinalRaysMeetBoundary(polygon, origin);
         if (simple && !coversAllQuadrants) errors.Add("闭环没有覆盖基地四个方向。");
-        double maxAngularGap = CalculateMaxAngularGap(polygon, origin);
-        bool noLargeBlindArc = simple && maxAngularGap <= 90.001d;
+        bool noLargeBlindArc = coversAllQuadrants;
         if (simple && !noLargeBlindArc) errors.Add("闭环存在超过 90 度的防御盲区。");
 
         string[] distinctErrors = errors.Distinct(StringComparer.Ordinal).ToArray();
@@ -164,17 +162,19 @@ public static class RailLoopValidator
         int expectedCount)
     {
         List<int> result = new();
-        if (startId == 0 || !adjacency.TryGetValue(startId, out List<int>? startNeighbours) ||
+        if (!adjacency.TryGetValue(startId, out List<int>? startNeighbours) ||
             startNeighbours.Count != 2) return result;
 
-        int previous = 0;
+        int? previous = null;
         int current = startId;
         for (int step = 0; step < expectedCount; step++)
         {
             if (result.Contains(current) || !adjacency.TryGetValue(current, out List<int>? neighbours) ||
                 neighbours.Count != 2) return new List<int>();
             result.Add(current);
-            int next = neighbours[0] == previous ? neighbours[1] : neighbours[0];
+            int next = previous.HasValue && neighbours[0] == previous.Value
+                ? neighbours[1]
+                : neighbours[0];
             previous = current;
             current = next;
         }
@@ -248,31 +248,38 @@ public static class RailLoopValidator
         point.X >= Math.Min(a.X, b.X) - Epsilon && point.X <= Math.Max(a.X, b.X) + Epsilon &&
         point.Y >= Math.Min(a.Y, b.Y) - Epsilon && point.Y <= Math.Max(a.Y, b.Y) + Epsilon;
 
-    private static double CalculateMaxAngularGap(
-        IEnumerable<RailLayoutPoint> points,
+    private static bool CardinalRaysMeetBoundary(
+        IReadOnlyList<RailLayoutPoint> polygon,
         RailLayoutPoint origin)
     {
-        double[] angles = points
-            .Where(point => DistanceSquared(point, origin) > Epsilon)
-            .Select(point =>
-            {
-                double angle = Math.Atan2(point.Y - origin.Y, point.X - origin.X) * 180d / Math.PI;
-                return angle < 0d ? angle + 360d : angle;
-            })
-            .OrderBy(value => value)
-            .ToArray();
-        if (angles.Length < 2) return 360d;
-        double largest = 360d - angles[angles.Length - 1] + angles[0];
-        for (int index = 1; index < angles.Length; index++)
-            largest = Math.Max(largest, angles[index] - angles[index - 1]);
-        return largest;
+        return RayMeetsBoundary(polygon, origin, 1d, 0d) &&
+               RayMeetsBoundary(polygon, origin, -1d, 0d) &&
+               RayMeetsBoundary(polygon, origin, 0d, 1d) &&
+               RayMeetsBoundary(polygon, origin, 0d, -1d);
     }
 
-    private static int Quadrant(RailLayoutPoint point, RailLayoutPoint origin)
+    private static bool RayMeetsBoundary(
+        IReadOnlyList<RailLayoutPoint> polygon,
+        RailLayoutPoint origin,
+        double directionX,
+        double directionY)
     {
-        double angle = Math.Atan2(point.Y - origin.Y, point.X - origin.X);
-        if (angle < 0d) angle += Math.PI * 2d;
-        return Math.Min(3, (int)Math.Floor(angle / (Math.PI / 2d)));
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            RailLayoutPoint left = polygon[index];
+            RailLayoutPoint right = polygon[(index + 1) % polygon.Count];
+            double edgeX = right.X - left.X;
+            double edgeY = right.Y - left.Y;
+            double relativeX = left.X - origin.X;
+            double relativeY = left.Y - origin.Y;
+            double denominator = directionX * edgeY - directionY * edgeX;
+            if (Math.Abs(denominator) <= Epsilon) continue;
+            double distance = (relativeX * edgeY - relativeY * edgeX) / denominator;
+            double edgePosition = (relativeX * directionY - relativeY * directionX) / denominator;
+            if (distance > Epsilon && edgePosition >= -Epsilon && edgePosition <= 1d + Epsilon)
+                return true;
+        }
+        return false;
     }
 
     private static double DistanceSquared(RailLayoutPoint left, RailLayoutPoint right)

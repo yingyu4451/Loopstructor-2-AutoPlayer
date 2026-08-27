@@ -22,6 +22,23 @@ public sealed class RailLoopValidatorTests
     }
 
     [Fact]
+    public void Validate_AcceptsZeroBasedTriangleThatEnclosesBase()
+    {
+        RailLoopValidationResult result = RailLoopValidator.ValidateOrdered(new[]
+        {
+            Node(1, false, -2, -2),
+            Node(2, true, 3, 0),
+            Node(0, false, -2, 2)
+        });
+
+        Assert.True(result.IsValid, string.Join(" ", result.Errors));
+        Assert.Equal(new[] { 2, 1, 0 }, result.OrderedNodeIds);
+        Assert.True(result.EncirclesBase);
+        Assert.True(result.CoversAllQuadrants);
+        Assert.True(result.HasNoLargeBlindArc);
+    }
+
+    [Fact]
     public void Validate_AcceptsConcaveSimpleLoopThatStillContainsBase()
     {
         RailLoopValidationResult result = RailLoopValidator.ValidateOrdered(new[]

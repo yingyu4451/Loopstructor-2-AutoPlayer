@@ -164,7 +164,7 @@ public sealed class RailJointLayoutSearch
     }
 
     private static bool IsUsable(RailStationMoveCandidate candidate) =>
-        candidate != null && candidate.RailInstanceId != 0 && candidate.StationPointId != 0 &&
+        candidate != null && candidate.RailInstanceId != 0 &&
         candidate.OrderedStationGrids.Count >= 3 &&
         candidate.OrderedStationGrids.Count == candidate.OrderedStationKinds.Count &&
         candidate.OrderedStationGrids.Count == candidate.OrderedStationPointIds.Count &&
