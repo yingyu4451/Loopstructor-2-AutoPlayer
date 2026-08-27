@@ -148,6 +148,7 @@ internal sealed class AutoPlayController
     private const int MaxOwnedPreviewReleaseVerificationAttempts = 12;
     private const int MaxWaveStartAttempts = 3;
     private const int MaxMergePassesPerMaintenance = 8;
+    private const float RequiredRailTopologyRetryBaseSeconds = 0.75f;
     private static readonly TimeSpan FrontEndTransitionTimeout = TimeSpan.FromSeconds(20);
 
     private readonly object _sync = new();
@@ -226,6 +227,9 @@ internal sealed class AutoPlayController
     private float _postMapTopologyObservationStartedAt = -1f;
     private int _mapSubmissionSequence;
     private string _lastPostMapTopologyCheckpoint = string.Empty;
+    private bool _requiredRailTopologyMaintenance;
+    private int _requiredRailTopologyRetryCount;
+    private float _requiredRailTopologyRetryAt = -1f;
     private string _selectionHighlightOwner = string.Empty;
     private string _selectionHighlightFingerprint = string.Empty;
     private string _selectionPreviewFingerprint = string.Empty;
@@ -512,6 +516,8 @@ internal sealed class AutoPlayController
             ResetRewardOptionObservation();
             _pendingMapAction = null;
             ResetPostMapTopologyObservation();
+            ResetRequiredRailTopologyMaintenance();
+            _lastPostMapTopologyCheckpoint = string.Empty;
             _deferredMapSelectionAction = null;
             _preMapStationFingerprint = string.Empty;
             _wasInWave = false;
@@ -1224,6 +1230,7 @@ internal sealed class AutoPlayController
         if (TryHandleObservedWave()) return;
         if (TryHandlePendingMapSelection()) return;
         if (TryObservePostMapTopology()) return;
+        if (TryRunRequiredRailTopologyMaintenance()) return;
         if (_defensePrepared &&
             _defenseMaintenanceRequested &&
             _defenseMaintenanceReady &&
@@ -1909,6 +1916,8 @@ internal sealed class AutoPlayController
         _deferredMapSelectionAction = null;
         _preMapStationFingerprint = string.Empty;
         ResetPostMapTopologyObservation();
+        ResetRequiredRailTopologyMaintenance();
+        _lastPostMapTopologyCheckpoint = string.Empty;
         ClearSelectionHighlight();
         _deferredFrontEndAction = null;
         _pendingRandomFetterEnum = string.Empty;
@@ -2292,6 +2301,14 @@ internal sealed class AutoPlayController
 
     private void ExecuteInGameDecision(AutomationAction action)
     {
+        if (_requiredRailTopologyMaintenance &&
+            (string.Equals(action.Command, "startWave", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase)) &&
+            TryRunRequiredRailTopologyMaintenance())
+        {
+            return;
+        }
+
         if (!string.Equals(action.Command, "startWave", StringComparison.OrdinalIgnoreCase))
         {
             if (string.Equals(action.Command, "selectMapNode", StringComparison.OrdinalIgnoreCase))
@@ -3524,8 +3541,9 @@ internal sealed class AutoPlayController
 
         if (!_defenseBattleSpecialMoveOnly &&
             (!_bridge.HasCommand("queryTrain") ||
-             !_bridge.HasCommand("queryVehicle") ||
-             !_bridge.HasCommand("moveVehicleInTrain")))
+             (!_requiredRailTopologyMaintenance &&
+              (!_bridge.HasCommand("queryVehicle") ||
+               !_bridge.HasCommand("moveVehicleInTrain")))))
         {
             FinishDefenseMaintenance("当前游戏构建缺少战车自动编列接口，已保留现有防线继续游玩。", warning: true);
             return true;
@@ -3544,6 +3562,16 @@ internal sealed class AutoPlayController
                 _defenseIndependentVehicleMode =
                     _bridge.TryGetIndependentVehicleMode(out bool independentVehicleMode) &&
                     independentVehicleMode;
+                if (_requiredRailTopologyMaintenance)
+                {
+                    _defenseNeedsNewLoopExpansion = false;
+                    _defenseVehicle = null;
+                    _defenseTrainCountBeforeExpansion = CountTrainEntries(_defenseTrain);
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
+                    ScheduleDefenseMaintenanceStep(
+                        "地图新增弹射点尚未接入；跳过合成和战车部署，优先重连实际闭环。");
+                    return true;
+                }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryVehicle;
                 ScheduleDefenseMaintenanceStep(_defenseIndependentVehicleMode
                     ? "当前游戏采用一辆战车一个车列；正在读取每条轨道的实时车列容量。"
@@ -3778,6 +3806,16 @@ internal sealed class AutoPlayController
                 _defenseRailExpansionBaseline = expansionRailState;
                 RailRuntimeTopologyInspection baselineTopology =
                     RailRuntimeTopologyInspector.Inspect(expansionRailState);
+                if (CompleteRequiredRailTopologyMaintenance(
+                        _defenseCatapults,
+                        expansionRailState))
+                {
+                    MarkDefenseRailMaintenanceStable();
+                    FinishDefenseMaintenance(
+                        "地图新增弹射点已全部接入，实际轨道已通过简单闭环复核。",
+                        warning: false);
+                    return true;
+                }
                 if (baselineTopology.HasRails && !baselineTopology.AllValid)
                 {
                     _defenseRailMaintenanceStableLayoutFingerprint = string.Empty;
@@ -3803,7 +3841,11 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
-                if (_bridge.HasCommand("queryMovableStationState") &&
+                bool hasRequiredUnassignedStation =
+                    _requiredRailTopologyMaintenance &&
+                    HasUnassignedActiveStation(_defenseCatapults);
+                if (!hasRequiredUnassignedStation &&
+                    _bridge.HasCommand("queryMovableStationState") &&
                     _bridge.HasCommand("queryDisposableGridOptions") &&
                     _bridge.HasCommand("startStationMove") &&
                     _bridge.HasCommand("confirmStationMoveGrid") &&
@@ -3881,6 +3923,15 @@ internal sealed class AutoPlayController
                 _defenseRailInsertionPreviewIndex = 0;
                 if (_defenseRailInsertionCandidates.Count == 0)
                 {
+                    if (_requiredRailTopologyMaintenance &&
+                        HasUnassignedActiveStation(_defenseCatapults))
+                    {
+                        FinishDefenseMaintenance(
+                            "地图新增弹射点仍在场上，但游戏暂未允许把它接入轨道；不会继续生成更多站点，将等待交互状态恢复后重试。",
+                            warning: false);
+                        return true;
+                    }
+
                     if (!_defenseNeedsNewLoopExpansion &&
                         _battleDecisionEngine.CountAvailableExpansionStations(
                             _defenseCatapults,
@@ -4076,15 +4127,24 @@ internal sealed class AutoPlayController
                 return true;
 
             case DefenseMaintenanceStep.SelectRailInsertion:
-                _defenseSelectedRailInsertion =
-                    _railExpansionPlanner.SelectBest(
-                        _defenseRailInsertionScores.Where(score =>
-                            !_defenseRailMaintenanceActionFingerprints.Contains(
-                                BuildDefenseRailInsertionActionFingerprint(score))));
+                IEnumerable<RailInsertionPreviewScore> availableInsertionScores =
+                    _defenseRailInsertionScores.Where(score =>
+                        !_defenseRailMaintenanceActionFingerprints.Contains(
+                            BuildDefenseRailInsertionActionFingerprint(score)));
+                _defenseSelectedRailInsertion = _requiredRailTopologyMaintenance
+                    ? _railExpansionPlanner.SelectBestRequiredTopology(availableInsertionScores)
+                    : _railExpansionPlanner.SelectBest(availableInsertionScores);
                 if (_defenseSelectedRailInsertion == null)
                 {
-                    MarkDefenseRailMaintenanceStable();
-                    FinishDefenseMaintenance("没有候选能够修复周向覆盖，或在相同覆盖层级下提高站点触发率 N/T。");
+                    if (!_requiredRailTopologyMaintenance)
+                    {
+                        MarkDefenseRailMaintenanceStable();
+                    }
+                    FinishDefenseMaintenance(
+                        _requiredRailTopologyMaintenance
+                            ? "地图新增弹射点当前没有保持周向覆盖的合法接入方案；将重新读取站点状态后重试。"
+                            : "没有候选能够修复周向覆盖，或在相同覆盖层级下提高站点触发率 N/T。",
+                        warning: false);
                     return true;
                 }
 
@@ -7114,6 +7174,23 @@ internal sealed class AutoPlayController
         }
 
         bool battleSpecialMove = _defenseBattleSpecialMoveOnly;
+        if (_requiredRailTopologyMaintenance && !battleSpecialMove)
+        {
+            _requiredRailTopologyRetryCount++;
+            float delay = Math.Min(
+                3f,
+                RequiredRailTopologyRetryBaseSeconds * Math.Max(1, _requiredRailTopologyRetryCount));
+            _requiredRailTopologyRetryAt = Time.realtimeSinceStartup + delay;
+            _defenseMaintenanceRequested = true;
+            _defenseMaintenanceReady = false;
+            ResetDefenseMaintenanceState();
+            if (warning) AddWarning(detail);
+            SetStage(
+                AutomationStage.PreparingDefense,
+                detail + $" 地图新增弹射点仍未完成闭环对账；{delay:0.##} 秒后重新读取，期间不会选图或开波。");
+            return;
+        }
+
         _defenseMaintenanceRequested = false;
         _defenseMaintenanceReady = false;
         ResetDefenseMaintenanceState();
@@ -8983,6 +9060,7 @@ internal sealed class AutoPlayController
         {
             AddWarning("地图节点后的站点生成在安全时限内没有稳定；已安排一次完整防线重读。" );
             ResetPostMapTopologyObservation();
+            RequireRailTopologyMaintenance("地图节点后的站点生成读取超时");
             RequestDefenseMaintenance();
             _defenseMaintenanceReady = true;
             return true;
@@ -9036,17 +9114,26 @@ internal sealed class AutoPlayController
         bool duplicate = string.Equals(checkpoint, _lastPostMapTopologyCheckpoint, StringComparison.Ordinal);
         ResetPostMapTopologyObservation();
         if (!duplicate) _lastPostMapTopologyCheckpoint = checkpoint;
-        if (needsMaintenance && !duplicate)
+        if (needsMaintenance)
         {
-            RequestDefenseMaintenance();
-            _defenseMaintenanceReady = true;
-            AddTimeline(
-                "post-map-topology",
-                "地图节点后的拓扑已稳定；" +
-                (stationChanged ? "检测到站点集合变化；" : string.Empty) +
-                (unassignedStation ? "检测到未接入闭环的站点；" : string.Empty) +
-                (!topology.AllValid ? topology.Detail : "现有闭环合法；") +
-                "已安排一次完整联合布局规划。" );
+            RequireRailTopologyMaintenance(
+                unassignedStation
+                    ? "地图节点产生了未接入闭环的弹射点"
+                    : !topology.AllValid
+                        ? "地图节点后的轨道闭环不合法"
+                        : "地图节点后的站点集合发生变化");
+            if (!duplicate)
+            {
+                RequestDefenseMaintenance();
+                _defenseMaintenanceReady = true;
+                AddTimeline(
+                    "post-map-topology",
+                    "地图节点后的拓扑已稳定；" +
+                    (stationChanged ? "检测到站点集合变化；" : string.Empty) +
+                    (unassignedStation ? "检测到未接入闭环的站点；" : string.Empty) +
+                    (!topology.AllValid ? topology.Detail : "现有闭环合法；") +
+                    "已设置开波前轨道门禁并安排完整重连。" );
+            }
         }
         else
         {
@@ -9056,6 +9143,78 @@ internal sealed class AutoPlayController
         }
         ScheduleContinuationFrame();
         return true;
+    }
+
+    private bool TryRunRequiredRailTopologyMaintenance()
+    {
+        if (!_requiredRailTopologyMaintenance || !_defensePrepared) return false;
+
+        if (_bridge.TryGetWavePulse(out bool inWave, out bool gameOver, out _) &&
+            (inWave || gameOver))
+        {
+            return false;
+        }
+
+        if (_requiredRailTopologyRetryAt > Time.realtimeSinceStartup)
+        {
+            SetStage(
+                AutomationStage.PreparingDefense,
+                "地图新增弹射点尚未接入闭环；正在等待下一次安全重读，期间不会选图或开波。");
+            return true;
+        }
+
+        if (!_defenseMaintenanceRequested)
+        {
+            RequestDefenseMaintenance();
+        }
+
+        _defenseMaintenanceReady = true;
+        if (TryMaintainDefense()) return true;
+
+        SetStage(
+            AutomationStage.PreparingDefense,
+            "地图新增弹射点尚未接入闭环；已阻止继续选图和开波，正在准备重连。");
+        return true;
+    }
+
+    private void RequireRailTopologyMaintenance(string reason)
+    {
+        if (!_requiredRailTopologyMaintenance)
+        {
+            AddTimeline("rail-maintenance-gate", reason + "；轨道重连完成前不会继续选图或开波。");
+        }
+
+        _requiredRailTopologyMaintenance = true;
+        _requiredRailTopologyRetryCount = 0;
+        _requiredRailTopologyRetryAt = -1f;
+        _defenseRailMaintenanceStableLayoutFingerprint = string.Empty;
+    }
+
+    private bool CompleteRequiredRailTopologyMaintenance(
+        JObject? catapultResult,
+        JObject railResult)
+    {
+        RailRuntimeTopologyInspection topology = RailRuntimeTopologyInspector.Inspect(railResult);
+        if (!_requiredRailTopologyMaintenance ||
+            HasUnassignedActiveStation(catapultResult) ||
+            !topology.HasRails ||
+            !topology.AllValid)
+        {
+            return false;
+        }
+
+        ResetRequiredRailTopologyMaintenance();
+        AddTimeline(
+            "rail-maintenance-gate",
+            "已确认所有活动弹射点均已接入，实际线段构成包围基地的合法简单闭环；允许继续流程。");
+        return true;
+    }
+
+    private void ResetRequiredRailTopologyMaintenance()
+    {
+        _requiredRailTopologyMaintenance = false;
+        _requiredRailTopologyRetryCount = 0;
+        _requiredRailTopologyRetryAt = -1f;
     }
 
     private void ResetPostMapTopologyObservation()

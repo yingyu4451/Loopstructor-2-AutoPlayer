@@ -827,6 +827,32 @@ public sealed class RailExpansionPlanner
             .ThenBy(score => score.Candidate.StationLinePointInstanceId)
             .FirstOrDefault();
 
+    /// <summary>
+    /// Selects a legal insertion when a map reward has produced an unassigned station that must
+    /// be reconciled before progression. Coverage may not regress, but the new point is allowed
+    /// to have no immediate N/T gain; otherwise a valid map station can remain outside the loop
+    /// forever and becomes frozen as soon as the next wave starts.
+    /// </summary>
+    public RailInsertionPreviewScore? SelectBestRequiredTopology(
+        IEnumerable<RailInsertionPreviewScore>? scores) =>
+        scores?
+            .Where(score => score != null &&
+                            score.BaselineLayout != null &&
+                            score.PredictedLayout != null &&
+                            RailLayoutStrategyPlanner.DoesNotReduceCoverage(
+                                score.BaselineLayout,
+                                score.PredictedLayout))
+            .OrderBy(
+                score => score.PredictedLayout,
+                Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareCoverage))
+            .ThenByDescending(score => score.PredictedEffectiveAttackRate)
+            .ThenByDescending(score => score.PredictedTriggerRate)
+            .ThenBy(score => score.PredictedLoopCycleSeconds)
+            .ThenBy(score => score.Candidate.RailInstanceId)
+            .ThenBy(score => score.Candidate.LineInstanceId)
+            .ThenBy(score => score.Candidate.StationLinePointInstanceId)
+            .FirstOrDefault();
+
     public RailInsertionPreviewScore? SelectMovableSpecialForReposition(
         IEnumerable<RailInsertionPreviewScore>? scores) =>
         scores?

@@ -25,6 +25,28 @@ public sealed class RailLoopRuntimeContractTests
     }
 
     [Fact]
+    public void PendingPostMapTopology_IsAProgressionGateUntilRuntimeVerificationClearsIt()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tick = RequireMethod(controller, "TickInGame");
+        MethodDefinition decision = RequireMethod(controller, "ExecuteInGameDecision");
+        MethodDefinition maintainGate = RequireMethod(controller, "TryRunRequiredRailTopologyMaintenance");
+        MethodDefinition completion = RequireMethod(controller, "CompleteRequiredRailTopologyMaintenance");
+
+        Assert.Contains(controller.Fields, field => field.Name == "_requiredRailTopologyMaintenance");
+        Assert.Contains(Calls(tick), call =>
+            call.DeclaringType.FullName == ControllerType && call.Name == maintainGate.Name);
+        Assert.Contains(Calls(decision), call =>
+            call.DeclaringType.FullName == ControllerType && call.Name == maintainGate.Name);
+        Assert.Contains(Calls(completion), call =>
+            call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.RailRuntimeTopologyInspector" &&
+            call.Name == "Inspect");
+        Assert.Contains(Calls(completion), call =>
+            call.DeclaringType.FullName == ControllerType && call.Name == "HasUnassignedActiveStation");
+    }
+
+    [Fact]
     public void DefeatCompletesAndNextStartUsesNativeAgainEntry()
     {
         using AssemblyDefinition assembly = ReadPlugin();

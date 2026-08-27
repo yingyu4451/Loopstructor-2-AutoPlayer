@@ -71,6 +71,18 @@ public sealed class RailExpansionPlannerTests
     }
 
     [Fact]
+    public void SelectBestRequiredTopology_AcceptsBestLegalCoveragePreservingInsertion()
+    {
+        RailInsertionPreviewScore smallerLoss = Score(71, baseline: 1d, predicted: 0.9d);
+        RailInsertionPreviewScore largerLoss = Score(72, baseline: 1d, predicted: 0.7d);
+
+        Assert.Null(_planner.SelectBest(new[] { smallerLoss, largerLoss }));
+        Assert.Same(
+            smallerLoss,
+            _planner.SelectBestRequiredTopology(new[] { largerLoss, smallerLoss }));
+    }
+
+    [Fact]
     public void VerifyInsertion_RequiresSameRailSetAndExactAddedStation()
     {
         RailInsertionPreviewScore selected = Score(71, baseline: 0.5d, predicted: 0.6d);
