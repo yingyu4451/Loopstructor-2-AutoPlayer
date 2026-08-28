@@ -235,6 +235,28 @@ public sealed class ManagerSettingsStoreTests
         }
     }
 
+    [Fact]
+    public void Load_LegacyStartupUpdatePreference_IsIgnoredAndNotSavedAgain()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            File.WriteAllText(settingsPath, "{\"CheckUpdatesOnStart\":false}");
+            ManagerSettingsStore store = new(settingsPath);
+
+            ManagerSettings settings = store.Load(out string warning);
+            store.Save(settings);
+
+            Assert.Empty(warning);
+            Assert.DoesNotContain("CheckUpdatesOnStart", File.ReadAllText(settingsPath), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "LoopstructorAutoPlayerTests", Guid.NewGuid().ToString("N"));

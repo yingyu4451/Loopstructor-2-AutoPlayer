@@ -401,19 +401,13 @@
                                     <Grid Height="40" HorizontalAlignment="Left">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="220" />
-                                            <ColumnDefinition Width="16" />
-                                            <ColumnDefinition Width="220" />
                                         </Grid.ColumnDefinitions>
                                         <Button x:Name="_skipRewardPopupButton"
                                                 VerticalAlignment="Stretch"
                                                 Style="{StaticResource DangerButtonStyle}"
                                                 Content="跳过当前奖励弹窗"
+                                                ToolTip="立即放弃当前奖励并推进奖励队列"
                                                 AutomationProperties.Name="跳过当前奖励弹窗" />
-                                        <TextBlock Grid.Column="2"
-                                                   VerticalAlignment="Center"
-                                                   Style="{StaticResource CheatStatusStyle}"
-                                                   Text="放弃当前奖励并推进队列"
-                                                   TextWrapping="Wrap" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

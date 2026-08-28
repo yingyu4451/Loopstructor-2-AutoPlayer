@@ -123,7 +123,6 @@ public sealed class ManagerSettings
     public int CharacterCfgIndex { get; set; } = -1;
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
-    public bool CheckUpdatesOnStart { get; set; } = true;
 
     public void NormalizeUpdateSource()
     {

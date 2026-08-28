@@ -37,6 +37,43 @@ public sealed class CheatFormWpfLayoutTests
     }
 
     [Fact]
+    public void SkipRewardPopup_ExecutesImmediatelyWithoutConfirmationOrSideDescription()
+    {
+        RunSta(() =>
+        {
+            List<string> commands = new();
+            CheatForm form = new((command, payload) =>
+            {
+                commands.Add(command);
+                return Task.FromResult<ControlResponse?>(DemoData.CheatResponse(command, payload));
+            });
+
+            try
+            {
+                form.UpdateSession(true, DemoData.CheatHello(), DemoData.CheatStatus());
+                form.SelectDemoTab(3);
+                form.Show();
+                PumpDispatcher();
+
+                Button button = Assert.IsType<Button>(form.FindName("_skipRewardPopupButton"));
+                int before = commands.Count;
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpDispatcher();
+
+                Assert.Equal(new[] { CheatCommands.SkipRewardPopup }, commands.Skip(before));
+                Assert.Equal("立即放弃当前奖励并推进奖励队列", button.ToolTip);
+                Assert.DoesNotContain(
+                    "放弃当前奖励并推进队列",
+                    VisualDescendants<TextBlock>(form).Select(text => text.Text));
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void ToolWindow_IsConfiguredAsIndependentTopLevelWindow()
     {
         RunSta(() =>

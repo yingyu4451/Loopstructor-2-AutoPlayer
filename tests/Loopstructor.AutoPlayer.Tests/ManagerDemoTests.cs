@@ -1,13 +1,113 @@
 using System.Drawing;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.UI;
 using Newtonsoft.Json.Linq;
+using DrawingSize = System.Drawing.Size;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
 public sealed class ManagerDemoTests
 {
+    [Fact]
+    public void MainWindow_UsesCompactAutomationLayout_AndLogTelemetryTabs()
+    {
+        RunSta(() =>
+        {
+            MainForm form = new(ManagerLaunchOptions.Parse(new[] { "--demo" }))
+            {
+                Width = 1400,
+                Height = 860,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                form.Show();
+                PumpDispatcher();
+
+                Assert.Null(form.FindName("_modeAvailability"));
+                Assert.Null(form.FindName("_autoUpdateCheck"));
+                Assert.Null(form.FindName("_logHeightSplitter"));
+
+                TabControl tabs = Assert.IsType<TabControl>(form.FindName("_monitorTabs"));
+                Assert.Equal(0, tabs.SelectedIndex);
+                Assert.Equal(new[] { "运行日志", "运行遥测" }, tabs.Items.Cast<TabItem>().Select(item => item.Header));
+                RichTextBox logs = Assert.IsType<RichTextBox>(form.FindName("_logs"));
+                Assert.IsType<ItemsControl>(form.FindName("_telemetryItems"));
+                logs.Document.Blocks.Add(new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run("切换后保留")));
+                tabs.SelectedIndex = 1;
+                PumpDispatcher();
+                tabs.SelectedIndex = 0;
+                PumpDispatcher();
+                Assert.Contains(
+                    "切换后保留",
+                    new System.Windows.Documents.TextRange(logs.Document.ContentStart, logs.Document.ContentEnd).Text,
+                    StringComparison.Ordinal);
+
+                FrameworkElement character = Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_characterField"));
+                FrameworkElement story = Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_skipStoryField"));
+                FrameworkElement priority = Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_decisionPriorityField"));
+                Assert.Equal(Visibility.Visible, character.Visibility);
+                Assert.Equal(0, Grid.GetColumn(character));
+                Assert.Equal(1, Grid.GetColumn(story));
+                Assert.Equal(2, Grid.GetColumn(priority));
+
+                FrameworkElement root = Assert.IsAssignableFrom<FrameworkElement>(form.Content);
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_secondaryRunOptions")));
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_timelineScroll")));
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_monitorTabs")));
+                SaveScreenshot(root, 1400, 860);
+
+                form.Width = 1100;
+                form.Height = 680;
+                PumpDispatcher();
+                root.UpdateLayout();
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_secondaryRunOptions")));
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_timelineScroll")));
+                AssertInside(root, Assert.IsAssignableFrom<FrameworkElement>(form.FindName("_monitorTabs")));
+                SaveScreenshot(root, 1100, 680);
+
+                CheckBox continueProfile = Assert.IsType<CheckBox>(form.FindName("_continueProfile"));
+                continueProfile.IsChecked = true;
+                PumpDispatcher();
+                Assert.Equal(Visibility.Collapsed, character.Visibility);
+                Assert.Equal(0, Grid.GetColumn(story));
+                Assert.Equal(1, Grid.GetColumn(priority));
+                Grid secondaryOptions = Assert.IsType<Grid>(form.FindName("_secondaryRunOptions"));
+                Assert.Equal(0, secondaryOptions.ColumnDefinitions[2].Width.Value);
+            }
+            finally
+            {
+                form.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ManagerSettings_NoLongerExposeOptionalStartupUpdateSwitch()
+    {
+        Assert.Null(typeof(ManagerSettings).GetProperty("CheckUpdatesOnStart", BindingFlags.Instance | BindingFlags.Public));
+    }
+
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    public void StartupUpdateCheck_IsAutomaticExceptInDemoMode(
+        bool demoMode,
+        bool configured,
+        bool expected)
+    {
+        ManagerLaunchOptions options = ManagerLaunchOptions.Parse(demoMode ? new[] { "--demo" } : Array.Empty<string>());
+        Assert.Equal(expected, MainForm.ShouldCheckForUpdates(options, configured));
+    }
+
     [Theory]
     [InlineData(AutoPlayerRunState.Running, false)]
     [InlineData(AutoPlayerRunState.Paused, false)]
@@ -123,7 +223,7 @@ public sealed class ManagerDemoTests
         Assert.True(options.DemoMode);
         Assert.True(options.DemoRestartRequired);
         Assert.True(options.ScreenshotMode);
-        Assert.Equal(new Size(1280, 720), options.WindowSize);
+        Assert.Equal(new DrawingSize(1280, 720), options.WindowSize);
     }
 
     [Fact]
@@ -183,7 +283,7 @@ public sealed class ManagerDemoTests
             "980x680"
         });
 
-        Assert.Equal(new Size(980, 680), options.WindowSize);
+        Assert.Equal(new DrawingSize(980, 680), options.WindowSize);
     }
 
     [Fact]
@@ -450,5 +550,67 @@ public sealed class ManagerDemoTests
             line.Contains(" INFO ", StringComparison.Ordinal)
             || line.Contains(" SAFE ", StringComparison.Ordinal)
             || line.Contains(" ACT ", StringComparison.Ordinal));
+    }
+
+    private static void RunSta(Action action)
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                if (Application.Current == null) _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                action();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null) throw new TargetInvocationException(failure);
+    }
+
+    private static void PumpDispatcher()
+    {
+        DispatcherFrame frame = new();
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static void AssertInside(FrameworkElement root, FrameworkElement element)
+    {
+        Assert.True(element.ActualWidth > 0 && element.ActualHeight > 0, $"{element.Name} 没有获得可见尺寸。");
+        Rect bounds = element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        Assert.True(
+            bounds.Left >= -1
+            && bounds.Top >= -1
+            && bounds.Right <= root.ActualWidth + 1
+            && bounds.Bottom <= root.ActualHeight + 1,
+            $"{element.Name} 超出窗口内容范围：{bounds}，根区域 {root.ActualWidth:0.##}x{root.ActualHeight:0.##}。");
+    }
+
+    private static void SaveScreenshot(FrameworkElement root, int width, int height)
+    {
+        System.Windows.DpiScale dpi = System.Windows.Media.VisualTreeHelper.GetDpi(root);
+        int pixelWidth = Math.Max(1, (int)Math.Ceiling(root.ActualWidth * dpi.DpiScaleX));
+        int pixelHeight = Math.Max(1, (int)Math.Ceiling(root.ActualHeight * dpi.DpiScaleY));
+        System.Windows.Media.Imaging.RenderTargetBitmap bitmap = new(
+            pixelWidth,
+            pixelHeight,
+            dpi.PixelsPerInchX,
+            dpi.PixelsPerInchY,
+            System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(root);
+        System.Windows.Media.Imaging.PngBitmapEncoder encoder = new();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+
+        string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        string directory = Path.Combine(repositoryRoot, "artifacts", "ui", "v0.6.41");
+        Directory.CreateDirectory(directory);
+        using FileStream stream = new(Path.Combine(directory, $"manager-{width}x{height}.png"), FileMode.Create);
+        encoder.Save(stream);
     }
 }

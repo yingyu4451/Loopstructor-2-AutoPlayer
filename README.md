@@ -2,6 +2,8 @@
 
 Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的自动游玩与本地调试工具。Manager 安装并验证载荷、连接已经运行或由它启动的游戏，并展示自动游玩状态；BepInEx 插件在游戏进程内读取可验证状态并调用游戏自带的 `GuiGameAutomation.Runtime` 契约完成操作，不占用系统鼠标和键盘。玩家模式安装后在后台待命，可在游戏运行期间随时从 Manager 开始、暂停或停止自动游玩。
 
+当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
+
 > 本仓库只包含自动化工具代码，不包含、复制或发布任何游戏 DLL。工具不会改写磁盘上的 `Assembly-CSharp.dll`；它只读取该文件的 SHA-256 以确认游戏构建。玩家模式使用当前 Windows 用户下、绑定游戏目录与程序集指纹的本机控制注册；隔离 QA 模式仍使用一次性激活上下文。
 
 ## 适用范围
@@ -24,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.40 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.41 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.40
+.\scripts\package.ps1 -Version 0.6.41
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.40-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.41-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -148,9 +150,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.40-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.41-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.41` 精简 Manager 的自动游玩配置区，删除模式下方重复说明并把角色、跳过剧情和决策优先排列到同一行；运行日志移入右侧仪表区，与运行遥测使用机械选项卡切换且默认显示日志。Manager 不再提供关闭启动更新检查的选项，每次正常启动都会自动检测更新；作弊工具的奖励跳过改为单击立即执行。本版本以 `v0.6.40` 作为相邻增量更新基线。
 
 `v0.6.40` 在作弊工具“战斗”页新增“跳过当前奖励弹窗”。它优先使用游戏原生跳过流程；遇到强制奖励（例如重复遗物无法领取）时，通过游戏原生 `UseCurrent` 队列推进机制放弃当前奖励，并在写入后验证弹窗关闭或队列确实前进，不会只隐藏界面。本版本以 `v0.6.39` 作为相邻增量更新基线。
 

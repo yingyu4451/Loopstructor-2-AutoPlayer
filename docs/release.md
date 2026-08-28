@@ -76,27 +76,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.40
+.\scripts\package.ps1 -Version 0.6.41
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.40 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.41 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.40-win-x64.zip
-Loopstructor.AutoPlayer-0.6.40-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.39-to-0.6.40-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.39-to-0.6.40-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.41-win-x64.zip
+Loopstructor.AutoPlayer-0.6.41-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.40-to-0.6.41-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.40-to-0.6.41-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.40-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.41-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +126,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.40",
+  "version": "0.6.41",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.40-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.41-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 65181362,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.39",
-      "assetName": "Loopstructor.AutoPlayer-0.6.39-to-0.6.40-win-x64.delta.zip",
+      "fromVersion": "0.6.40",
+      "assetName": "Loopstructor.AutoPlayer-0.6.40-to-0.6.41-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2524818
     }
@@ -207,8 +207,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.40
-git push origin v0.6.40
+git tag v0.6.41
+git push origin v0.6.41
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -230,7 +230,7 @@ git push origin v0.6.40
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 验证普通事件剧情开关只点击 `EventUI_Normal` 的真实 Skip 按钮，轨神事件不受影响；两种决策优先级可持久化并改变奖励与路线排序；右侧目标型道具只使用最新 MCP 合法候选，扩轨资源不会被战斗逻辑消耗；
 - 验证车列容量已满时可创建额外合法闭环并放入背包战车；无容量堵塞时按 `N/T` 选择正收益插点。普通弹射点通过左下角库存正式放置，特殊点通过正式两阶段移动入口操作；所有结构写入一次提交、跨帧对账，暂停、停止和超时均不会重发；
-- 在支持构建和未知构建上分别验证通过与 fail-closed；
+- 在受支持构建上验证运行时契约检查允许启动和执行；在程序集指纹或必需运行时契约未知的构建上验证插件拒绝写入并返回明确的不兼容原因；
 - 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的完整包资产名、大小和 SHA-256 正确；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；

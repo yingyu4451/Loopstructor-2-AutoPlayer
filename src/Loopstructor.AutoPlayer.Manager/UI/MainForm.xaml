@@ -149,9 +149,7 @@
         <Grid Margin="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="4*" MinHeight="260" />
-                <RowDefinition Height="18" />
-                <RowDefinition Height="*" MinHeight="100" />
+                <RowDefinition Height="*" MinHeight="360" />
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Style="{StaticResource InsetPanelStyle}" Padding="14,9" Margin="0,0,0,12">
@@ -343,12 +341,6 @@
                                               SelectionChanged="UiScaleSettingOnChanged" />
                                 </Grid>
 
-                                <Separator />
-
-                                <CheckBox
-                                    x:Name="_autoUpdateCheck"
-                                    Margin="0,4,0,0"
-                                    Content="启动 Manager 时检查更新" />
                             </StackPanel>
                         </ScrollViewer>
                         <Grid Grid.Row="2" Margin="0,10,0,0">
@@ -453,19 +445,6 @@
                                         </Style>
                                     </ComboBox.ItemContainerStyle>
                                 </ComboBox>
-                                <TextBlock x:Name="_modeAvailability"
-                                           Margin="0,5,0,0"
-                                           FontSize="11"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           Text="连接游戏后读取可玩内容"
-                                           TextWrapping="Wrap" />
-                                <TextBlock x:Name="_characterLabel"
-                                           Margin="0,8,0,5"
-                                           Style="{StaticResource FieldLabelStyle}"
-                                           Text="角色" />
-                                <ComboBox x:Name="_character"
-                                          AutomationProperties.Name="开始新游戏角色"
-                                          DisplayMemberPath="DisplayName" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="速度" />
@@ -484,12 +463,19 @@
                             </StackPanel>
                         </Grid>
 
-                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                        <Grid x:Name="_secondaryRunOptions" Grid.Row="3" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition x:Name="_secondaryOptionFirstColumn" Width="*" />
+                                <ColumnDefinition x:Name="_secondaryOptionSecondColumn" Width="*" />
+                                <ColumnDefinition x:Name="_secondaryOptionThirdColumn" Width="*" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Margin="0,0,8,0" VerticalAlignment="Bottom">
+                            <StackPanel x:Name="_characterField" Margin="0,0,8,0">
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="角色" />
+                                <ComboBox x:Name="_character"
+                                          AutomationProperties.Name="开始新游戏角色"
+                                          DisplayMemberPath="DisplayName" />
+                            </StackPanel>
+                            <StackPanel x:Name="_skipStoryField" Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Bottom">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="剧情" />
                                 <CheckBox
                                     x:Name="_skipStory"
@@ -499,7 +485,7 @@
                                     Content="跳过普通事件剧情"
                                     ToolTip="仅跳过带剧情的普通事件；每章首个轨神事件仍直接选择。" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1">
+                            <StackPanel x:Name="_decisionPriorityField" Grid.Column="2">
                                 <TextBlock Style="{StaticResource FieldLabelStyle}" Text="决策优先" />
                                 <ComboBox
                                     x:Name="_decisionPriority"
@@ -614,8 +600,8 @@
                 <GridSplitter
                     x:Name="_trackTelemetrySplitter"
                     Grid.Column="3"
-                    AutomationProperties.HelpText="拖拽调整运行轨道和运行遥测的宽度"
-                    AutomationProperties.Name="调整运行遥测宽度"
+                    AutomationProperties.HelpText="拖拽调整运行轨道和运行日志或遥测的宽度"
+                    AutomationProperties.Name="调整运行日志和遥测宽度"
                     KeyboardIncrement="8"
                     DragIncrement="2"
                     ResizeDirection="Columns"
@@ -624,97 +610,82 @@
                     Style="{StaticResource VerticalPanelSplitterStyle}"
                     ToolTip="拖拽调整左右区块宽度" />
 
-                <Border Grid.Column="4" Style="{StaticResource InstrumentPanelStyle}" Padding="14">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,8" Text="运行遥测" />
-                        <ScrollViewer
-                            Grid.Row="1"
-                            Margin="0,0,0,8"
-                            VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled"
-                            PanningMode="VerticalOnly">
-                            <ItemsControl x:Name="_telemetryItems">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid MinHeight="34" Margin="0,0,6,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="112" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock
-                                                Style="{StaticResource TelemetryCaptionStyle}"
-                                                Text="{Binding Caption}" />
-                                            <TextBlock
-                                                Grid.Column="1"
-                                                Style="{StaticResource TelemetryValueStyle}"
-                                                Text="{Binding Value}"
-                                                ToolTip="{Binding Value}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                        <Button
-                            x:Name="_openEvidenceButton"
-                            Grid.Row="2"
-                            HorizontalAlignment="Left"
-                            Style="{StaticResource BlueButtonStyle}"
-                            Content="打开证据目录"
-                            Click="OpenEvidenceButtonOnClick" />
-                    </Grid>
+                <Border Grid.Column="4" Style="{StaticResource InstrumentPanelStyle}" Padding="10">
+                    <TabControl x:Name="_monitorTabs" SelectedIndex="0" Background="Transparent" BorderThickness="0" Padding="0">
+                        <TabItem Header="运行日志" AutomationProperties.Name="运行日志">
+                            <Grid Margin="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Button
+                                    HorizontalAlignment="Right"
+                                    MinWidth="66"
+                                    MinHeight="30"
+                                    Margin="0,0,0,8"
+                                    Padding="10,4"
+                                    Content="清空"
+                                    Click="ClearLogsButtonOnClick" />
+                                <RichTextBox
+                                    x:Name="_logs"
+                                    Grid.Row="1"
+                                    Padding="10,7"
+                                    IsReadOnly="True"
+                                    IsUndoEnabled="False"
+                                    VerticalScrollBarVisibility="Auto"
+                                    HorizontalScrollBarVisibility="Auto"
+                                    Background="{StaticResource CoalBrush}"
+                                    BorderBrush="{StaticResource BronzeBrush}"
+                                    BorderThickness="1"
+                                    FontFamily="{StaticResource DataFont}"
+                                    FontSize="12"
+                                    Foreground="{StaticResource TextBrush}" />
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="运行遥测" AutomationProperties.Name="运行遥测">
+                            <Grid Margin="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ScrollViewer
+                                    Margin="0,0,0,8"
+                                    VerticalScrollBarVisibility="Auto"
+                                    HorizontalScrollBarVisibility="Disabled"
+                                    PanningMode="VerticalOnly">
+                                    <ItemsControl x:Name="_telemetryItems">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid MinHeight="34" Margin="0,0,6,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="112" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        Style="{StaticResource TelemetryCaptionStyle}"
+                                                        Text="{Binding Caption}" />
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        Style="{StaticResource TelemetryValueStyle}"
+                                                        Text="{Binding Value}"
+                                                        ToolTip="{Binding Value}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <Button
+                                    x:Name="_openEvidenceButton"
+                                    Grid.Row="1"
+                                    HorizontalAlignment="Left"
+                                    Style="{StaticResource BlueButtonStyle}"
+                                    Content="打开证据目录"
+                                    Click="OpenEvidenceButtonOnClick" />
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
                 </Border>
             </Grid>
-
-            <GridSplitter
-                x:Name="_logHeightSplitter"
-                Grid.Row="2"
-                AutomationProperties.HelpText="拖拽调整运行日志区块的高度"
-                AutomationProperties.Name="调整运行日志高度"
-                KeyboardIncrement="8"
-                DragIncrement="2"
-                ResizeDirection="Rows"
-                ResizeBehavior="PreviousAndNext"
-                ShowsPreview="True"
-                Style="{StaticResource HorizontalPanelSplitterStyle}"
-                ToolTip="拖拽调整上下区块高度" />
-
-            <Border Grid.Row="3" Style="{StaticResource InstrumentPanelStyle}" Padding="12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Margin="0" Text="运行日志" />
-                        <Button
-                            HorizontalAlignment="Right"
-                            MinWidth="66"
-                            MinHeight="30"
-                            Padding="10,4"
-                            Content="清空"
-                            Click="ClearLogsButtonOnClick" />
-                    </Grid>
-                    <RichTextBox
-                        x:Name="_logs"
-                        Grid.Row="1"
-                        Padding="10,7"
-                        IsReadOnly="True"
-                        IsUndoEnabled="False"
-                        VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Auto"
-                        Background="{StaticResource CoalBrush}"
-                        BorderBrush="{StaticResource BronzeBrush}"
-                        BorderThickness="1"
-                        FontFamily="{StaticResource DataFont}"
-                        FontSize="12"
-                        Foreground="{StaticResource TextBrush}" />
-                </Grid>
-            </Border>
         </Grid>
     </controls:MechanicalShell>
 </Window>

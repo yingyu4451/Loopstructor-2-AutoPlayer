@@ -200,7 +200,6 @@ internal sealed partial class MainForm : Window
         _uiScalePercent.IsEnabled = _settings.UiScaleMode == UiScaleMode.Custom;
         _bindingUiScale = false;
         UpdateCharacterVisibility();
-        _autoUpdateCheck.IsChecked = _settings.CheckUpdatesOnStart;
     }
 
     private async Task OnShownAsync(string settingsWarning)
@@ -233,11 +232,14 @@ internal sealed partial class MainForm : Window
             await ValidateGameAsync(_settings.GameRoot);
         }
 
-        if (_settings.CheckUpdatesOnStart && _updates.IsConfigured(_settings))
+        if (ShouldCheckForUpdates(_launchOptions, _updates.IsConfigured(_settings)))
         {
             await CheckForUpdatesAsync(userInitiated: false);
         }
     }
+
+    internal static bool ShouldCheckForUpdates(ManagerLaunchOptions options, bool updateSourceConfigured) =>
+        !options.DemoMode && updateSourceConfigured;
 
     private async void BrowseButtonOnClick(object sender, RoutedEventArgs eventArgs) => await BrowseForGameAsync();
     private async void InstallButtonOnClick(object sender, RoutedEventArgs eventArgs) => await InstallPluginAsync();
@@ -283,8 +285,10 @@ internal sealed partial class MainForm : Window
     {
         bool visible = _mode.SelectedItem is AutomationModeOption { Mode: AutomationGameMode.Common } &&
                        _continueProfile.IsChecked != true;
-        _characterLabel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        _character.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _characterField.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumn(_skipStoryField, visible ? 1 : 0);
+        Grid.SetColumn(_decisionPriorityField, visible ? 2 : 1);
+        _secondaryOptionThirdColumn.Width = visible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
     }
 
     private async Task BrowseForGameAsync()
@@ -1047,7 +1051,6 @@ internal sealed partial class MainForm : Window
         bool connectionWasTrusted = _sessionTrusted;
         _sessionTrusted = false;
         _automationSetupLoaded = false;
-        _modeAvailability.Text = "连接游戏后读取可玩内容";
         if (_session != null) _session.ProcessInstanceId = string.Empty;
         _cheatForm?.UpdateSession(false, _hello, _status);
         SetOperationAvailability();
@@ -1124,7 +1127,6 @@ internal sealed partial class MainForm : Window
         if (!call.TransportSuccess || call.Response?.Success != true || call.Response.Data == null)
         {
             _automationSetupLoaded = false;
-            _modeAvailability.Text = "连接游戏后读取可玩内容";
             return;
         }
 
@@ -1167,10 +1169,6 @@ internal sealed partial class MainForm : Window
         _character.SelectedItem = _characterOptions.FirstOrDefault(option => option.CfgIndex == _settings.CharacterCfgIndex) ??
                                   _characterOptions.FirstOrDefault();
         _automationSetupLoaded = true;
-        AutomationModeOption? selected = _mode.SelectedItem as AutomationModeOption;
-        _modeAvailability.Text = selected?.Available == true
-            ? "已从当前游戏读取可玩内容"
-            : selected?.Reason ?? "当前模式不可用";
         UpdateCharacterVisibility();
         SetOperationAvailability();
     }
@@ -1949,7 +1947,6 @@ internal sealed partial class MainForm : Window
         _settings.UiScaleMode = _uiScaleMode.SelectedIndex == 1 ? UiScaleMode.Custom : UiScaleMode.System;
         _settings.CustomUiScalePercent = 75 + Math.Max(0, _uiScalePercent.SelectedIndex) * 5;
         _settings.NormalizeUpdateSource();
-        _settings.CheckUpdatesOnStart = _autoUpdateCheck.IsChecked == true;
         try
         {
             _settingsStore.Save(_settings);
