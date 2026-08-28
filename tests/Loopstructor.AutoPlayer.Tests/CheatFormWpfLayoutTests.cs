@@ -132,6 +132,7 @@ public sealed class CheatFormWpfLayoutTests
                 AssertMinimumWidth(form, 180, "_enemyIdOverlayCheck", "_enemyBuffOverlayCheck");
                 AssertLeftAligned(form, "_baseGodModeCheck", "_endWaveButton", "_enemyIdOverlayCheck");
                 AssertLeftAligned(form, "_mapSkipCheck", "_clearEnemiesButton", "_enemyBuffOverlayCheck");
+                AssertLeftAligned(form, "_baseGodModeCheck", "_skipRewardPopupButton");
 
                 AssertTabFits(form, 4);
                 AssertTopAligned(form, "_vehicleAttribute", "_vehicleCurrentValueFrame", "_vehicleAttributeValue", "_modifyVehicleButton");
@@ -794,6 +795,7 @@ public sealed class CheatFormWpfLayoutTests
                 Assert.False(relicActions.IsActionEnabled);
                 Assert.False(catapultActions.IsActionEnabled);
                 Assert.False(Assert.IsType<Button>(form.FindName("_clearEnemiesButton")).IsEnabled);
+                Assert.False(Assert.IsType<Button>(form.FindName("_skipRewardPopupButton")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_baseGodModeCheck")).IsEnabled);
                 Assert.False(Assert.IsType<CheckBox>(form.FindName("_mapSkipCheck")).IsEnabled);
             }

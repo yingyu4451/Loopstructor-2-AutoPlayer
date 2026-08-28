@@ -201,6 +201,7 @@ internal sealed class CheatController : IDisposable
             "cheat.setbasegodmode" => SetBaseGodMode(arguments),
             "cheat.endwave" => _runtime.EndWave(),
             "cheat.clearenemies" => _runtime.ClearEnemies(),
+            "cheat.skiprewardpopup" => _runtime.SkipRewardPopup(),
             "cheat.queryvehicles" => CheatExecutionResult.Ok("已读取当前战车。", _runtime.QueryVehicles()),
             "cheat.modifyvehicle" => _runtime.ModifyVehicle(arguments),
             "cheat.setvehicleenchantment" => _runtime.SetVehicleEnchantment(arguments),

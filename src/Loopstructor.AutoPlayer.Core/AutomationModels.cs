@@ -379,6 +379,7 @@ public static class CheatCommands
     public const string SetBaseGodMode = "cheat.setBaseGodMode";
     public const string EndWave = "cheat.endWave";
     public const string ClearEnemies = "cheat.clearEnemies";
+    public const string SkipRewardPopup = "cheat.skipRewardPopup";
     public const string QueryVehicles = "cheat.queryVehicles";
     public const string ModifyVehicle = "cheat.modifyVehicle";
     public const string SetVehicleEnchantment = "cheat.setVehicleEnchantment";
@@ -414,6 +415,7 @@ public static class CheatCommands
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
+        SkipRewardPopup,
         QueryVehicles,
         ModifyVehicle,
         SetVehicleEnchantment,
@@ -447,6 +449,7 @@ public static class CheatCommands
         SetBaseGodMode,
         EndWave,
         ClearEnemies,
+        SkipRewardPopup,
         ModifyVehicle,
         SetVehicleEnchantment,
         ModifyEnemy,

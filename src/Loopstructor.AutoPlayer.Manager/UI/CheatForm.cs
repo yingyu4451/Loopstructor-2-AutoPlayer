@@ -249,6 +249,10 @@ internal sealed partial class CheatForm : Window
             "清除所有敌人",
             "确定要清除当前场景中的所有敌人吗？此操作无法撤销。",
             CheatCommands.ClearEnemies);
+        _skipRewardPopupButton.Click += async (_, _) => await ConfirmAndExecuteAsync(
+            "跳过当前奖励弹窗",
+            "确定要放弃当前奖励并推进奖励队列吗？当前奖励不会获得。",
+            CheatCommands.SkipRewardPopup);
         _vehicleRefreshButton.Click += async (_, _) => { await RefreshVehiclesAsync(); };
         _enemyRefreshButton.Click += async (_, _) => { await RefreshEnemiesAsync(); };
         _removeVehicleButton.Click += async (_, _) => await RemoveVehicleAsync();
@@ -296,7 +300,8 @@ internal sealed partial class CheatForm : Window
             _vehiclePage.VehicleMutationArea,
             _relicsPage.RelicMutationArea,
             _battleStateMutationSection,
-            _battleWaveMutationSection
+            _battleWaveMutationSection,
+            _battleRewardMutationSection
         });
         AddMutationControls(
             _vehicleCount, _enchantmentSelector,
@@ -305,7 +310,7 @@ internal sealed partial class CheatForm : Window
             _relicActions, _grantAllRelicsButton, _removeAllRelicsButton,
             _catapultActions,
             _clearBackpackCatapultsButton, _clearFieldCatapultsButton, _fieldCatapultDeleteModeCheck,
-            _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton,
+            _baseGodModeCheck, _mapSkipCheck, _endWaveButton, _clearEnemiesButton, _skipRewardPopupButton,
             _vehicleAttributeValue, _modifyVehicleButton,
             _vehicleEnchantmentLevel, _setVehicleEnchantmentButton, _removeVehicleButton,
             _enemyAttributeValue, _modifyEnemyButton,
