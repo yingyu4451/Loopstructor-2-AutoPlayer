@@ -218,6 +218,8 @@ internal sealed class AutoPlayController
     private float _normalEventActionReadyAt = -1f;
     private string _normalEventFingerprint = string.Empty;
     private int _normalEventProbeFailures;
+    private bool _openingWaveFunctionObserved;
+    private AutomationAction? _deferredOpeningWaveFunctionAction;
     private AutomationAction? _pendingMapAction;
     private AutomationAction? _deferredMapSelectionAction;
     private string _preMapStationFingerprint = string.Empty;
@@ -512,6 +514,7 @@ internal sealed class AutoPlayController
             _mapSelectionPendingAt = -1f;
             ResetEventOptionObservation();
             ResetNormalEventObservation();
+            ResetOpeningWaveFunctionObservation();
             _normalEventProbeRequired = true;
             ResetRewardOptionObservation();
             _pendingMapAction = null;
@@ -1175,11 +1178,12 @@ internal sealed class AutoPlayController
 
     private void TickInGame()
     {
-        // In game 1.392 the opening EventUI_Normal choice is responsible for creating the
-        // main station and initial catapults. queryState therefore remains pending until the
-        // choice is submitted; probe that UI before applying the core-object readiness gate.
-        // The handler is read-only until it has identified the exact visible button, and then
-        // uses the same deferred, highlighted native click path as later ordinary events.
+        // The opening choice creates the main station and initial catapults before queryState
+        // can report a ready in-game runtime. Game 1.390 uses the legacy WaveFunctionUI while
+        // newer builds may use EventUI_Normal, so both generations must be probed before the
+        // core-object readiness gate. Each handler remains read-only until it has captured an
+        // exact visible option identity and defers the native click to the next frame.
+        if (TryHandleOpeningWaveFunctionUi()) return;
         if (TryHandleNormalEventUi()) return;
         if (!EnsureInGameRuntimeReady()) return;
         ObserveMapProgress();
@@ -1912,6 +1916,7 @@ internal sealed class AutoPlayController
         _mapSelectionPendingAt = -1f;
         ResetEventOptionObservation();
         ResetNormalEventObservation();
+        ResetOpeningWaveFunctionObservation();
         _rewardSelectionSettlementGuard.Reset();
         _rewardObjectSettlementGuard.Reset();
         _waveFunctionOptionSettlementGuard.Reset();
@@ -1928,6 +1933,8 @@ internal sealed class AutoPlayController
         _pendingRandomFetterEnum = string.Empty;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
+        _openingWaveFunctionObserved = false;
+        _deferredOpeningWaveFunctionAction = null;
         _deferredRewardAction = null;
         _deferredSettlementAction = null;
         _pendingMapDecisionState = null;
@@ -2512,6 +2519,132 @@ internal sealed class AutoPlayController
                         || GameOutcomeObserver.Outcome is AutomationOutcome.Victory or AutomationOutcome.Defeat;
         int remaining = waveState.SelectToken("enemy.remaining")?.Value<int?>() ?? -1;
         return HandleWaveObservation(inWave, gameOver, remaining, waveResult);
+    }
+
+    /// <summary>
+    /// Handles the legacy opening EventUI before the main in-game runtime exists. This stays
+    /// independent from the normal post-map EventUI path: once queryState has completed, later
+    /// event panels continue through TryHandlePendingMapSelection and topology observation.
+    /// </summary>
+    private bool TryHandleOpeningWaveFunctionUi()
+    {
+        if (_runtimeInitialized)
+        {
+            return false;
+        }
+
+        if (_deferredOpeningWaveFunctionAction != null)
+        {
+            AutomationAction deferred = _deferredOpeningWaveFunctionAction;
+            _deferredOpeningWaveFunctionAction = null;
+            ClearSelectionHighlight("event");
+            bool clicked = Execute(deferred);
+            if (clicked && _runState == AutoPlayerRunState.Running)
+            {
+                RequestDefenseMaintenance();
+                _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            }
+
+            return true;
+        }
+
+        bool reconcilingOpeningChoice =
+            _waveFunctionOptionSettlementGuard.IsArmed &&
+            string.Equals(
+                _waveFunctionOptionSettlementGuard.Panel,
+                "EventUI",
+                StringComparison.Ordinal);
+        if (!WaveFunctionUiRuntimeFallback.TryQueryPanelState(out JObject eventResult))
+        {
+            if (_openingWaveFunctionObserved && !reconcilingOpeningChoice)
+            {
+                _openingWaveFunctionObserved = false;
+                ResetEventOptionObservation();
+                AddTimeline("event", "开局轨神事件对象已经释放，正在重新读取对局核心对象。");
+                MarkProgress();
+            }
+
+            // A destroyed panel cannot prove settlement by itself. Let the normal queryState
+            // gate run: once core objects exist, the standard wave-state reconciliation will
+            // prove that the original EventUI blocker is gone without repeating the click.
+            return false;
+        }
+
+        RuntimeResultDisposition disposition = RuntimeResultInspector.ClassifyReadOnly(eventResult);
+        if (disposition == RuntimeResultDisposition.Pending)
+        {
+            SetStage(AutomationStage.ManagingEvent, Message(eventResult));
+            return true;
+        }
+
+        if (disposition == RuntimeResultDisposition.Failure)
+        {
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(
+                AutomationStage.ManagingEvent,
+                "开局轨神事件轻量读取暂时失败：" + Message(eventResult) +
+                "；下一帧将重新读取，不会调用全场景扫描。");
+            return true;
+        }
+
+        JObject eventPanel = eventResult.SelectToken("data.state.eventPanel") as JObject ?? new JObject();
+        bool panelOpen = eventPanel["panelOpen"]?.Value<bool>() == true;
+        if (reconcilingOpeningChoice && HandleWaveFunctionOptionSettlementFromOptions(eventResult))
+        {
+            return true;
+        }
+
+        if (!panelOpen)
+        {
+            if (_openingWaveFunctionObserved)
+            {
+                _openingWaveFunctionObserved = false;
+                ResetEventOptionObservation();
+                AddTimeline("event", "开局轨神事件面板已关闭，正在重新读取对局核心对象。");
+                MarkProgress();
+            }
+
+            return false;
+        }
+
+        bool firstObservation = !_openingWaveFunctionObserved;
+        _openingWaveFunctionObserved = true;
+        _pendingEventPanel = "EventUI";
+        ResetWaveStartObservation();
+        if (firstObservation)
+        {
+            AddTimeline(
+                "observation",
+                "已识别旧版开局轨神事件；将在选项完整生成后高亮目标并保留 1 秒观察时间。");
+            MarkProgress();
+        }
+
+        if (eventPanel["snapshotComplete"]?.Value<bool>() != true)
+        {
+            ClearSelectionHighlight("event");
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(AutomationStage.ManagingEvent, "开局轨神事件正在生成选项，等待完整界面快照。");
+            return true;
+        }
+
+        if (TryWaitForEventOptions(eventResult, "EventUI"))
+        {
+            return true;
+        }
+
+        AutomationAction eventAction = _decisionEngine.DecideEvent(eventResult, "EventUI");
+        if (string.Equals(eventAction.Command, "wait", StringComparison.OrdinalIgnoreCase))
+        {
+            SetStage(eventAction.Stage, eventAction.Reason);
+            return true;
+        }
+
+        _deferredOpeningWaveFunctionAction = eventAction;
+        ScheduleContinuationFrame();
+        SetStage(
+            AutomationStage.ManagingEvent,
+            "已确认开局轨神事件目标选项；下一帧再点击，避免读取和写操作叠加。");
+        return true;
     }
 
     private bool TryHandleNormalEventUi()
@@ -8537,6 +8670,7 @@ internal sealed class AutoPlayController
         _pendingRandomFetterEnum = string.Empty;
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
+        _deferredOpeningWaveFunctionAction = null;
         _deferredRewardAction = null;
         _deferredSettlementAction = null;
         _pendingMapAction = null;
@@ -9977,6 +10111,12 @@ internal sealed class AutoPlayController
         _deferredNormalEventAction = null;
         _deferredNormalEventChoosingOption = false;
         ResetNormalEventActionObservation();
+    }
+
+    private void ResetOpeningWaveFunctionObservation()
+    {
+        _openingWaveFunctionObserved = false;
+        _deferredOpeningWaveFunctionAction = null;
     }
 
     private void ResetNormalEventActionObservation()

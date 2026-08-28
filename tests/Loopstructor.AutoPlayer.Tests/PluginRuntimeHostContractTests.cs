@@ -300,19 +300,46 @@ public sealed class PluginRuntimeHostContractTests
     }
 
     [Fact]
-    public void InitializingNewGame_ProbesNormalEventBeforeCoreRuntimeGate()
+    public void InitializingNewGame_ProbesBothEventUiGenerationsBeforeCoreRuntimeGate()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
         MethodDefinition tickInGame = RequireMethod(controller, "TickInGame");
         Instruction[] instructions = tickInGame.Body.Instructions.ToArray();
 
+        int legacyEvent = FindCall(instructions, ControllerType, "TryHandleOpeningWaveFunctionUi");
         int normalEvent = FindCall(instructions, ControllerType, "TryHandleNormalEventUi");
         int ensureReady = FindCall(instructions, ControllerType, "EnsureInGameRuntimeReady");
 
         Assert.True(
-            normalEvent >= 0 && normalEvent < ensureReady,
-            "EventUI_Normal must be probed before the NewGameScene core-object gate because the opening choice creates the main station and catapults.");
+            legacyEvent >= 0 && legacyEvent < normalEvent && normalEvent < ensureReady,
+            "Legacy WaveFunctionUI and EventUI_Normal must both be probed before the NewGameScene core-object gate because the opening choice creates the main station and catapults.");
+    }
+
+    [Fact]
+    public void LegacyOpeningEvent_UsesLightweightExactIdentityAndDeferredSelection()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition handler = RequireMethod(controller, "TryHandleOpeningWaveFunctionUi");
+
+        Assert.Contains(
+            Calls(handler),
+            IsCall("Loopstructor.AutoPlayer.Plugin.WaveFunctionUiRuntimeFallback", "TryQueryPanelState"));
+        Assert.Contains(Calls(handler), IsCall(ControllerType, "TryWaitForEventOptions"));
+        Assert.Contains(
+            Calls(handler),
+            IsCall("Loopstructor.AutoPlayer.Core.DecisionEngine", "DecideEvent"));
+        Assert.Contains(Calls(handler), IsCall(ControllerType, "Execute"));
+        Assert.Contains(
+            Calls(handler),
+            IsCall(ControllerType, "HandleWaveFunctionOptionSettlementFromOptions"));
+        Assert.DoesNotContain(
+            Calls(handler),
+            call => call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Plugin.RuntimeBridge" &&
+                    call.Name == "Invoke");
+        Assert.Contains(LoadedStrings(handler), value => value.Contains("1 秒观察时间", StringComparison.Ordinal));
+        Assert.Contains(controller.Fields, field => field.Name == "_deferredOpeningWaveFunctionAction");
     }
 
     [Fact]

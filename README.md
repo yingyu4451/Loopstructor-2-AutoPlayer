@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.41 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.42 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.41
+.\scripts\package.ps1 -Version 0.6.42
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.41-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.42-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -150,9 +150,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.41-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.42-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.42` 修复游戏 1.390 开始新游戏后停在开局轨神事件的问题：控制器会在对局核心对象初始化门禁前同时探测旧版 `WaveFunctionUI` 与新版普通事件界面，旧版事件选项完整生成后按精确实例高亮 1 秒、分帧点击并进行只读对账，不再错误地等待尚未创建的主站点和弹射点。本版本以 `v0.6.41` 作为相邻增量更新基线。
 
 `v0.6.41` 精简 Manager 的自动游玩配置区，删除模式下方重复说明并把角色、跳过剧情和决策优先排列到同一行；运行日志移入右侧仪表区，与运行遥测使用机械选项卡切换且默认显示日志。Manager 不再提供关闭启动更新检查的选项，每次正常启动都会自动检测更新；作弊工具的奖励跳过改为单击立即执行。本版本以 `v0.6.40` 作为相邻增量更新基线。
 
