@@ -35,10 +35,11 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
     public bool TryInitialize(
         string disposableEnum,
         Newtonsoft.Json.Linq.JObject? catapultResult,
+        bool placementIsAttribute,
         out string error)
     {
         ResetProbeState();
-        bool placeAttribute = string.Equals(
+        bool placeAttribute = placementIsAttribute || string.Equals(
             disposableEnum,
             AttributeDisposableEnum,
             StringComparison.Ordinal);

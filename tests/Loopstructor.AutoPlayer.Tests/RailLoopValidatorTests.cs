@@ -125,6 +125,33 @@ public sealed class RailLoopValidatorTests
         Assert.False(result.EncirclesBase);
     }
 
+    [Fact]
+    public void BalancedDefenseRing_RejectsNeedleTriangleSeenInLiveGame()
+    {
+        RailLayoutScore score = RailLayoutStrategyPlanner.EvaluateEstimated(new[]
+        {
+            new RailLayoutPoint(-4, -4),
+            new RailLayoutPoint(-8, -6),
+            new RailLayoutPoint(16, 14)
+        });
+
+        Assert.False(RailLayoutStrategyPlanner.IsBalancedDefenseRing(score));
+        Assert.True(score.MinAngularGapDegrees < 45d || score.RadiusRatio > 2.5d);
+    }
+
+    [Fact]
+    public void BalancedDefenseRing_AcceptsCompactTriangleAroundBase()
+    {
+        RailLayoutScore score = RailLayoutStrategyPlanner.EvaluateEstimated(new[]
+        {
+            new RailLayoutPoint(0, 4),
+            new RailLayoutPoint(4, -2),
+            new RailLayoutPoint(-4, -2)
+        });
+
+        Assert.True(RailLayoutStrategyPlanner.IsBalancedDefenseRing(score));
+    }
+
     private static RailLoopNode Node(int id, bool attribute, double x, double y) => new()
     {
         Id = id,

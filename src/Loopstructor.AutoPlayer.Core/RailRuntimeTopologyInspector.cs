@@ -10,6 +10,7 @@ public sealed class RailRuntimeValidation
 {
     public int RailInstanceId { get; set; }
     public RailLoopValidationResult Loop { get; set; } = new();
+    public RailLayoutScore Layout { get; set; } = new();
     public string Fingerprint { get; set; } = string.Empty;
 }
 
@@ -108,10 +109,16 @@ public static class RailRuntimeTopologyInspector
                 : (Left: edge.ToId, Right: edge.FromId))
             .OrderBy(edge => edge.Left).ThenBy(edge => edge.Right)
             .Select(edge => $"{edge.Left}-{edge.Right}"));
+        Dictionary<int, RailLoopNode> nodeById = nodes
+            .GroupBy(node => node.Id)
+            .ToDictionary(group => group.Key, group => group.First());
+        RailLayoutScore layout = RailLayoutStrategyPlanner.EvaluateEstimated(
+            validation.OrderedNodeIds.Where(nodeById.ContainsKey).Select(id => nodeById[id].Point));
         return new RailRuntimeValidation
         {
             RailInstanceId = railId,
             Loop = validation,
+            Layout = layout,
             Fingerprint = $"{railId}[{nodeFingerprint}][{edgeFingerprint}]"
         };
     }

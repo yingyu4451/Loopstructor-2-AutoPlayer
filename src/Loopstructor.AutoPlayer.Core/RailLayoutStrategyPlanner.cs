@@ -40,7 +40,10 @@ public sealed class RailLayoutScore
     public int CoveredQuadrants { get; set; }
     public double AngularCoverageDegrees { get; set; }
     public double MaxAngularGapDegrees { get; set; }
+    public double MinAngularGapDegrees { get; set; }
     public double AverageRadius { get; set; }
+    public double MinimumRadius { get; set; }
+    public double MaximumRadius { get; set; }
     public double RadiusVariance { get; set; }
     public double LoopLength { get; set; }
     public int StationCount { get; set; }
@@ -52,6 +55,9 @@ public sealed class RailLayoutScore
 
     public bool CoversAllQuadrants => CoveredQuadrants >= 4;
     public bool HasNoLargeBlindArc => IsValid && MaxAngularGapDegrees <= 90.001d;
+    public double RadiusRatio => MinimumRadius > 0.000001d
+        ? MaximumRadius / MinimumRadius
+        : double.PositiveInfinity;
 }
 
 /// <summary>Current scene spacing rules read from MapPosManager.</summary>
@@ -77,6 +83,7 @@ public sealed class RailLoopPointCandidate
 {
     public int InstanceId { get; set; }
     public bool IsAttribute { get; set; }
+    public bool MustInclude { get; set; }
     public RailLayoutPoint Grid { get; set; }
 }
 
@@ -145,6 +152,7 @@ public static class RailLayoutStrategyPlanner
             }));
         double loopLength = CalculateClosedLength(source);
         double maxAngularGap = CalculateMaxAngularGap(source);
+        double minAngularGap = CalculateMinAngularGap(source);
         double angularCoverage = Math.Max(0d, 360d - maxAngularGap);
         double[] radii = source.Select(point => Math.Sqrt(RadiusSquared(point))).ToArray();
         double averageRadius = radii.Average();
@@ -167,7 +175,10 @@ public static class RailLayoutStrategyPlanner
             CoveredQuadrants = coveredQuadrants,
             AngularCoverageDegrees = angularCoverage,
             MaxAngularGapDegrees = maxAngularGap,
+            MinAngularGapDegrees = minAngularGap,
             AverageRadius = averageRadius,
+            MinimumRadius = radii.Min(),
+            MaximumRadius = radii.Max(),
             RadiusVariance = radiusVariance,
             LoopLength = loopLength,
             StationCount = stationCount,
@@ -248,7 +259,7 @@ public static class RailLayoutStrategyPlanner
                 RailLoopPlan? bestRemoval = null;
                 int? bestRemovedId = null;
                 foreach (RailLoopPointCandidate removable in selected
-                             .Where(candidate => !candidate.IsAttribute)
+                             .Where(candidate => !candidate.IsAttribute && !candidate.MustInclude)
                              .OrderBy(candidate => candidate.InstanceId))
                 {
                     RailLoopPlan proposal = BuildLoopPlan(
@@ -362,6 +373,8 @@ public static class RailLayoutStrategyPlanner
         if (comparison != 0) return comparison;
         comparison = right.CoveredQuadrants.CompareTo(left.CoveredQuadrants);
         if (comparison != 0) return comparison;
+        comparison = IsBalancedDefenseRing(right).CompareTo(IsBalancedDefenseRing(left));
+        if (comparison != 0) return comparison;
         comparison = right.HasNoLargeBlindArc.CompareTo(left.HasNoLargeBlindArc);
         if (comparison != 0) return comparison;
 
@@ -371,6 +384,24 @@ public static class RailLayoutStrategyPlanner
         return !left.HasNoLargeBlindArc && !right.HasNoLargeBlindArc
             ? CompareAscending(left.MaxAngularGapDegrees, right.MaxAngularGapDegrees, 0.001d)
             : 0;
+    }
+
+    /// <summary>
+    /// Rejects technically enclosing but needle-thin loops. Such loops can satisfy a simple
+    /// point-in-polygon test while putting almost every station on one diagonal. A three-station
+    /// opening must be triangle-like; larger loops may be denser but cannot collapse onto one ray
+    /// or mix a near-base point with a very remote outlier.
+    /// </summary>
+    public static bool IsBalancedDefenseRing(RailLayoutScore? score)
+    {
+        if (score == null || !score.IsValid || !score.EncirclesBase || score.StationCount < 3)
+            return false;
+
+        double maximumGap = score.StationCount == 3 ? 150.001d : 135.001d;
+        double minimumGap = score.StationCount == 3 ? 45d : 12d;
+        return score.MaxAngularGapDegrees <= maximumGap &&
+               score.MinAngularGapDegrees + Epsilon >= minimumGap &&
+               score.RadiusRatio <= 2.5d;
     }
 
     public static bool DoesNotReduceCoverage(RailLayoutScore baseline, RailLayoutScore candidate)
@@ -547,6 +578,27 @@ public static class RailLayoutStrategyPlanner
             largestGap = Math.Max(largestGap, angles[index] - angles[index - 1]);
         }
         return largestGap;
+    }
+
+    private static double CalculateMinAngularGap(IReadOnlyCollection<RailLayoutPoint> points)
+    {
+        double[] angles = points
+            .Where(point => RadiusSquared(point) > Epsilon)
+            .Select(point =>
+            {
+                double angle = Math.Atan2(point.Y, point.X) * 180d / Math.PI;
+                return angle < 0d ? angle + 360d : angle;
+            })
+            .OrderBy(value => value)
+            .ToArray();
+        if (angles.Length < 2) return 0d;
+
+        double smallestGap = 360d - angles[angles.Length - 1] + angles[0];
+        for (int index = 1; index < angles.Length; index++)
+        {
+            smallestGap = Math.Min(smallestGap, angles[index] - angles[index - 1]);
+        }
+        return smallestGap;
     }
 
     private static double CalculateClosedLength(IReadOnlyList<RailLayoutPoint> points)

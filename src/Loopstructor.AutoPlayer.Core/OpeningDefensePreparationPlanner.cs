@@ -175,6 +175,7 @@ public interface IOpeningDefenseGridProbe
     bool TryInitialize(
         string disposableEnum,
         JObject? catapultResult,
+        bool placementIsAttribute,
         out string error);
     OpeningDefenseGridProbeResult ProbeNext();
     void Reset();
@@ -184,6 +185,7 @@ public enum OpeningDefensePreparationPhase
 {
     QueryCatapults,
     QueryPlacementDisposable,
+    QuerySpecialStationDisposable,
     ProbeStationGrid,
     QueryInteractionGuard,
     ConfirmStationGrid,
@@ -243,7 +245,10 @@ public sealed class OpeningDefensePreparationPlanner
     private readonly BattleDecisionEngine _railVerifier = new();
     private OpeningDefensePreparationPhase _phase = OpeningDefensePreparationPhase.QueryCatapults;
     private OpeningDefenseGrid? _selectedGrid;
+    private OpeningDefenseGrid? _attributeGrid;
     private string _placementDisposableEnum = string.Empty;
+    private bool _placementIsAttribute;
+    private bool _specialInventoryExhausted;
     private JObject? _placementDisposableIdentity;
     private JObject? _catapultResult;
     private JObject? _vehicleResult;
@@ -297,7 +302,10 @@ public sealed class OpeningDefensePreparationPlanner
     {
         _probe.Reset();
         _selectedGrid = null;
+        _attributeGrid = null;
         _placementDisposableEnum = string.Empty;
+        _placementIsAttribute = false;
+        _specialInventoryExhausted = false;
         _placementDisposableIdentity = null;
         _catapultResult = null;
         _vehicleResult = null;
@@ -415,6 +423,12 @@ public sealed class OpeningDefensePreparationPlanner
                         ? "读取背包普通弹射点数量与稳定道具身份。"
                         : "读取背包动力弹射点数量与稳定道具身份。");
 
+            case OpeningDefensePreparationPhase.QuerySpecialStationDisposable:
+                return Command(
+                    "queryDisposable",
+                    null,
+                    "读取背包可移动特殊弹射点；开波前必须把它们纳入防御圆环。");
+
             case OpeningDefensePreparationPhase.ProbeStationGrid:
                 return DecideProbe();
 
@@ -444,7 +458,9 @@ public sealed class OpeningDefensePreparationPlanner
                     confirmationArguments,
                     _placementDisposableEnum == CommonDisposableEnum
                         ? $"从背包在网格 {selected} 放置开局普通弹射点。"
-                        : $"从背包在网格 {selected} 放置开局动力弹射点。");
+                        : _placementDisposableEnum == AttributeDisposableEnum
+                            ? $"从背包在网格 {selected} 放置开局动力弹射点。"
+                            : $"从背包在网格 {selected} 放置开局特殊弹射点 {_placementDisposableEnum}。");
 
             case OpeningDefensePreparationPhase.WaitForPlacementSettlement:
                 return Wait("弹射点已提交，正在逐帧等待预览和生成动画完全退出。");
@@ -555,7 +571,10 @@ public sealed class OpeningDefensePreparationPlanner
                 break;
 
             case "queryDisposable":
-                ObservePlacementDisposable(result, accepted);
+                if (_phase == OpeningDefensePreparationPhase.QuerySpecialStationDisposable)
+                    ObserveSpecialStationDisposable(result, accepted);
+                else
+                    ObservePlacementDisposable(result, accepted);
                 break;
 
             case "queryOpeningDefenseInteractionGuard":
@@ -687,9 +706,10 @@ public sealed class OpeningDefensePreparationPlanner
             .Distinct()
             .ToList();
 
-        if (usable.Any(point => point["isAttribute"]?.Value<bool>() == true))
+        bool hasAttribute = usable.Any(point => point["isAttribute"]?.Value<bool>() == true);
+        if (!hasAttribute)
         {
-            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
+            PreparePlacementDisposableQuery(AttributeDisposableEnum, placementIsAttribute: true);
             return;
         }
 
@@ -698,14 +718,17 @@ public sealed class OpeningDefensePreparationPlanner
             if (!string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal) ||
                 _placementDisposableIdentity == null)
             {
-                _placementDisposableEnum = CommonDisposableEnum;
                 _placementDisposableIdentity = null;
             }
+            _placementDisposableEnum = CommonDisposableEnum;
+            _placementIsAttribute = false;
             _phase = OpeningDefensePreparationPhase.QueryPlacementDisposable;
             return;
         }
 
-        PreparePlacementDisposableQuery(AttributeDisposableEnum);
+        _phase = _specialInventoryExhausted
+            ? OpeningDefensePreparationPhase.QueryIndependentVehicles
+            : OpeningDefensePreparationPhase.QuerySpecialStationDisposable;
     }
 
     private void ObservePlacementDisposable(JObject? result, bool accepted)
@@ -766,15 +789,53 @@ public sealed class OpeningDefensePreparationPlanner
         }
 
         _placementDisposableIdentity = identity;
-        BeginPlacementProbe(_placementDisposableEnum, _catapultResult);
+        BeginPlacementProbe(_placementDisposableEnum, _catapultResult, _placementIsAttribute);
     }
 
-    private void BeginPlacementProbe(string disposableEnum, JObject? catapultResult)
+    private void ObserveSpecialStationDisposable(JObject? result, bool accepted)
+    {
+        if (!accepted)
+        {
+            RetryPreWriteRead(ref _catapultReadAttempts, "读取背包特殊弹射点连续失败。");
+            return;
+        }
+
+        _catapultReadAttempts = 0;
+        RuntimeSpecialStationDisposable? special = _railVerifier
+            .DiscoverMovableStationDisposables(result)
+            .Where(item => !string.Equals(item.DisposableEnum, CommonDisposableEnum, StringComparison.Ordinal) &&
+                           !string.Equals(item.DisposableEnum, AttributeDisposableEnum, StringComparison.Ordinal))
+            // One player loop can contain exactly one origin station. Once the opening origin is
+            // on the field, consume movable relay stations into that ring; a special origin is
+            // reserved for the separate-loop expansion transaction instead of being stranded.
+            .Where(item => !item.IsAttribute)
+            .FirstOrDefault();
+        if (special == null)
+        {
+            _specialInventoryExhausted = true;
+            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
+            return;
+        }
+
+        _placementDisposableEnum = special.DisposableEnum;
+        _placementIsAttribute = special.IsAttribute;
+        _placementDisposableIdentity = (JObject)special.ItemIdentity.DeepClone();
+        BeginPlacementProbe(_placementDisposableEnum, _catapultResult, _placementIsAttribute);
+    }
+
+    private void BeginPlacementProbe(
+        string disposableEnum,
+        JObject? catapultResult,
+        bool placementIsAttribute)
     {
         _placementDisposableEnum = disposableEnum;
         try
         {
-            if (!_probe.TryInitialize(disposableEnum, catapultResult, out string error))
+            if (!_probe.TryInitialize(
+                    disposableEnum,
+                    catapultResult,
+                    placementIsAttribute,
+                    out string error))
             {
                 Fail("无法初始化增量候选网格探测。" +
                      (string.IsNullOrWhiteSpace(error) ? string.Empty : " " + error));
@@ -840,6 +901,10 @@ public sealed class OpeningDefensePreparationPlanner
         {
             _catapultResult = result?.DeepClone() as JObject;
             _placementVerificationAttempts = 0;
+            if (_placementIsAttribute)
+            {
+                _attributeGrid = _selectedGrid;
+            }
             if (string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal))
             {
                 List<JObject> usable = catapults.Where(IsAvailablePoint).ToList();
@@ -851,11 +916,18 @@ public sealed class OpeningDefensePreparationPlanner
                     return;
                 }
 
-                PreparePlacementDisposableQuery(AttributeDisposableEnum);
+                _phase = OpeningDefensePreparationPhase.QueryCatapults;
                 return;
             }
 
-            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
+            if (!string.Equals(_placementDisposableEnum, AttributeDisposableEnum, StringComparison.Ordinal))
+            {
+                _catapultResult = result?.DeepClone() as JObject;
+                _phase = OpeningDefensePreparationPhase.QuerySpecialStationDisposable;
+                return;
+            }
+
+            _phase = OpeningDefensePreparationPhase.QueryCatapults;
             return;
         }
 
@@ -868,10 +940,7 @@ public sealed class OpeningDefensePreparationPlanner
 
     private bool MatchesSubmittedPlacement(JObject point, OpeningDefenseGrid expectedGrid)
     {
-        bool expectedAttribute = string.Equals(
-            _placementDisposableEnum,
-            AttributeDisposableEnum,
-            StringComparison.Ordinal);
+        bool expectedAttribute = _placementIsAttribute;
         return IsAvailablePoint(point) &&
                (point["isAttribute"]?.Value<bool>() == true) == expectedAttribute &&
                (string.Equals(
@@ -886,11 +955,15 @@ public sealed class OpeningDefensePreparationPlanner
     private string PlacementDisplayName() =>
         string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal)
             ? "普通弹射点"
-            : "动力弹射点";
+            : string.Equals(_placementDisposableEnum, AttributeDisposableEnum, StringComparison.Ordinal)
+                ? "动力弹射点"
+                : "特殊弹射点 " + _placementDisposableEnum;
 
-    private void PreparePlacementDisposableQuery(string disposableEnum)
+    private void PreparePlacementDisposableQuery(string disposableEnum, bool placementIsAttribute = false)
     {
         _placementDisposableEnum = disposableEnum;
+        _placementIsAttribute = placementIsAttribute ||
+                                string.Equals(disposableEnum, AttributeDisposableEnum, StringComparison.Ordinal);
         _placementDisposableIdentity = null;
         _selectedGrid = null;
         _phase = OpeningDefensePreparationPhase.QueryPlacementDisposable;
@@ -927,7 +1000,7 @@ public sealed class OpeningDefensePreparationPlanner
 
         _selectedVehicleInstanceId = ReadInt(vehicle["instanceId"], 0);
         _vehicleResult = result?.DeepClone() as JObject;
-        if (!TryBuildRailAction(_catapultResult, _selectedGrid, out AutomationAction? action, out string error))
+        if (!TryBuildRailAction(_catapultResult, _attributeGrid, out AutomationAction? action, out string error))
         {
             Fail(error);
             return;
@@ -1071,10 +1144,21 @@ public sealed class OpeningDefensePreparationPlanner
         if (verification.Verified && verification.Rail != null)
         {
             RailRuntimeValidation topology = RailRuntimeTopologyInspector.InspectRail(verification.Rail);
-            if (HasVerifiableRuntimeGeometry(verification.Rail) && !topology.Loop.IsValid)
+            if (!HasVerifiableRuntimeGeometry(verification.Rail))
+            {
+                Fail("游戏返回的开局轨道缺少完整站点和真实线段端点；无法证明它是闭合圆环。");
+                return;
+            }
+            if (!topology.Loop.IsValid)
             {
                 Fail("游戏返回的开局轨道不是包围基地的简单闭环：" +
                      string.Join("；", topology.Loop.Errors));
+                return;
+            }
+            if (!RailLayoutStrategyPlanner.IsBalancedDefenseRing(topology.Layout))
+            {
+                Fail(
+                    "游戏返回的开局轨道虽然闭合，但站点分布塌缩成细长形状，不能作为全向防御圆环。");
                 return;
             }
             _expectedRailInstanceId = verification.RailInstanceId;
@@ -1250,6 +1334,7 @@ public sealed class OpeningDefensePreparationPlanner
                     {
                         InstanceId = instanceId,
                         IsAttribute = point["isAttribute"]?.Value<bool>() == true,
+                        MustInclude = IsSpecialPoint(point),
                         Grid = new RailLayoutPoint(grid.X, grid.Y)
                     };
             })
@@ -1258,9 +1343,11 @@ public sealed class OpeningDefensePreparationPlanner
             .ToList();
         RailLoopPlan? best = RailLayoutStrategyPlanner.PlanPlayerLoop(loopCandidates);
 
-        if (best == null || !best.Score.IsValid || best.OrderedPointInstanceIds.Count < 3)
+        if (best == null || !best.Score.IsValid ||
+            !RailLayoutStrategyPlanner.IsBalancedDefenseRing(best.Score) ||
+            best.OrderedPointInstanceIds.Count < 3)
         {
-            error = "可用站点无法组成至少三点的合法闭环。";
+            error = "可用站点无法组成分布均衡、包围基地的防御圆环。";
             return false;
         }
 
@@ -1354,6 +1441,15 @@ public sealed class OpeningDefensePreparationPlanner
         point["railReachMax"]?.Value<bool>() != true &&
         ReadInt(point["railMembershipCount"], 0) == 0 &&
         ReadInt(point["linePointInstanceId"], 0) != 0;
+
+    private static bool IsSpecialPoint(JObject point)
+    {
+        if (point["isSpecial"]?.Value<bool>() == true) return true;
+        string disposable = point["recycleDisposableEnum"]?.Value<string>() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(disposable) &&
+               !string.Equals(disposable, CommonDisposableEnum, StringComparison.Ordinal) &&
+               !string.Equals(disposable, AttributeDisposableEnum, StringComparison.Ordinal);
+    }
 
     private static bool IsBagVehicle(JObject vehicle) =>
         vehicle["inBag"]?.Value<bool>() == true &&

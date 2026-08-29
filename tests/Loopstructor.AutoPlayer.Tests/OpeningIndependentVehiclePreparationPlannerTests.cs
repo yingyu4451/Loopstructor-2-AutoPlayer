@@ -20,6 +20,10 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
                 Point(103, false, 4, -2))
         }, accepted: true);
 
+        OpeningDefensePreparationDecision specials = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QuerySpecialStationDisposable, specials.Phase);
+        planner.Observe(specials.Action!, DisposableInventory(), accepted: true);
+
         OpeningDefensePreparationDecision vehicleDecision = planner.Decide();
         Assert.Equal("queryIndependentVehicleState", vehicleDecision.Action?.Command);
         planner.Observe(vehicleDecision.Action!, new JObject
@@ -61,7 +65,7 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
     }
 
     [Fact]
-    public void BackpackCommonPoints_ArePlacedBeforeAttributePointInsteadOfBeingReportedMissing()
+    public void EmptyField_PlacesAttributeThenContinuesWithBackpackCommonPoints()
     {
         RecordingGridProbe probe = new();
         OpeningDefensePreparationPlanner planner = new(probe);
@@ -75,11 +79,14 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         OpeningDefensePreparationDecision inventory = planner.Decide();
         Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, inventory.Phase);
         Assert.Equal("queryDisposable", inventory.Action?.Command);
-        planner.Observe(inventory.Action!, DisposableInventory("FreePoint", count: 2, instanceId: 701), accepted: true);
+        planner.Observe(
+            inventory.Action!,
+            DisposableInventory("FreePoint_Attribute", count: 1, instanceId: 701),
+            accepted: true);
 
         OpeningDefensePreparationDecision probeDecision = planner.Decide();
         Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, probeDecision.Phase);
-        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal("FreePoint_Attribute", probe.LastDisposableEnum);
         Assert.Equal("wait", probeDecision.Action?.Command);
         Assert.Contains("下一帧继续", probeDecision.Detail);
 
@@ -89,7 +96,7 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
 
         OpeningDefensePreparationDecision confirm = planner.Decide();
         Assert.Equal("confirmDisposableGrid", confirm.Action?.Command);
-        Assert.Equal("FreePoint", confirm.Action?.Arguments["disposableEnum"]?.Value<string>());
+        Assert.Equal("FreePoint_Attribute", confirm.Action?.Arguments["disposableEnum"]?.Value<string>());
         Assert.Equal(701, confirm.Action?.Arguments["itemInstanceId"]?.Value<int>());
         Assert.Equal(4, confirm.Action?.Arguments.SelectToken("grid.x")?.Value<int>());
         Assert.Equal(-2, confirm.Action?.Arguments.SelectToken("grid.y")?.Value<int>());
@@ -108,10 +115,17 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         Assert.Equal(OpeningDefensePreparationPhase.VerifyStationPlacement, verify.Phase);
         planner.Observe(verify.Action!, new JObject
         {
-            ["catapults"] = new JArray(Point(101, false, 4, -2, "FreePoint"))
+            ["catapults"] = new JArray(Point(101, true, 4, -2, "FreePoint_Attribute"))
         }, accepted: true);
 
-        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal(OpeningDefensePreparationPhase.QueryCatapults, planner.Phase);
+        OpeningDefensePreparationDecision refreshCatapults = planner.Decide();
+        planner.Observe(refreshCatapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray(Point(101, true, 4, -2, "FreePoint_Attribute"))
+        }, accepted: true);
+
+        Assert.Equal("FreePoint", planner.PlacementDisposableEnum);
         Assert.Equal(1, probe.InitializationCount);
         Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, planner.Phase);
         Assert.NotEqual(OpeningDefensePreparationPhase.PlacementVerificationFailed, planner.Phase);
@@ -120,7 +134,7 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         Assert.Equal("queryDisposable", refreshedInventory.Action?.Command);
         planner.Observe(
             refreshedInventory.Action!,
-            DisposableInventory("FreePoint", count: 1, instanceId: 702),
+            DisposableInventory("FreePoint", count: 2, instanceId: 702),
             accepted: true);
 
         Assert.Equal("FreePoint", probe.LastDisposableEnum);
@@ -156,6 +170,38 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, planner.Phase);
     }
 
+    [Fact]
+    public void ReadyOpeningDefense_QueriesAndPlacesRuntimeMovableSpecialStation()
+    {
+        RecordingGridProbe probe = new();
+        OpeningDefensePreparationPlanner planner = new(probe);
+        OpeningDefensePreparationDecision catapults = planner.Decide();
+        planner.Observe(catapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4, "FreePoint_Attribute"),
+                Point(102, false, 4, -2, "FreePoint"),
+                Point(103, false, -4, -2, "FreePoint"))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision inventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QuerySpecialStationDisposable, inventory.Phase);
+        planner.Observe(inventory.Action!, SpecialInventory("闪电路径弹射点", 901), accepted: true);
+
+        Assert.Equal("闪电路径弹射点", planner.PlacementDisposableEnum);
+        Assert.Equal("闪电路径弹射点", probe.LastDisposableEnum);
+        Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, planner.Phase);
+    }
+
+    private static JObject DisposableInventory() => new()
+    {
+        ["state"] = new JObject
+        {
+            ["isInPreview"] = false,
+            ["items"] = new JArray()
+        }
+    };
+
     private static JObject DisposableInventory(string disposableEnum, int count, int instanceId) => new()
     {
         ["state"] = new JObject
@@ -171,6 +217,30 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
                 ["disposableEnum"] = disposableEnum,
                 ["count"] = count,
                 ["interactionType"] = "GridChooseInteraction"
+            })
+        }
+    };
+
+    private static JObject SpecialInventory(string disposableEnum, int instanceId) => new()
+    {
+        ["state"] = new JObject
+        {
+            ["items"] = new JArray(new JObject
+            {
+                ["index"] = 2,
+                ["instanceId"] = instanceId,
+                ["itemInstanceId"] = instanceId,
+                ["active"] = true,
+                ["buttonActive"] = true,
+                ["disposableEnum"] = disposableEnum,
+                ["count"] = 1,
+                ["interactionType"] = "GridChooseInteraction",
+                ["effectFacts"] = new JObject
+                {
+                    ["stationKind"] = "CommonCatapult",
+                    ["canAlwaysMove"] = true,
+                    ["buffIdentity"] = "LightningPath"
+                }
             })
         }
     };
@@ -229,7 +299,11 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
 
     private sealed class UnusedGridProbe : IOpeningDefenseGridProbe
     {
-        public bool TryInitialize(string disposableEnum, JObject? catapultResult, out string error)
+        public bool TryInitialize(
+            string disposableEnum,
+            JObject? catapultResult,
+            bool placementIsAttribute,
+            out string error)
         {
             error = string.Empty;
             throw new InvalidOperationException("已有属性点时不应启动网格探测。");
@@ -250,7 +324,11 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         public string LastDisposableEnum { get; private set; } = string.Empty;
         public int InitializationCount { get; private set; }
 
-        public bool TryInitialize(string disposableEnum, JObject? catapultResult, out string error)
+        public bool TryInitialize(
+            string disposableEnum,
+            JObject? catapultResult,
+            bool placementIsAttribute,
+            out string error)
         {
             LastDisposableEnum = disposableEnum;
             InitializationCount++;

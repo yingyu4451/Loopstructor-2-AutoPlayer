@@ -1524,6 +1524,8 @@ public static class DefenseStationGridRanker
                                ?? new List<JObject>();
         bool targetIsAttribute = placementIsAttribute ??
                                  string.Equals(disposableEnum, "FreePoint_Attribute", StringComparison.Ordinal);
+        bool targetMustBeIncluded = !string.Equals(disposableEnum, "FreePoint", StringComparison.Ordinal) &&
+                                    !string.Equals(disposableEnum, "FreePoint_Attribute", StringComparison.Ordinal);
         List<(double X, double Y)> anchors;
         if (!targetIsAttribute)
         {
@@ -1548,7 +1550,11 @@ public static class DefenseStationGridRanker
                     .Select(grid => new
                     {
                         Grid = grid,
-                        Layout = ScoreProspectivePlayerLoop(attributes, commons, grid),
+                        Layout = ScoreProspectivePlayerLoop(
+                            attributes,
+                            commons,
+                            grid,
+                            targetMustBeIncluded),
                         FirstPointAngularPenalty = commons.Count == 0
                             ? attributes.Min(attribute => FirstCommonAngularPenalty(attribute, grid))
                             : 0d,
@@ -1611,7 +1617,8 @@ public static class DefenseStationGridRanker
     private static RailLayoutScore? ScoreProspectivePlayerLoop(
         IReadOnlyList<(double X, double Y)> attributes,
         IReadOnlyList<(double X, double Y)> commons,
-        AutoPlayerGrid candidate)
+        AutoPlayerGrid candidate,
+        bool candidateMustBeIncluded)
     {
         if (attributes.Count == 0 || commons.Count == 0) return null;
         List<RailLoopPointCandidate> points = new();
@@ -1636,6 +1643,7 @@ public static class DefenseStationGridRanker
         points.Add(new RailLoopPointCandidate
         {
             InstanceId = identity,
+            MustInclude = candidateMustBeIncluded,
             Grid = new RailLayoutPoint(candidate.X, candidate.Y)
         });
         return RailLayoutStrategyPlanner.PlanPlayerLoop(points)?.Score;

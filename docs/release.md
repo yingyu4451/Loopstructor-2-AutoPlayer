@@ -35,6 +35,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed。`test.ps1` 把 TRX 写入 `artifacts\TestResults`。
 
+## 0.6.45 开局防御圆环与特殊弹射点
+
+`0.6.45` 根据游戏 `1.390` 的现场坐标复现了错误布局：两枚普通中继站位于 `(-4,-4)`、`(-8,-6)`，动力始发站位于 `(16,14)`。这个三点多边形可能通过游戏的 `isLoop`，但半径跨度过大、两个站点角度几乎重叠，画面表现为一条细长折线，不能覆盖四面来敌。
+
+本版本把真实线段拓扑、包围基地、最小/最大角差和半径比一起作为开局硬门禁；预览计划与 `queryRail` 提交后结果都必须是分布均衡的防御圆环，响应缺少真实端点时也不允许仅凭 `isLoop` 放行。同时在开波前读取 `queryDisposable.effectFacts`，动态发现 `canAlwaysMove=true` 的特殊中继站，逐个放置后标记为最终闭环的必选站点；特殊始发站仍交给独立新回路扩建事务。现场背包里的“闪电路径弹射点”因此不会再被普通三站开局流程跳过。本版本以 `v0.6.44` 作为相邻增量更新基线。
+
 ## 0.6.44 背包普通弹射点识别修复
 
 `0.6.44` 修复开局准备把场上站点查询误当成背包库存查询的问题。`queryCatapults` 仍只返回已经放到战场的站点；当场上普通站点不足两枚时，自动游玩改为读取 `queryDisposable` 中的 `FreePoint` 数量、按钮可用状态、交互类型和稳定道具身份，逐个完成候选格探测、确认和场上验证。每次成功放置后重新读取背包身份，再继续下一枚普通点；普通点就绪后同样重新读取 `FreePoint_Attribute` 身份再放置动力点。
@@ -100,27 +106,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.44
+.\scripts\package.ps1 -Version 0.6.45
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.44 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.45 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.44-win-x64.zip
-Loopstructor.AutoPlayer-0.6.44-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.43-to-0.6.44-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.43-to-0.6.44-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.45-win-x64.zip
+Loopstructor.AutoPlayer-0.6.45-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.44-to-0.6.45-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.44-to-0.6.45-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.44-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.45-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -150,15 +156,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.44",
+  "version": "0.6.45",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.44-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.45-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 65181362,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.43",
-      "assetName": "Loopstructor.AutoPlayer-0.6.43-to-0.6.44-win-x64.delta.zip",
+      "fromVersion": "0.6.44",
+      "assetName": "Loopstructor.AutoPlayer-0.6.44-to-0.6.45-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2524818
     }
@@ -231,8 +237,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.44
-git push origin v0.6.44
+git tag v0.6.45
+git push origin v0.6.45
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
