@@ -21,8 +21,8 @@ public sealed class OpeningDefenseGridProbeContractTests
         Assert.Contains("EnergyCatapultRingPosition", LoadedStrings(resolve));
         Assert.Contains("TryValidateDisposableGridOption", AllMethods(probe).SelectMany(LoadedStrings));
         Assert.Contains(Calls(initialize), call =>
-            call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.OpeningDefenseGridRanker" &&
-            call.Name == "Rank");
+            call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.DefenseStationGridRanker" &&
+            call.Name == "RankPlacement");
         Assert.Contains(Calls(next), call =>
             call.DeclaringType.FullName == "System.Reflection.MethodBase" &&
             call.Name == "Invoke");

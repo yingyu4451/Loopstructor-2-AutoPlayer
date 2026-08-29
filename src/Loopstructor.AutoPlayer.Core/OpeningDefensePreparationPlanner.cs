@@ -172,7 +172,10 @@ public sealed class OpeningDefenseGridProbeResult
 /// </summary>
 public interface IOpeningDefenseGridProbe
 {
-    bool TryInitialize(IReadOnlyList<OpeningDefenseGrid> commonPointAnchors, out string error);
+    bool TryInitialize(
+        string disposableEnum,
+        JObject? catapultResult,
+        out string error);
     OpeningDefenseGridProbeResult ProbeNext();
     void Reset();
 }
@@ -180,11 +183,12 @@ public interface IOpeningDefenseGridProbe
 public enum OpeningDefensePreparationPhase
 {
     QueryCatapults,
-    ProbeAttributeGrid,
+    QueryPlacementDisposable,
+    ProbeStationGrid,
     QueryInteractionGuard,
-    ConfirmAttributeGrid,
+    ConfirmStationGrid,
     WaitForPlacementSettlement,
-    VerifyAttributePlacement,
+    VerifyStationPlacement,
     QueryIndependentVehicles,
     PreviewRailPath,
     QueryRailBaseline,
@@ -226,6 +230,7 @@ public sealed class OpeningDefensePreparationDecision
 /// </summary>
 public sealed class OpeningDefensePreparationPlanner
 {
+    private const string CommonDisposableEnum = "FreePoint";
     private const string AttributeDisposableEnum = "FreePoint_Attribute";
     private const int MaximumPlacementVerificationAttempts = 12;
     private const int MaximumGridProbeSlices = 256;
@@ -238,6 +243,8 @@ public sealed class OpeningDefensePreparationPlanner
     private readonly BattleDecisionEngine _railVerifier = new();
     private OpeningDefensePreparationPhase _phase = OpeningDefensePreparationPhase.QueryCatapults;
     private OpeningDefenseGrid? _selectedGrid;
+    private string _placementDisposableEnum = string.Empty;
+    private JObject? _placementDisposableIdentity;
     private JObject? _catapultResult;
     private JObject? _vehicleResult;
     private AutomationAction? _drawAction;
@@ -261,7 +268,8 @@ public sealed class OpeningDefensePreparationPlanner
     private int _cleanDrawRetryAttempts;
     private double _recommendedRetryDelaySeconds;
     private string _lastCleanDrawFailureFingerprint = string.Empty;
-    private OpeningDefenseGrid? _submittedAttributeGrid;
+    private OpeningDefenseGrid? _submittedPlacementGrid;
+    private string _submittedPlacementDisposableEnum = string.Empty;
     private bool _drawSubmitted;
     private bool _vehiclePlacementSubmitted;
     private string _failureDetail = string.Empty;
@@ -277,8 +285,9 @@ public sealed class OpeningDefensePreparationPlanner
     public bool DrawSubmitted => _drawSubmitted;
     public int CleanDrawRetryAttempts => _cleanDrawRetryAttempts;
     public double RecommendedRetryDelaySeconds => _recommendedRetryDelaySeconds;
+    public string PlacementDisposableEnum => _placementDisposableEnum;
     public bool HasCommittedWrite =>
-        _submittedAttributeGrid.HasValue || _drawSubmitted || _vehiclePlacementSubmitted;
+        _submittedPlacementGrid.HasValue || _drawSubmitted || _vehiclePlacementSubmitted;
     public string VehiclePlacementCommand => _vehiclePlacementAction?.Command ?? string.Empty;
     public IReadOnlyList<int> SelectedLinePointInstanceIds =>
         (_drawAction?.Arguments["linePointInstanceIds"] as JArray)?.Values<int>().ToArray()
@@ -288,6 +297,8 @@ public sealed class OpeningDefensePreparationPlanner
     {
         _probe.Reset();
         _selectedGrid = null;
+        _placementDisposableEnum = string.Empty;
+        _placementDisposableIdentity = null;
         _catapultResult = null;
         _vehicleResult = null;
         _drawAction = null;
@@ -311,7 +322,8 @@ public sealed class OpeningDefensePreparationPlanner
         _cleanDrawRetryAttempts = 0;
         _recommendedRetryDelaySeconds = 0d;
         _lastCleanDrawFailureFingerprint = string.Empty;
-        _submittedAttributeGrid = null;
+        _submittedPlacementGrid = null;
+        _submittedPlacementDisposableEnum = string.Empty;
         _drawSubmitted = false;
         _vehiclePlacementSubmitted = false;
         _failureDetail = string.Empty;
@@ -346,14 +358,15 @@ public sealed class OpeningDefensePreparationPlanner
             return;
         }
 
-        if (_submittedAttributeGrid.HasValue)
+        if (_submittedPlacementGrid.HasValue)
         {
-            _selectedGrid = _submittedAttributeGrid;
+            _selectedGrid = _submittedPlacementGrid;
+            _placementDisposableEnum = _submittedPlacementDisposableEnum;
             _placementVerificationAttempts = 0;
             _failureDetail = string.Empty;
             if (_phase != OpeningDefensePreparationPhase.WaitForPlacementSettlement)
             {
-                _phase = OpeningDefensePreparationPhase.VerifyAttributePlacement;
+                _phase = OpeningDefensePreparationPhase.VerifyStationPlacement;
             }
 
             return;
@@ -380,7 +393,7 @@ public sealed class OpeningDefensePreparationPlanner
         _placementVerificationAttempts = 0;
         if (_selectedGrid.HasValue)
         {
-            _phase = OpeningDefensePreparationPhase.VerifyAttributePlacement;
+            _phase = OpeningDefensePreparationPhase.VerifyStationPlacement;
             return;
         }
 
@@ -394,7 +407,15 @@ public sealed class OpeningDefensePreparationPlanner
             case OpeningDefensePreparationPhase.QueryCatapults:
                 return Command("queryCatapults", null, "读取可用弹射点并持久化站点身份。");
 
-            case OpeningDefensePreparationPhase.ProbeAttributeGrid:
+            case OpeningDefensePreparationPhase.QueryPlacementDisposable:
+                return Command(
+                    "queryDisposable",
+                    null,
+                    _placementDisposableEnum == CommonDisposableEnum
+                        ? "读取背包普通弹射点数量与稳定道具身份。"
+                        : "读取背包动力弹射点数量与稳定道具身份。");
+
+            case OpeningDefensePreparationPhase.ProbeStationGrid:
                 return DecideProbe();
 
             case OpeningDefensePreparationPhase.QueryInteractionGuard:
@@ -403,27 +424,38 @@ public sealed class OpeningDefensePreparationPlanner
                     null,
                     "确认当前没有玩家或其他系统创建的活动道具交互。");
 
-            case OpeningDefensePreparationPhase.ConfirmAttributeGrid:
+            case OpeningDefensePreparationPhase.ConfirmStationGrid:
                 if (!_selectedGrid.HasValue)
                 {
-                    return Failure("增量探测选中的属性弹射点网格丢失。");
+                    return Failure("增量探测选中的弹射点网格丢失。");
+                }
+                if (string.IsNullOrWhiteSpace(_placementDisposableEnum) ||
+                    _placementDisposableIdentity == null)
+                {
+                    return Failure("背包弹射点的稳定道具身份丢失，尚未提交放置命令。");
                 }
 
                 OpeningDefenseGrid selected = _selectedGrid.Value;
+                JObject confirmationArguments = (JObject)_placementDisposableIdentity.DeepClone();
+                confirmationArguments["disposableEnum"] = _placementDisposableEnum;
+                confirmationArguments["grid"] = JObject.FromObject(new { x = selected.X, y = selected.Y });
                 return Command(
                     "confirmDisposableGrid",
-                    JObject.FromObject(new
-                    {
-                        disposableEnum = AttributeDisposableEnum,
-                        grid = new { x = selected.X, y = selected.Y }
-                    }),
-                    $"在网格 {selected} 放置开局属性弹射点。");
+                    confirmationArguments,
+                    _placementDisposableEnum == CommonDisposableEnum
+                        ? $"从背包在网格 {selected} 放置开局普通弹射点。"
+                        : $"从背包在网格 {selected} 放置开局动力弹射点。");
 
             case OpeningDefensePreparationPhase.WaitForPlacementSettlement:
-                return Wait("属性弹射点已提交，正在逐帧等待预览和生成动画完全退出。");
+                return Wait("弹射点已提交，正在逐帧等待预览和生成动画完全退出。");
 
-            case OpeningDefensePreparationPhase.VerifyAttributePlacement:
-                return Command("queryCatapults", null, "验证目标网格已生成可用属性弹射点。");
+            case OpeningDefensePreparationPhase.VerifyStationPlacement:
+                return Command(
+                    "queryCatapults",
+                    null,
+                    _placementDisposableEnum == CommonDisposableEnum
+                        ? "验证背包中的普通弹射点已在目标网格生成。"
+                        : "验证背包中的动力弹射点已在目标网格生成。");
 
             case OpeningDefensePreparationPhase.QueryIndependentVehicles:
                 return Command("queryIndependentVehicleState", null, "读取背包战车、独立运行状态与轨道动态容量。");
@@ -512,7 +544,7 @@ public sealed class OpeningDefensePreparationPlanner
         switch (action.Command)
         {
             case "queryCatapults":
-                if (_phase == OpeningDefensePreparationPhase.VerifyAttributePlacement)
+                if (_phase == OpeningDefensePreparationPhase.VerifyStationPlacement)
                 {
                     ObservePlacementVerification(result, accepted);
                 }
@@ -520,6 +552,10 @@ public sealed class OpeningDefensePreparationPlanner
                 {
                     ObserveCatapults(result, accepted);
                 }
+                break;
+
+            case "queryDisposable":
+                ObservePlacementDisposable(result, accepted);
                 break;
 
             case "queryOpeningDefenseInteractionGuard":
@@ -531,17 +567,18 @@ public sealed class OpeningDefensePreparationPlanner
                 {
                     if (_selectedGrid.HasValue)
                     {
-                        _submittedAttributeGrid = _selectedGrid;
+                        _submittedPlacementGrid = _selectedGrid;
+                        _submittedPlacementDisposableEnum = _placementDisposableEnum;
                         _phase = OpeningDefensePreparationPhase.WaitForPlacementSettlement;
                     }
                     else
                     {
-                        Fail("属性弹射点确认已被接受，但提交时的目标网格身份已经丢失；已停止且不会重复确认。");
+                        Fail("弹射点确认已被接受，但提交时的目标网格身份已经丢失；已停止且不会重复确认。");
                     }
                 }
                 else
                 {
-                    Fail("开局属性弹射点确认失败；不会继续画轨或调用旧版整图宏。");
+                    Fail("开局弹射点确认失败；不会继续画轨或调用旧版整图宏。");
                 }
                 break;
 
@@ -658,13 +695,86 @@ public sealed class OpeningDefensePreparationPlanner
 
         if (commonAnchors.Count < 2)
         {
-            Fail($"可用普通弹射点不足（需要 2 个，当前 {commonAnchors.Count} 个）。");
+            if (!string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal) ||
+                _placementDisposableIdentity == null)
+            {
+                _placementDisposableEnum = CommonDisposableEnum;
+                _placementDisposableIdentity = null;
+            }
+            _phase = OpeningDefensePreparationPhase.QueryPlacementDisposable;
             return;
         }
 
+        PreparePlacementDisposableQuery(AttributeDisposableEnum);
+    }
+
+    private void ObservePlacementDisposable(JObject? result, bool accepted)
+    {
+        if (_phase != OpeningDefensePreparationPhase.QueryPlacementDisposable)
+        {
+            Fail("背包弹射点响应出现在错误的准备阶段。");
+            return;
+        }
+
+        if (!accepted)
+        {
+            RetryPreWriteRead(
+                ref _catapultReadAttempts,
+                "读取背包弹射点状态连续失败。");
+            return;
+        }
+
+        JObject state = State(result);
+        JObject? item = (state["items"] as JArray)?.OfType<JObject>()
+            .Where(candidate =>
+                string.Equals(
+                    candidate["disposableEnum"]?.Value<string>(),
+                    _placementDisposableEnum,
+                    StringComparison.Ordinal))
+            .Where(candidate =>
+                candidate["active"]?.Value<bool>() != false &&
+                candidate["buttonActive"]?.Value<bool>() != false &&
+                ReadInt(candidate["count"], 0) > 0 &&
+                string.Equals(
+                    candidate["interactionType"]?.Value<string>(),
+                    "GridChooseInteraction",
+                    StringComparison.Ordinal))
+            .OrderBy(candidate => ReadInt(candidate["index"], int.MaxValue))
+            .FirstOrDefault();
+        if (item == null)
+        {
+            int placed = TryReadCatapults(_catapultResult, out List<JObject> catapults)
+                ? catapults.Count(point =>
+                    IsAvailablePoint(point) &&
+                    string.Equals(
+                        point["recycleDisposableEnum"]?.Value<string>(),
+                        _placementDisposableEnum,
+                        StringComparison.Ordinal))
+                : 0;
+            string pointName = _placementDisposableEnum == CommonDisposableEnum
+                ? "普通弹射点"
+                : "动力弹射点";
+            Fail($"{pointName}背包库存不可用（场上可连 {placed} 个）；尚未提交放置命令。");
+            return;
+        }
+
+        JObject identity = BuildDisposableIdentity(item);
+        if (!identity.HasValues)
+        {
+            Fail("已读到背包弹射点，但缺少 itemInstanceId、path 或 index 等稳定身份；尚未提交放置命令。");
+            return;
+        }
+
+        _placementDisposableIdentity = identity;
+        BeginPlacementProbe(_placementDisposableEnum, _catapultResult);
+    }
+
+    private void BeginPlacementProbe(string disposableEnum, JObject? catapultResult)
+    {
+        _placementDisposableEnum = disposableEnum;
         try
         {
-            if (!_probe.TryInitialize(commonAnchors, out string error))
+            if (!_probe.TryInitialize(disposableEnum, catapultResult, out string error))
             {
                 Fail("无法初始化增量候选网格探测。" +
                      (string.IsNullOrWhiteSpace(error) ? string.Empty : " " + error));
@@ -678,7 +788,7 @@ public sealed class OpeningDefensePreparationPlanner
         }
 
         _gridProbeSlices = 0;
-        _phase = OpeningDefensePreparationPhase.ProbeAttributeGrid;
+        _phase = OpeningDefensePreparationPhase.ProbeStationGrid;
     }
 
     private void ObserveInteractionGuard(JObject? result, bool accepted)
@@ -717,7 +827,7 @@ public sealed class OpeningDefensePreparationPlanner
 
         if (noActiveInteraction)
         {
-            _phase = OpeningDefensePreparationPhase.ConfirmAttributeGrid;
+            _phase = OpeningDefensePreparationPhase.ConfirmStationGrid;
         }
     }
 
@@ -726,14 +836,25 @@ public sealed class OpeningDefensePreparationPlanner
         if (accepted &&
             _selectedGrid.HasValue &&
             TryReadCatapults(result, out List<JObject> catapults) &&
-            catapults.Any(point =>
-                IsAvailablePoint(point) &&
-                point["isAttribute"]?.Value<bool>() == true &&
-                TryReadGrid(point, out OpeningDefenseGrid grid) &&
-                grid.Equals(_selectedGrid.Value)))
+            catapults.Any(point => MatchesSubmittedPlacement(point, _selectedGrid.Value)))
         {
             _catapultResult = result?.DeepClone() as JObject;
             _placementVerificationAttempts = 0;
+            if (string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal))
+            {
+                List<JObject> usable = catapults.Where(IsAvailablePoint).ToList();
+                int commonCount = usable.Count(point => point["isAttribute"]?.Value<bool>() != true);
+                if (commonCount < 2)
+                {
+                    _catapultResult = result?.DeepClone() as JObject;
+                    PreparePlacementDisposableQuery(CommonDisposableEnum);
+                    return;
+                }
+
+                PreparePlacementDisposableQuery(AttributeDisposableEnum);
+                return;
+            }
+
             _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
             return;
         }
@@ -741,8 +862,38 @@ public sealed class OpeningDefensePreparationPlanner
         _placementVerificationAttempts++;
         if (_placementVerificationAttempts >= MaximumPlacementVerificationAttempts)
         {
-            Fail($"连续 {MaximumPlacementVerificationAttempts} 次未能验证目标网格的属性弹射点；为避免重复放置已停止。");
+            Fail($"连续 {MaximumPlacementVerificationAttempts} 次未能验证目标网格的{PlacementDisplayName()}；为避免重复放置已停止。");
         }
+    }
+
+    private bool MatchesSubmittedPlacement(JObject point, OpeningDefenseGrid expectedGrid)
+    {
+        bool expectedAttribute = string.Equals(
+            _placementDisposableEnum,
+            AttributeDisposableEnum,
+            StringComparison.Ordinal);
+        return IsAvailablePoint(point) &&
+               (point["isAttribute"]?.Value<bool>() == true) == expectedAttribute &&
+               (string.Equals(
+                    point["recycleDisposableEnum"]?.Value<string>(),
+                    _placementDisposableEnum,
+                    StringComparison.Ordinal) ||
+                expectedAttribute && point["isAttribute"]?.Value<bool>() == true) &&
+               TryReadGrid(point, out OpeningDefenseGrid grid) &&
+               grid.Equals(expectedGrid);
+    }
+
+    private string PlacementDisplayName() =>
+        string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal)
+            ? "普通弹射点"
+            : "动力弹射点";
+
+    private void PreparePlacementDisposableQuery(string disposableEnum)
+    {
+        _placementDisposableEnum = disposableEnum;
+        _placementDisposableIdentity = null;
+        _selectedGrid = null;
+        _phase = OpeningDefensePreparationPhase.QueryPlacementDisposable;
     }
 
     private void ObserveInitialVehicle(JObject? result, bool accepted)
@@ -1165,6 +1316,34 @@ public sealed class OpeningDefensePreparationPlanner
         JArray? items = State(result)["catapults"] as JArray;
         catapults = items?.OfType<JObject>().ToList() ?? new List<JObject>();
         return items != null;
+    }
+
+    private static JObject BuildDisposableIdentity(JObject item)
+    {
+        JObject identity = new();
+        int itemInstanceId = ReadInt(item["itemInstanceId"], ReadInt(item["instanceId"], 0));
+        if (itemInstanceId != 0)
+        {
+            identity["itemInstanceId"] = itemInstanceId;
+            identity["instanceId"] = itemInstanceId;
+            return identity;
+        }
+
+        string path = item["itemPath"]?.Value<string>() ?? item["path"]?.Value<string>() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            identity["itemPath"] = path.Trim();
+            identity["path"] = path.Trim();
+            return identity;
+        }
+
+        int index = ReadInt(item["index"], -1);
+        if (index >= 0)
+        {
+            identity["index"] = index;
+        }
+
+        return identity;
     }
 
     private static bool IsAvailablePoint(JObject point) =>

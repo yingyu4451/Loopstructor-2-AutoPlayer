@@ -78,7 +78,7 @@ public sealed class OpeningDefenseInteractionGuardContractTests
         MethodDefinition read = controller.Methods.Single(method =>
             method.Name == "ExecuteOpeningDefenseReadOnly");
         MethodDefinition confirmGuard = controller.Methods.Single(method =>
-            method.Name == "CanConfirmOpeningDefenseAttributeNow");
+            method.Name == "CanConfirmOpeningDefensePlacementNow");
         MethodDefinition prepare = controller.Methods.Single(method =>
             method.Name == "PrepareOpeningDefenseIncrementally");
 
@@ -94,7 +94,7 @@ public sealed class OpeningDefenseInteractionGuardContractTests
         Assert.Contains(Calls(prepare), call =>
             call.DeclaringType.FullName ==
                 "Loopstructor.AutoPlayer.Plugin.AutoPlayController" &&
-            call.Name == "CanConfirmOpeningDefenseAttributeNow");
+            call.Name == "CanConfirmOpeningDefensePlacementNow");
         Assert.Contains(controller.Fields, field =>
             field.Name == "_openingDefenseWaitingForForeignPreview" &&
             field.FieldType.FullName == "System.Boolean");

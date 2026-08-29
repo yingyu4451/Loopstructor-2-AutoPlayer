@@ -785,7 +785,7 @@ public sealed class PluginRuntimeHostContractTests
             IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionAttributeCancellation"));
         Assert.Contains(
             Calls(processPreviewRelease),
-            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsOwnedExpansionAttributePreview"));
+            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsOwnedExpansionPreview"));
         Assert.Contains(Calls(executePreviewCancellation), IsCall(BridgeType, "Invoke"));
     }
 
@@ -825,7 +825,7 @@ public sealed class PluginRuntimeHostContractTests
         Assert.DoesNotContain(LoadedStrings(handleBlocker), value => value == "cancelDisposable");
         Assert.Contains(
             Calls(handleBlocker),
-            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsOwnedExpansionAttributePreview"));
+            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsOwnedExpansionPreview"));
         Assert.Contains(
             Calls(handleBlocker),
             IsCall("Loopstructor.AutoPlayer.Core.OpeningDefensePreparationPlanner", "MarkPlacementPreviewReleased"));
@@ -851,7 +851,7 @@ public sealed class PluginRuntimeHostContractTests
             IsCall("Loopstructor.AutoPlayer.Core.OpeningDefensePreparationPlanner", "MarkPlacementPreviewReleased"));
         Assert.Contains(
             Calls(captureIdentity),
-            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadExpansionAttributeInteractionId"));
+            IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadExpansionInteractionId"));
         Assert.Contains(Calls(captureIdentity), IsCall(ControllerType, "FaultRequiringProcessRestart"));
 
         Assert.Contains(

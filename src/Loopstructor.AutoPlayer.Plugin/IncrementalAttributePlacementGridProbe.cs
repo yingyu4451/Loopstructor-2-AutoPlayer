@@ -22,6 +22,7 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
     private const double SliceBudgetMilliseconds = 3.0d;
 
     private readonly List<OpeningDefenseGrid> _rankedCandidates = new();
+    private string _disposableEnum = string.Empty;
     private PropertyInfo? _mapPosManagerInstance;
     private PropertyInfo? _catapultRingPosition;
     private PropertyInfo? _energyCatapultRingPosition;
@@ -31,9 +32,22 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
     private bool _initialized;
     private string _contractError = string.Empty;
 
-    public bool TryInitialize(IReadOnlyList<OpeningDefenseGrid> commonPointAnchors, out string error)
+    public bool TryInitialize(
+        string disposableEnum,
+        Newtonsoft.Json.Linq.JObject? catapultResult,
+        out string error)
     {
         ResetProbeState();
+        bool placeAttribute = string.Equals(
+            disposableEnum,
+            AttributeDisposableEnum,
+            StringComparison.Ordinal);
+        _disposableEnum = disposableEnum?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_disposableEnum))
+        {
+            error = "缺少开局弹射点道具枚举。";
+            return false;
+        }
         if (!TryResolveContract(out error))
         {
             return false;
@@ -51,7 +65,14 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
             HashSet<OpeningDefenseGrid> candidates = new();
             AddCandidateDictionary(candidates, _catapultRingPosition!.GetValue(manager, null));
             AddCandidateDictionary(candidates, _energyCatapultRingPosition!.GetValue(manager, null));
-            _rankedCandidates.AddRange(OpeningDefenseGridRanker.Rank(candidates, commonPointAnchors));
+            _rankedCandidates.AddRange(
+                DefenseStationGridRanker
+                    .RankPlacement(
+                        _disposableEnum,
+                        candidates.Select(grid => new AutoPlayerGrid(grid.X, grid.Y)),
+                        catapultResult,
+                        placementIsAttribute: placeAttribute)
+                    .Select(grid => new OpeningDefenseGrid(grid.X, grid.Y)));
             if (_rankedCandidates.Count == 0)
             {
                 error = "MapPosManager 没有返回可用的弹射点候选格。";
@@ -92,7 +113,7 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
                 OpeningDefenseGrid candidate = _rankedCandidates[_nextCandidateIndex++];
                 object?[] arguments =
                 {
-                    AttributeDisposableEnum,
+                    _disposableEnum,
                     new Vector2Int(candidate.X, candidate.Y),
                     null
                 };
@@ -229,6 +250,7 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
     private void ResetProbeState()
     {
         _rankedCandidates.Clear();
+        _disposableEnum = string.Empty;
         _nextCandidateIndex = 0;
         _totalProbed = 0;
         _initialized = false;

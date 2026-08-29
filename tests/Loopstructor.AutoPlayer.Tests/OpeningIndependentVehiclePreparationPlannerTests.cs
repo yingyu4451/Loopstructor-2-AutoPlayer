@@ -60,10 +60,142 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         Assert.True(engine.IsLegalDefenseExpansionPreview(PreviewWithoutVehicleSpeed()));
     }
 
-    private static JObject Point(int instanceId, bool isAttribute, int x, int y) => new()
+    [Fact]
+    public void BackpackCommonPoints_ArePlacedBeforeAttributePointInsteadOfBeingReportedMissing()
+    {
+        RecordingGridProbe probe = new();
+        OpeningDefensePreparationPlanner planner = new(probe);
+
+        OpeningDefensePreparationDecision catapults = planner.Decide();
+        planner.Observe(catapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray()
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision inventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, inventory.Phase);
+        Assert.Equal("queryDisposable", inventory.Action?.Command);
+        planner.Observe(inventory.Action!, DisposableInventory("FreePoint", count: 2, instanceId: 701), accepted: true);
+
+        OpeningDefensePreparationDecision probeDecision = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, probeDecision.Phase);
+        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal("wait", probeDecision.Action?.Command);
+        Assert.Contains("下一帧继续", probeDecision.Detail);
+
+        OpeningDefensePreparationDecision selected = planner.Decide();
+        Assert.Equal("queryOpeningDefenseInteractionGuard", selected.Action?.Command);
+        planner.Observe(selected.Action!, IdleInteractionGuard(), accepted: true);
+
+        OpeningDefensePreparationDecision confirm = planner.Decide();
+        Assert.Equal("confirmDisposableGrid", confirm.Action?.Command);
+        Assert.Equal("FreePoint", confirm.Action?.Arguments["disposableEnum"]?.Value<string>());
+        Assert.Equal(701, confirm.Action?.Arguments["itemInstanceId"]?.Value<int>());
+        Assert.Equal(4, confirm.Action?.Arguments.SelectToken("grid.x")?.Value<int>());
+        Assert.Equal(-2, confirm.Action?.Arguments.SelectToken("grid.y")?.Value<int>());
+
+        planner.Observe(confirm.Action!, new JObject
+        {
+            ["success"] = true,
+            ["data"] = new JObject
+            {
+                ["state"] = new JObject { ["isInPreview"] = false }
+            }
+        }, accepted: true);
+        planner.MarkPlacementPreviewReleased();
+
+        OpeningDefensePreparationDecision verify = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.VerifyStationPlacement, verify.Phase);
+        planner.Observe(verify.Action!, new JObject
+        {
+            ["catapults"] = new JArray(Point(101, false, 4, -2, "FreePoint"))
+        }, accepted: true);
+
+        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal(1, probe.InitializationCount);
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, planner.Phase);
+        Assert.NotEqual(OpeningDefensePreparationPhase.PlacementVerificationFailed, planner.Phase);
+
+        OpeningDefensePreparationDecision refreshedInventory = planner.Decide();
+        Assert.Equal("queryDisposable", refreshedInventory.Action?.Command);
+        planner.Observe(
+            refreshedInventory.Action!,
+            DisposableInventory("FreePoint", count: 1, instanceId: 702),
+            accepted: true);
+
+        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal(2, probe.InitializationCount);
+        Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, planner.Phase);
+    }
+
+    [Fact]
+    public void ExistingCommonPoints_RefreshesAttributeInventoryBeforeProbingAttributePlacement()
+    {
+        RecordingGridProbe probe = new();
+        OpeningDefensePreparationPlanner planner = new(probe);
+
+        OpeningDefensePreparationDecision catapults = planner.Decide();
+        planner.Observe(catapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, false, -4, -2),
+                Point(102, false, 4, -2))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision inventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, inventory.Phase);
+        Assert.Equal("queryDisposable", inventory.Action?.Command);
+        planner.Observe(
+            inventory.Action!,
+            DisposableInventory("FreePoint_Attribute", count: 1, instanceId: 801),
+            accepted: true);
+
+        Assert.Equal("FreePoint_Attribute", planner.PlacementDisposableEnum);
+        Assert.Equal("FreePoint_Attribute", probe.LastDisposableEnum);
+        Assert.Equal(1, probe.InitializationCount);
+        Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, planner.Phase);
+    }
+
+    private static JObject DisposableInventory(string disposableEnum, int count, int instanceId) => new()
+    {
+        ["state"] = new JObject
+        {
+            ["isInPreview"] = false,
+            ["items"] = new JArray(new JObject
+            {
+                ["index"] = 0,
+                ["instanceId"] = instanceId,
+                ["itemInstanceId"] = instanceId,
+                ["active"] = true,
+                ["buttonActive"] = true,
+                ["disposableEnum"] = disposableEnum,
+                ["count"] = count,
+                ["interactionType"] = "GridChooseInteraction"
+            })
+        }
+    };
+
+    private static JObject IdleInteractionGuard() => new()
+    {
+        ["state"] = new JObject
+        {
+            ["noActiveInteraction"] = true,
+            ["observationConsistent"] = true,
+            ["isInPreview"] = false,
+            ["hasLastInteraction"] = false
+        }
+    };
+
+    private static JObject Point(
+        int instanceId,
+        bool isAttribute,
+        int x,
+        int y,
+        string? recycleDisposableEnum = null) => new()
     {
         ["linePointInstanceId"] = instanceId,
         ["isAttribute"] = isAttribute,
+        ["recycleDisposableEnum"] = recycleDisposableEnum,
         ["active"] = true,
         ["canUseForNewRail"] = true,
         ["canPickLine"] = true,
@@ -97,7 +229,7 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
 
     private sealed class UnusedGridProbe : IOpeningDefenseGridProbe
     {
-        public bool TryInitialize(IReadOnlyList<OpeningDefenseGrid> commonPointAnchors, out string error)
+        public bool TryInitialize(string disposableEnum, JObject? catapultResult, out string error)
         {
             error = string.Empty;
             throw new InvalidOperationException("已有属性点时不应启动网格探测。");
@@ -108,6 +240,36 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
 
         public void Reset()
         {
+        }
+    }
+
+    private sealed class RecordingGridProbe : IOpeningDefenseGridProbe
+    {
+        private int _probeCount;
+
+        public string LastDisposableEnum { get; private set; } = string.Empty;
+        public int InitializationCount { get; private set; }
+
+        public bool TryInitialize(string disposableEnum, JObject? catapultResult, out string error)
+        {
+            LastDisposableEnum = disposableEnum;
+            InitializationCount++;
+            _probeCount = 0;
+            error = string.Empty;
+            return true;
+        }
+
+        public OpeningDefenseGridProbeResult ProbeNext()
+        {
+            _probeCount++;
+            return _probeCount == 1
+                ? new OpeningDefenseGridProbeResult(OpeningDefenseGridProbeStatus.Probing, totalProbed: 1, detail: "继续")
+                : new OpeningDefenseGridProbeResult(OpeningDefenseGridProbeStatus.Found, new OpeningDefenseGrid(4, -2), 2);
+        }
+
+        public void Reset()
+        {
+            _probeCount = 0;
         }
     }
 }

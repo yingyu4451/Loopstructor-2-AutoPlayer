@@ -1716,16 +1716,16 @@ internal sealed class AutoPlayController
             return;
         }
 
-        bool confirmingAttribute = string.Equals(
+        bool confirmingStation = string.Equals(
             action.Command,
             "confirmDisposableGrid",
             StringComparison.OrdinalIgnoreCase);
-        if (confirmingAttribute && !CanConfirmOpeningDefenseAttributeNow())
+        if (confirmingStation && !CanConfirmOpeningDefensePlacementNow())
         {
             return;
         }
 
-        if (confirmingAttribute)
+        if (confirmingStation)
         {
             ResetOwnedPreviewCancellationTracking();
         }
@@ -1766,14 +1766,14 @@ internal sealed class AutoPlayController
             plannerDisposition = RuntimeResultInspector.Classify(result);
         }
 
-        if (confirmingAttribute && !CaptureOpeningDefensePreviewIdentity(result))
+        if (confirmingStation && !CaptureOpeningDefensePreviewIdentity(result, action))
         {
             return;
         }
 
         if (_runState == AutoPlayerRunState.Running &&
             plannerDisposition == RuntimeResultDisposition.Pending &&
-            confirmingAttribute &&
+            confirmingStation &&
             _openingDefenseInteractionInstanceId != 0)
         {
             _ownedPreviewConfirmationOutcomeUncertain = true;
@@ -1784,7 +1784,7 @@ internal sealed class AutoPlayController
             return;
         }
 
-        if (confirmingAttribute &&
+        if (confirmingStation &&
             plannerDisposition == RuntimeResultDisposition.Pending &&
             _openingDefenseInteractionInstanceId == 0)
         {
@@ -1795,7 +1795,7 @@ internal sealed class AutoPlayController
                     Time.realtimeSinceStartup))
             {
                 FaultRequiringProcessRestart(
-                    "开局属性弹射点确认返回 pending，但既没有交互实例身份，" +
+                    "开局弹射点确认返回 pending，但既没有交互实例身份，" +
                     "也无法建立禁止重发的动作账本；请彻底重启游戏进程。");
                 return;
             }
@@ -1809,7 +1809,7 @@ internal sealed class AutoPlayController
                 Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
             SetStage(
                 AutomationStage.PreparingDefense,
-                "属性弹射点确认正在建立交互对象；已锁定本次网格写入，" +
+                "弹射点确认正在建立交互对象；已锁定本次网格写入，" +
                 "下一帧开始只读对账且不会重复确认。");
             return;
         }
@@ -1831,19 +1831,19 @@ internal sealed class AutoPlayController
             SetStage(AutomationStage.PreparingDefense, retryDetail);
             return;
         }
-        if (observedPhase == OpeningDefensePreparationPhase.VerifyAttributePlacement &&
+        if (observedPhase == OpeningDefensePreparationPhase.VerifyStationPlacement &&
             accepted &&
             _openingDefensePreparationPlanner.Phase == OpeningDefensePreparationPhase.QueryIndependentVehicles)
         {
             _ownedPreviewConfirmationOutcomeUncertain = false;
             ResetOwnedPreviewCancellationTrackingIfNoIdentity();
         }
-        if (confirmingAttribute &&
+        if (confirmingStation &&
             !accepted &&
             _openingDefenseInteractionInstanceId != 0 &&
             _runState == AutoPlayerRunState.Running)
         {
-            Fault("开局属性弹射点确认失败并留下了本次道具预览；正在按交互身份安全清理后停止本轮自动游玩。");
+            Fault("开局弹射点确认失败并留下了本次道具预览；正在按交互身份安全清理后停止本轮自动游玩。");
             return;
         }
 
@@ -1994,6 +1994,7 @@ internal sealed class AutoPlayController
                 return;
 
             case PendingDisposableMutationResolution.TargetAttributeCatapultObserved:
+            case PendingDisposableMutationResolution.TargetCatapultObserved:
                 _openingPendingDisposableMutationGuard.Reset();
                 ResetPendingOpeningDisposableObservation();
                 _openingDefensePreparationPlanner.MarkPlacementPreviewReleased();
@@ -2004,14 +2005,14 @@ internal sealed class AutoPlayController
                     Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
                 SetStage(
                     AutomationStage.PreparingDefense,
-                    "已通过目标网格的属性弹射点证明延迟确认成功；下一帧继续验证完整站点状态。");
+                    "已通过目标网格的弹射点证明延迟确认成功；下一帧继续验证完整站点状态。");
                 return;
 
             case PendingDisposableMutationResolution.Unknown:
                 FaultRequiringProcessRestart(
-                    "属性弹射点确认写入已锁定且未重发，但在 " +
+                    "弹射点确认写入已锁定且未重发，但在 " +
                     RewardSelectionSettlementTimeoutSeconds.ToString("0") +
-                    " 秒内既未出现可验证交互，也未出现目标属性弹射点；最终结果仍未知，请彻底重启游戏进程。");
+                    " 秒内既未出现可验证交互，也未出现目标弹射点；最终结果仍未知，请彻底重启游戏进程。");
                 return;
 
             default:
@@ -2023,8 +2024,8 @@ internal sealed class AutoPlayController
                 SetStage(
                     AutomationStage.PreparingDefense,
                     _openingPendingDisposableQueryCatapults
-                        ? "属性弹射点确认结果仍未知；下一帧只读检查目标弹射点，不会重发写命令。"
-                        : "属性弹射点确认结果仍未知；下一帧只读检查道具交互，不会重发写命令。");
+                        ? "弹射点确认结果仍未知；下一帧只读检查目标弹射点，不会重发写命令。"
+                        : "弹射点确认结果仍未知；下一帧只读检查道具交互，不会重发写命令。");
                 return;
         }
     }
@@ -2162,9 +2163,10 @@ internal sealed class AutoPlayController
         }
 
         if (_openingDefenseInteractionInstanceId != 0 &&
-            _battleDecisionEngine.IsOwnedExpansionAttributePreview(
+            _battleDecisionEngine.IsOwnedExpansionPreview(
                 disposableResult,
                 _openingDefenseInteractionInstanceId,
+                _openingDefensePreparationPlanner.PlacementDisposableEnum,
                 requireGridInteraction: false))
         {
             _nextTickAt = Math.Max(
@@ -2172,7 +2174,7 @@ internal sealed class AutoPlayController
                 Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
             SetStage(
                 AutomationStage.PreparingDefense,
-                "开局属性弹射点仍在播放生成动画；保持本次预览，不发送取消命令。");
+                "开局弹射点仍在播放生成动画；保持本次预览，不发送取消命令。");
             return true;
         }
 
@@ -2185,7 +2187,7 @@ internal sealed class AutoPlayController
                 Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
             SetStage(
                 AutomationStage.PreparingDefense,
-                "自动游玩的属性弹射点预览已经退出，但检测到另一个道具预览；" +
+                "自动游玩的弹射点预览已经退出，但检测到另一个道具预览；" +
                 "等待该交互结束后再验证站点，不会确认或取消它。");
             return true;
         }
@@ -2198,11 +2200,11 @@ internal sealed class AutoPlayController
             Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
         SetStage(
             AutomationStage.PreparingDefense,
-            "开局属性弹射点预览已经退出；下一帧验证站点是否实际生成。");
+            "开局弹射点预览已经退出；下一帧验证站点是否实际生成。");
         return true;
     }
 
-    private bool CanConfirmOpeningDefenseAttributeNow()
+    private bool CanConfirmOpeningDefensePlacementNow()
     {
         JObject guardResult = _openingDefenseInteractionGuard.Query();
         _lastCommand = "queryOpeningDefenseInteractionGuard";
@@ -2236,7 +2238,7 @@ internal sealed class AutoPlayController
         if (_openingDefenseConfirmGuardFailures >= MaxOpeningDefenseConfirmGuardFailures)
         {
             Fault(
-                "开局属性弹射点确认前连续无法证明道具交互为空闲；尚未提交确认写命令。" +
+                "开局弹射点确认前连续无法证明道具交互为空闲；尚未提交确认写命令。" +
                 "最后结果：" + _lastMessage);
             return false;
         }
@@ -2263,7 +2265,7 @@ internal sealed class AutoPlayController
                beforeRailCount.Value != afterRailCount.Value;
     }
 
-    private bool CaptureOpeningDefensePreviewIdentity(JObject confirmResult)
+    private bool CaptureOpeningDefensePreviewIdentity(JObject confirmResult, AutomationAction action)
     {
         JObject state = State(confirmResult);
         if (state["isInPreview"]?.Value<bool>() != true)
@@ -2272,12 +2274,13 @@ internal sealed class AutoPlayController
             return true;
         }
 
+        string disposableEnum = action.Arguments["disposableEnum"]?.Value<string>() ?? string.Empty;
         int interactionInstanceId =
-            _battleDecisionEngine.ReadExpansionAttributeInteractionId(confirmResult);
+            _battleDecisionEngine.ReadExpansionInteractionId(confirmResult, disposableEnum);
         if (interactionInstanceId == 0)
         {
             FaultRequiringProcessRestart(
-                "开局属性弹射点确认后仍有道具预览，但运行时没有返回可验证的交互身份。");
+                "开局弹射点确认后仍有道具预览，但运行时没有返回可验证的交互身份。");
             return false;
         }
 
@@ -7332,9 +7335,10 @@ internal sealed class AutoPlayController
                             _defensePlacementDisposableEnum,
                             requireGridInteraction: false);
                     bool openingPreviewRemains =
-                        _battleDecisionEngine.IsOwnedExpansionAttributePreview(
+                        _battleDecisionEngine.IsOwnedExpansionPreview(
                             verification,
                             _openingDefenseInteractionInstanceId,
+                            _openingDefensePreparationPlanner.PlacementDisposableEnum,
                             requireGridInteraction: false);
                     bool battlePreviewRemains = IsOwnedDisposablePreview(verification);
                     if (!openingPreviewRemains && !defensePreviewRemains && !battlePreviewRemains)
@@ -7363,9 +7367,10 @@ internal sealed class AutoPlayController
     private AutomationAction? BuildOwnedPreviewCancellation(JObject current)
     {
         AutomationAction? cancelAction =
-            _battleDecisionEngine.DecideExpansionAttributeCancellation(
+            _battleDecisionEngine.DecideExpansionCancellation(
                 current,
-                _openingDefenseInteractionInstanceId);
+                _openingDefenseInteractionInstanceId,
+                _openingDefensePreparationPlanner.PlacementDisposableEnum);
         cancelAction ??=
             _battleDecisionEngine.DecideExpansionAttributeCancellation(
                 current,
