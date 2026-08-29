@@ -22,15 +22,12 @@ public sealed class RewardUiAutomationContractTests
         int selectionRoute = FindCall(instructions, BridgeType, "InvokeLightweightRewardSelection");
         int skipRoute = FindCall(instructions, BridgeType, "InvokeLightweightRewardSkip");
         int collectionRoute = FindCall(instructions, FallbackType, "TryCollectRewardObject");
-        int nativeLookup = FindCall(
-            instructions,
-            "System.Collections.Generic.Dictionary`2<System.String,System.Reflection.MethodInfo>",
-            "TryGetValue");
+        int nativeDispatch = FindCall(instructions, BridgeType, "InvokeNative");
 
-        Assert.True(queryRoute >= 0 && queryRoute < nativeLookup);
-        Assert.True(selectionRoute >= 0 && selectionRoute < nativeLookup);
-        Assert.True(skipRoute >= 0 && skipRoute < nativeLookup);
-        Assert.True(collectionRoute >= 0 && collectionRoute < nativeLookup);
+        Assert.True(queryRoute >= 0 && queryRoute < nativeDispatch);
+        Assert.True(selectionRoute >= 0 && selectionRoute < nativeDispatch);
+        Assert.True(skipRoute >= 0 && skipRoute < nativeDispatch);
+        Assert.True(collectionRoute >= 0 && collectionRoute < nativeDispatch);
         Assert.Contains("queryReward", LoadedStrings(invoke));
         Assert.Contains("chooseRewardOption", LoadedStrings(invoke));
         Assert.Contains("skipReward", LoadedStrings(invoke));

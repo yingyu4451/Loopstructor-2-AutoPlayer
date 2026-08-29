@@ -11,7 +11,8 @@ public sealed class RuntimeMutationSafetyContractTests
 {
     private const string BridgeType = "Loopstructor.AutoPlayer.Plugin.RuntimeBridge";
     private const string RepairFallbackType = "Loopstructor.AutoPlayer.Plugin.RepairUiRuntimeFallback";
-    private const string MergeFallbackType = "Loopstructor.AutoPlayer.Plugin.MergeUiRuntimeFallback";
+    private const string IndependentFallbackType = "Loopstructor.AutoPlayer.Plugin.IndependentVehicleRuntimeFallback";
+    private const string DirectUpgradeFallbackType = "Loopstructor.AutoPlayer.Plugin.DirectUpgradeUiRuntimeFallback";
 
     [Theory]
     [InlineData("startWave", nameof(ThrowingRuntimeCommand))]
@@ -56,15 +57,15 @@ public sealed class RuntimeMutationSafetyContractTests
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition bridge = RequireType(assembly, BridgeType);
         MethodDefinition invoke = RequireMethod(bridge, "Invoke");
-        Instruction[] instructions = invoke.Body.Instructions.ToArray();
+        MethodDefinition invokeNative = RequireMethod(bridge, "InvokeNative");
+        Instruction[] instructions = invokeNative.Body.Instructions.ToArray();
 
         int commandLookup = FindCall(instructions, "System.Collections.Generic.Dictionary`2<System.String,System.Reflection.MethodInfo>", "TryGetValue");
-        int mutationClassification = FindCall(instructions, BridgeType, "IsMutatingCommand");
         int runtimeInvoke = FindCall(instructions, "System.Reflection.MethodBase", "Invoke");
 
-        Assert.True(commandLookup >= 0 && commandLookup < mutationClassification);
-        Assert.True(mutationClassification < runtimeInvoke);
-        Assert.True(Calls(invoke).Count(call => IsCall(BridgeType, "UncertainMutationError")(call)) >= 3);
+        Assert.True(commandLookup >= 0 && commandLookup < runtimeInvoke);
+        Assert.Contains(Calls(invoke), IsCall(BridgeType, "InvokeNative"));
+        Assert.Contains(Calls(invokeNative), IsCall(BridgeType, "UncertainMutationError"));
 
         MethodDefinition classifier = RequireMethod(bridge, "IsMutatingCommand");
         Assert.Contains("query", LoadedStrings(classifier));
@@ -86,13 +87,18 @@ public sealed class RuntimeMutationSafetyContractTests
     }
 
     [Fact]
-    public void MergeFallbacks_MarkOnlyPostCommandExceptionsAsUncertain()
+    public void IndependentDeploymentAndDirectUpgrade_ExposeUnknownOutcomesForReadOnlyReconciliation()
     {
         using AssemblyDefinition assembly = ReadPlugin();
-        TypeDefinition fallback = RequireType(assembly, MergeFallbackType);
+        TypeDefinition independent = RequireType(assembly, IndependentFallbackType);
+        TypeDefinition directUpgrade = RequireType(assembly, DirectUpgradeFallbackType);
 
-        AssertPostInvocationUncertaintyGate(RequireMethod(fallback, "TryClosePanel"));
-        AssertPostInvocationUncertaintyGate(RequireMethod(fallback, "TryConfirmSettlement"));
+        Assert.Contains("outcomeUnknown", LoadedStrings(RequireMethod(independent, "TryDeploy")));
+        Assert.Contains("needsReconciliation", LoadedStrings(RequireMethod(independent, "TryDeploy")));
+        Assert.Contains("invocationStarted", LoadedStrings(RequireMethod(independent, "BuildDeploymentState")));
+        Assert.Contains("outcomeUnknown", LoadedStrings(RequireMethod(directUpgrade, "TryMutate")));
+        Assert.Contains("needsReconciliation", LoadedStrings(RequireMethod(directUpgrade, "TryMutate")));
+        Assert.DoesNotContain(assembly.MainModule.Types, type => type.FullName.Contains("Merge", StringComparison.Ordinal));
     }
 
     [Fact]

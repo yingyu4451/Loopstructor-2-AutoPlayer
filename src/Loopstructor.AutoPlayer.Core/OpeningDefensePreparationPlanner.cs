@@ -185,15 +185,14 @@ public enum OpeningDefensePreparationPhase
     ConfirmAttributeGrid,
     WaitForPlacementSettlement,
     VerifyAttributePlacement,
-    QueryVehicle,
+    QueryIndependentVehicles,
     PreviewRailPath,
     QueryRailBaseline,
     DrawRailPath,
     VerifyRail,
-    QueryPlacementTrain,
+    QueryDeploymentState,
     PlaceVehicle,
-    VerifyTrain,
-    VerifyVehicle,
+    VerifyDeployment,
     VerifyRailFinal,
     PlacementVerificationFailed,
     Completed
@@ -231,7 +230,7 @@ public sealed class OpeningDefensePreparationPlanner
     private const int MaximumPlacementVerificationAttempts = 12;
     private const int MaximumGridProbeSlices = 256;
     private const int MaximumRailVerificationAttempts = 12;
-    private const int MaximumTrainObservationAttempts = 12;
+    private const int MaximumDeploymentObservationAttempts = 12;
     private const int MaximumFinalVerificationAttempts = 12;
     private const int MaximumPreWriteReadAttempts = 12;
 
@@ -246,16 +245,13 @@ public sealed class OpeningDefensePreparationPlanner
     private JObject? _drawResult;
     private JObject? _verifiedRailResult;
     private AutomationAction? _vehiclePlacementAction;
-    private JObject? _verifiedTrainResult;
-    private JObject? _verifiedVehicleResult;
     private int _selectedVehicleInstanceId;
     private int _expectedRailInstanceId;
     private int _placementVerificationAttempts;
     private int _gridProbeSlices;
     private int _railVerificationAttempts;
-    private int _trainObservationAttempts;
-    private int _finalTrainVerificationAttempts;
-    private int _finalVehicleVerificationAttempts;
+    private int _deploymentObservationAttempts;
+    private int _finalDeploymentVerificationAttempts;
     private int _finalRailVerificationAttempts;
     private int _catapultReadAttempts;
     private int _interactionGuardReadAttempts;
@@ -299,16 +295,13 @@ public sealed class OpeningDefensePreparationPlanner
         _drawResult = null;
         _verifiedRailResult = null;
         _vehiclePlacementAction = null;
-        _verifiedTrainResult = null;
-        _verifiedVehicleResult = null;
         _selectedVehicleInstanceId = 0;
         _expectedRailInstanceId = 0;
         _placementVerificationAttempts = 0;
         _gridProbeSlices = 0;
         _railVerificationAttempts = 0;
-        _trainObservationAttempts = 0;
-        _finalTrainVerificationAttempts = 0;
-        _finalVehicleVerificationAttempts = 0;
+        _deploymentObservationAttempts = 0;
+        _finalDeploymentVerificationAttempts = 0;
         _finalRailVerificationAttempts = 0;
         _catapultReadAttempts = 0;
         _interactionGuardReadAttempts = 0;
@@ -341,7 +334,7 @@ public sealed class OpeningDefensePreparationPlanner
         {
             ResetCommittedVerificationAttempts();
             _failureDetail = string.Empty;
-            _phase = OpeningDefensePreparationPhase.VerifyTrain;
+            _phase = OpeningDefensePreparationPhase.VerifyDeployment;
             return;
         }
 
@@ -372,9 +365,8 @@ public sealed class OpeningDefensePreparationPlanner
     private void ResetCommittedVerificationAttempts()
     {
         _railVerificationAttempts = 0;
-        _trainObservationAttempts = 0;
-        _finalTrainVerificationAttempts = 0;
-        _finalVehicleVerificationAttempts = 0;
+        _deploymentObservationAttempts = 0;
+        _finalDeploymentVerificationAttempts = 0;
         _finalRailVerificationAttempts = 0;
     }
 
@@ -433,8 +425,8 @@ public sealed class OpeningDefensePreparationPlanner
             case OpeningDefensePreparationPhase.VerifyAttributePlacement:
                 return Command("queryCatapults", null, "验证目标网格已生成可用属性弹射点。");
 
-            case OpeningDefensePreparationPhase.QueryVehicle:
-                return Command("queryVehicle", null, "读取背包战车并持久化首辆战车的实例身份。");
+            case OpeningDefensePreparationPhase.QueryIndependentVehicles:
+                return Command("queryIndependentVehicleState", null, "读取背包战车、独立运行状态与轨道动态容量。");
 
             case OpeningDefensePreparationPhase.PreviewRailPath:
                 return CloneRailAction("previewRailPath", "只读预览开局四向优先闭环。");
@@ -470,27 +462,24 @@ public sealed class OpeningDefensePreparationPlanner
             case OpeningDefensePreparationPhase.VerifyRail:
                 return Command("queryRail", null, "验证唯一新增轨道的身份、点集与合法性。");
 
-            case OpeningDefensePreparationPhase.QueryPlacementTrain:
-                return Command("queryTrain", null, "读取新闭环自动生成的固定车头并选择安全入列方式。");
+            case OpeningDefensePreparationPhase.QueryDeploymentState:
+                return Command("queryIndependentVehicleState", null, "读取新闭环唯一能量点与动态容量，准备按实例投放。");
 
             case OpeningDefensePreparationPhase.PlaceVehicle:
                 if (_vehiclePlacementSubmitted)
                 {
-                    return Failure("开局战车入列命令已经提交过；拒绝盲目重复写入。");
+                    return Failure("开局战车投放命令已经提交过；拒绝盲目重复写入。");
                 }
 
                 return _vehiclePlacementAction == null
-                    ? Failure("缺少经过身份验证的开局战车入列动作。")
+                    ? Failure("缺少经过身份验证的开局战车投放动作。")
                     : new OpeningDefensePreparationDecision(
                         _phase,
                         _vehiclePlacementAction,
                         _vehiclePlacementAction.Reason);
 
-            case OpeningDefensePreparationPhase.VerifyTrain:
-                return Command("queryTrain", null, "验证目标闭环只有一个未超载车列且选中战车已入列。");
-
-            case OpeningDefensePreparationPhase.VerifyVehicle:
-                return Command("queryVehicle", null, "验证同一实例战车已离开背包并位于目标闭环。");
+            case OpeningDefensePreparationPhase.VerifyDeployment:
+                return Command("queryIndependentVehicleState", null, "只读验证同一实例战车已运行或进入目标轨道 FIFO 等待队列。");
 
             case OpeningDefensePreparationPhase.VerifyRailFinal:
                 return Command("queryRail", null, "最终复核合法闭环仍与提交的站点身份完全一致。");
@@ -504,7 +493,7 @@ public sealed class OpeningDefensePreparationPlanner
                 return new OpeningDefensePreparationDecision(
                     _phase,
                     null,
-                    "开局闭环、车列和战车身份已完成分帧复核。");
+                    "开局闭环、动态容量和独立战车身份已完成分帧复核。");
 
             default:
                 return Failure("遇到未知的开局防线阶段；已安全停止。");
@@ -556,14 +545,18 @@ public sealed class OpeningDefensePreparationPlanner
                 }
                 break;
 
-            case "queryVehicle":
-                if (_phase == OpeningDefensePreparationPhase.QueryVehicle)
+            case "queryIndependentVehicleState":
+                if (_phase == OpeningDefensePreparationPhase.QueryIndependentVehicles)
                 {
                     ObserveInitialVehicle(result, accepted);
                 }
-                else if (_phase == OpeningDefensePreparationPhase.VerifyVehicle)
+                else if (_phase == OpeningDefensePreparationPhase.QueryDeploymentState)
                 {
-                    ObserveFinalVehicle(result, accepted);
+                    ObserveDeploymentState(result, accepted);
+                }
+                else if (_phase == OpeningDefensePreparationPhase.VerifyDeployment)
+                {
+                    ObserveFinalDeployment(result, accepted);
                 }
                 break;
 
@@ -579,21 +572,9 @@ public sealed class OpeningDefensePreparationPlanner
                 ObserveRailDraw(result, accepted);
                 break;
 
-            case "queryTrain":
-                if (_phase == OpeningDefensePreparationPhase.QueryPlacementTrain)
-                {
-                    ObservePlacementTrain(result, accepted);
-                }
-                else if (_phase == OpeningDefensePreparationPhase.VerifyTrain)
-                {
-                    ObserveFinalTrain(result, accepted);
-                }
-                break;
-
-            case "moveVehicleInTrain":
-            case "placeVehicleOnLine":
+            case "deployVehicleToEnergyPoint":
                 _vehiclePlacementSubmitted = true;
-                _phase = OpeningDefensePreparationPhase.VerifyTrain;
+                _phase = OpeningDefensePreparationPhase.VerifyDeployment;
                 break;
         }
     }
@@ -671,7 +652,7 @@ public sealed class OpeningDefensePreparationPlanner
 
         if (usable.Any(point => point["isAttribute"]?.Value<bool>() == true))
         {
-            _phase = OpeningDefensePreparationPhase.QueryVehicle;
+            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
             return;
         }
 
@@ -753,7 +734,7 @@ public sealed class OpeningDefensePreparationPlanner
         {
             _catapultResult = result?.DeepClone() as JObject;
             _placementVerificationAttempts = 0;
-            _phase = OpeningDefensePreparationPhase.QueryVehicle;
+            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
             return;
         }
 
@@ -784,8 +765,7 @@ public sealed class OpeningDefensePreparationPlanner
         JObject? vehicle = vehicles.OfType<JObject>()
             .Where(IsBagVehicle)
             .Where(item => ReadInt(item["instanceId"], 0) != 0)
-            .OrderByDescending(item => ReadInt(item["level"], 0))
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
+            .OrderByDescending(item => item["baseCombatPower"]?.Value<double?>() ?? 0d)
             .ThenBy(item => ReadInt(item["instanceId"], int.MaxValue))
             .FirstOrDefault();
         if (vehicle == null)
@@ -954,8 +934,8 @@ public sealed class OpeningDefensePreparationPlanner
             }
             else
             {
-                _trainObservationAttempts = 0;
-                _phase = OpeningDefensePreparationPhase.QueryPlacementTrain;
+                _deploymentObservationAttempts = 0;
+                _phase = OpeningDefensePreparationPhase.QueryDeploymentState;
             }
             return;
         }
@@ -991,153 +971,87 @@ public sealed class OpeningDefensePreparationPlanner
                                  line.SelectToken("to.x") != null && line.SelectToken("to.y") != null);
     }
 
-    private void ObservePlacementTrain(JObject? result, bool accepted)
+    private void ObserveDeploymentState(JObject? result, bool accepted)
     {
         if (!accepted)
         {
-            RetryPlacementTrain("读取新闭环车列连续失败；不会尝试盲目放车。");
+            RetryDeploymentState("读取新闭环容量连续失败；不会盲目投放战车。");
             return;
         }
 
-        JObject? rail = _verifiedRailResult?["rail"] as JObject;
+        JObject? verifiedRail = _verifiedRailResult?["rail"] as JObject;
+        int expectedRailInstanceId = ReadInt(
+            verifiedRail?["instanceId"],
+            ReadInt(verifiedRail?["railInstanceId"], _expectedRailInstanceId));
+        JObject? rail = (State(result)["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["instanceId"], ReadInt(item["railInstanceId"], 0)) == expectedRailInstanceId);
         if (rail == null)
         {
-            Fail("已验证轨道身份丢失；不会尝试放车。");
+            RetryDeploymentState("独立战车快照尚未返回已验证的新闭环。");
             return;
         }
 
-        JObject? train = FindTrainForRail(result, rail);
-        if (train != null)
+        int energyPointInstanceId = ReadInt(rail["energyPointInstanceId"], 0);
+        int freeCapacity = ReadInt(rail["freeCapacity"], 0);
+        if (ReadInt(rail["energyPointCount"], 0) != 1 || energyPointInstanceId == 0)
         {
-            JObject? relative = (train["vehicles"] as JArray)?.OfType<JObject>()
-                .Where(item => ReadInt(item["instanceId"], 0) != 0)
-                .LastOrDefault();
-            int relativeInstanceId = ReadInt(relative?["instanceId"], 0);
-            if (relativeInstanceId == 0)
+            Fail("新闭环没有且仅有一个可验证的能量弹射点；拒绝投放。");
+            return;
+        }
+        if (freeCapacity <= 0)
+        {
+            Fail("新闭环动态容量已经满载；拒绝超容量投放。");
+            return;
+        }
+
+        _vehiclePlacementAction = new AutomationAction(
+            "deployVehicleToEnergyPoint",
+            JObject.FromObject(new
             {
-                RetryPlacementTrain("新闭环已有 driver，但车列没有返回可验证的相邻战车身份。");
-                return;
-            }
-
-            _vehiclePlacementAction = new AutomationAction(
-                "moveVehicleInTrain",
-                JObject.FromObject(new
-                {
-                    instanceId = _selectedVehicleInstanceId,
-                    relative = new { instanceId = relativeInstanceId }
-                }),
-                AutomationStage.PreparingDefense,
-                "新闭环已自动创建固定车头；把已锁定身份的背包战车编入该车列。");
-            _phase = OpeningDefensePreparationPhase.PlaceVehicle;
-            return;
-        }
-
-        JObject? emptyLine = (rail["lines"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(line =>
-                line["hasDriver"]?.Value<bool>() != true &&
-                ReadInt(line["driverCount"], 0) == 0 &&
-                ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0)) != 0);
-        bool anyDriver = (rail["lines"] as JArray)?.OfType<JObject>()
-            .Any(line => line["hasDriver"]?.Value<bool>() == true || ReadInt(line["driverCount"], 0) > 0) == true;
-        if (emptyLine != null && !anyDriver)
-        {
-            int lineInstanceId = ReadInt(
-                emptyLine["lineInstanceId"],
-                ReadInt(emptyLine["instanceId"], 0));
-            _vehiclePlacementAction = new AutomationAction(
-                "placeVehicleOnLine",
-                JObject.FromObject(new
-                {
-                    instanceId = _selectedVehicleInstanceId,
-                    lineInstanceId,
-                    forward = true
-                }),
-                AutomationStage.PreparingDefense,
-                "新闭环已确认没有 driver；把已锁定身份的背包战车放到空线段。");
-            _phase = OpeningDefensePreparationPhase.PlaceVehicle;
-            return;
-        }
-
-        RetryPlacementTrain("轨道显示已有 driver，但 queryTrain 尚未返回对应固定车头。");
+                vehicleInstanceId = _selectedVehicleInstanceId,
+                energyPointInstanceId,
+                railInstanceId = expectedRailInstanceId
+            }),
+            AutomationStage.PreparingDefense,
+            "按战车与唯一能量点实例提交投放；发射点占用时由游戏 FIFO 排队。");
+        _phase = OpeningDefensePreparationPhase.PlaceVehicle;
     }
 
-    private void RetryPlacementTrain(string detail)
+    private void RetryDeploymentState(string detail)
     {
-        _trainObservationAttempts++;
-        if (_trainObservationAttempts >= MaximumTrainObservationAttempts)
+        _deploymentObservationAttempts++;
+        if (_deploymentObservationAttempts >= MaximumDeploymentObservationAttempts)
         {
-            Fail(detail + " 已达到观察上限；不会错误调用 placeVehicleOnLine。");
+            Fail(detail + " 已达到观察上限；不会重复投放。");
         }
     }
 
-    private void ObserveFinalTrain(JObject? result, bool accepted)
+    private void ObserveFinalDeployment(JObject? result, bool accepted)
     {
-        if (accepted && IsFinalTrainVerified(result))
+        JObject state = State(result);
+        JObject? vehicle = (state["vehicles"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item => ReadInt(item["instanceId"], 0) == _selectedVehicleInstanceId);
+        JObject? rail = (state["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["instanceId"], ReadInt(item["railInstanceId"], 0)) == _expectedRailInstanceId);
+        int actualRailId = ReadInt(vehicle?["railId"], 0);
+        int expectedRailId = ReadRailInternalId(rail ?? _verifiedRailResult?["rail"] as JObject);
+        bool settled = accepted && vehicle != null &&
+                       (vehicle["running"]?.Value<bool>() == true || vehicle["queued"]?.Value<bool>() == true) &&
+                       vehicle["inBag"]?.Value<bool>() != true &&
+                       (expectedRailId == 0 || actualRailId == expectedRailId);
+        if (settled)
         {
-            _verifiedTrainResult = result?.DeepClone() as JObject;
-            _phase = OpeningDefensePreparationPhase.VerifyVehicle;
-            return;
-        }
-
-        _finalTrainVerificationAttempts++;
-        if (_finalTrainVerificationAttempts >= MaximumFinalVerificationAttempts)
-        {
-            Fail("战车入列命令已提交，但未能在安全时限内验证唯一且未超载的目标车列；不会重发写命令。");
-        }
-    }
-
-    private void ObserveFinalVehicle(JObject? result, bool accepted)
-    {
-        if (accepted && IsFinalVehicleVerified(result))
-        {
-            _verifiedVehicleResult = result?.DeepClone() as JObject;
             _phase = OpeningDefensePreparationPhase.VerifyRailFinal;
             return;
         }
 
-        _finalVehicleVerificationAttempts++;
-        if (_finalVehicleVerificationAttempts >= MaximumFinalVerificationAttempts)
+        _finalDeploymentVerificationAttempts++;
+        if (_finalDeploymentVerificationAttempts >= MaximumFinalVerificationAttempts)
         {
-            Fail("未能验证锁定实例的战车已离开背包并进入目标闭环；不会重发入列命令。");
+            Fail("投放写入后未能证明同一战车已运行或进入 FIFO 等待队列；已锁定写入且不会重发。");
         }
-    }
-
-    private bool IsFinalTrainVerified(JObject? result)
-    {
-        JArray? trains = State(result)["trains"] as JArray;
-        if (trains == null || trains.OfType<JObject>().Count() != 1)
-        {
-            return false;
-        }
-
-        JObject train = trains.OfType<JObject>().Single();
-        JObject? rail = _verifiedRailResult?["rail"] as JObject;
-        if (rail == null || !TrainMatchesRail(train, rail) || train["isOverCapacity"]?.Value<bool>() == true)
-        {
-            return false;
-        }
-
-        return (train["vehicles"] as JArray)?.OfType<JObject>().Any(vehicle =>
-            ReadInt(vehicle["instanceId"], 0) == _selectedVehicleInstanceId &&
-            vehicle["isFixedHead"]?.Value<bool>() != true &&
-            vehicle["inBag"]?.Value<bool>() != true) == true;
-    }
-
-    private bool IsFinalVehicleVerified(JObject? result)
-    {
-        JObject? vehicle = (State(result)["vehicles"] as JArray)?.OfType<JObject>()
-            .SingleOrDefault(item => ReadInt(item["instanceId"], 0) == _selectedVehicleInstanceId);
-        if (vehicle == null ||
-            vehicle["inBag"]?.Value<bool>() == true ||
-            vehicle["active"]?.Value<bool>() != true ||
-            vehicle["isFixedHead"]?.Value<bool>() == true)
-        {
-            return false;
-        }
-
-        int expectedRailInternalId = ReadRailInternalId(_verifiedRailResult?["rail"] as JObject);
-        int actualRailInternalId = ReadInt(vehicle["railId"], 0);
-        return expectedRailInternalId == 0 || actualRailInternalId == expectedRailInternalId;
     }
 
     private bool TryBuildRailAction(
@@ -1211,7 +1125,7 @@ public sealed class OpeningDefensePreparationPlanner
 
         if (_selectedVehicleInstanceId == 0)
         {
-            error = "缺少已锁定的背包战车实例，无法预测新闭环回转周期。";
+            error = "缺少已锁定的背包战车实例，无法提交独立战车开局布防。";
             return false;
         }
 
@@ -1219,9 +1133,7 @@ public sealed class OpeningDefensePreparationPlanner
             "drawRailPath",
             new JObject
             {
-                ["linePointInstanceIds"] = new JArray(best.OrderedPointInstanceIds),
-                ["vehicle"] = new JObject { ["instanceId"] = _selectedVehicleInstanceId },
-                ["vehicleInstanceId"] = _selectedVehicleInstanceId
+                ["linePointInstanceIds"] = new JArray(best.OrderedPointInstanceIds)
             },
             AutomationStage.PreparingDefense,
             "使用已持久化的站点实例身份创建四向优先的合法开局闭环。");
@@ -1243,17 +1155,6 @@ public sealed class OpeningDefensePreparationPlanner
                 AutomationStage.PreparingDefense,
                 detail),
             detail);
-    }
-
-    private static JObject? FindTrainForRail(JObject? result, JObject rail) =>
-        (State(result)["trains"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(train => TrainMatchesRail(train, rail));
-
-    private static bool TrainMatchesRail(JObject train, JObject rail)
-    {
-        int expected = ReadRailInternalId(rail);
-        int actual = ReadInt(train["railId"], 0);
-        return expected != 0 && actual == expected;
     }
 
     private static int ReadRailInternalId(JObject? rail) =>
@@ -1323,8 +1224,6 @@ public sealed class OpeningDefensePreparationPlanner
         return state["wouldBeLegal"]?.Type == JTokenType.Boolean &&
                state["sideEffectCheckPassed"]?.Type == JTokenType.Boolean &&
                state["statePolluted"]?.Type == JTokenType.Boolean &&
-               state["requiresSpeedSource"]?.Type == JTokenType.Boolean &&
-               state["predictedLoopCycleSeconds"]?.Type is JTokenType.Integer or JTokenType.Float &&
                state["beforeRailCount"]?.Type == JTokenType.Integer &&
                state["afterRailCount"]?.Type == JTokenType.Integer;
     }

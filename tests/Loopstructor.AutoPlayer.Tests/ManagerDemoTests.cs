@@ -346,14 +346,17 @@ public sealed class ManagerDemoTests
     }
 
     [Fact]
-    public void CheatDemo_QueryCatalog_ContainsChineseVehicleLevels()
+    public void CheatDemo_QueryCatalog_ContainsOnlyInitialAndUpgradedVehicleForms()
     {
         ControlResponse response = DemoData.CheatResponse(CheatCommands.QueryCatalog, null);
         JArray vehicles = Assert.IsType<JArray>(response.Data!["vehicles"]);
 
         Assert.True(response.Success);
+        Assert.DoesNotContain(vehicles.OfType<JObject>(), item => item.Value<int>("level") == 2);
         Assert.Contains(vehicles.OfType<JObject>(), item =>
-            item.Value<string>("name") == "雷叉" && item.Value<int>("level") == 2);
+            item.Value<string>("name") == "雷叉" && item.Value<int>("level") == 1);
+        Assert.Contains(vehicles.OfType<JObject>(), item =>
+            item.Value<string>("name") == "雷叉" && item.Value<int>("level") == 3);
     }
 
     [Fact]
@@ -608,7 +611,7 @@ public sealed class ManagerDemoTests
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
 
         string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-        string directory = Path.Combine(repositoryRoot, "artifacts", "ui", "v0.6.42");
+        string directory = Path.Combine(repositoryRoot, "artifacts", "ui", "v0.6.43");
         Directory.CreateDirectory(directory);
         using FileStream stream = new(Path.Combine(directory, $"manager-{width}x{height}.png"), FileMode.Create);
         encoder.Save(stream);

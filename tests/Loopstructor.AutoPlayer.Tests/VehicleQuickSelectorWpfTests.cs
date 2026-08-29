@@ -38,7 +38,7 @@ public sealed class VehicleQuickSelectorWpfTests
     }
 
     [Fact]
-    public void CurrentCheatRoster_ShowsFourTypes_FourSeriesEach_AndOnlyL1ToL3()
+    public void CurrentCheatRoster_ShowsFourTypes_FourSeriesEach_AndOnlyTwoUserFacingForms()
     {
         RunSta(() =>
         {
@@ -47,7 +47,7 @@ public sealed class VehicleQuickSelectorWpfTests
 
             selector.SetItems(roster);
 
-            Assert.Equal(48, selector.ItemCount);
+            Assert.Equal(32, selector.ItemCount);
             Assert.Equal(
                 new[] { "全部", "炮弹", "连锁", "穿透", "导弹" },
                 Types(selector).Select(type => type.DisplayName));
@@ -59,8 +59,9 @@ public sealed class VehicleQuickSelectorWpfTests
                 Assert.Equal(4, series.Length);
                 Assert.All(series, family =>
                 {
-                    Assert.Equal(3, family.Levels.Count);
-                    Assert.Equal(new[] { "Lv.1", "Lv.2", "Lv.3" }, family.Levels.Select(level => level.DisplayLevel));
+                    Assert.Equal(2, family.Levels.Count);
+                    Assert.Equal(new[] { "初始形态", "升级形态" }, family.Levels.Select(level => level.DisplayLevel));
+                    Assert.DoesNotContain(family.Levels, level => level.Item.Id.EndsWith("_L2", StringComparison.Ordinal));
                     Assert.DoesNotContain(family.Levels, level => level.Item.Id.EndsWith("_L4", StringComparison.Ordinal));
                 });
             }
@@ -213,7 +214,7 @@ public sealed class VehicleQuickSelectorWpfTests
             ["typeOrder"] = typeOrder,
             ["familyKey"] = family,
             ["familyOrder"] = familyOrder,
-            ["groupKey"] = family,
+            ["groupKey"] = "vehicle:" + family,
             ["groupName"] = family,
             ["groupOrder"] = familyOrder,
             ["itemOrder"] = level,
@@ -247,7 +248,7 @@ public sealed class VehicleQuickSelectorWpfTests
             foreach (string familyName in families)
             {
                 string family = type + "_" + familyName;
-                for (int level = 1; level <= 3; level++)
+                foreach (int level in new[] { 1, 3 })
                 {
                     yield return Vehicle(family + "_L" + level, type, typeOrder, family, familyOrder, level);
                 }

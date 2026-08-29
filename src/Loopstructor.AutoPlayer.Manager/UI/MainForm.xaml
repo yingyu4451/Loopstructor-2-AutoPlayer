@@ -491,7 +491,7 @@
                                     x:Name="_decisionPriority"
                                     AutomationProperties.Name="自动游玩决策优先级"
                                     IsTextSearchEnabled="True"
-                                    ToolTip="选择优先合成三星战车、获取扩轨弹射点或获取遗物。" />
+                                    ToolTip="选择优先获取战车、扩轨弹射点或遗物。" />
                             </StackPanel>
                         </Grid>
 

@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.42 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.43 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.42
+.\scripts\package.ps1 -Version 0.6.43
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.42-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.43-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -47,7 +47,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 6. 可以先手动启动游戏，也可以点击 Manager 的“启动游戏”。游戏已运行时 Manager 只连接现有进程，不会重复启动。
 7. Manager 会核验插件回传的真实游戏 PID、可执行文件路径、程序集指纹、运行时契约和本机令牌。握手通过后可随时开始、暂停、恢复或停止自动游玩。
 
-“运行轨道”区域可选择是否跳过普通事件剧情，以及“优先拿三星车”或“优先拿弹射点”两种决策方向。剧情开关只作用于带剧情的普通事件；每章首个轨神事件仍按游戏原流程直接选择。设置会保存在当前 Manager 配置中。战斗维护会优先解决已满车列的容量瓶颈；没有容量堵塞时，再按各轨道的站点触发率 `N / 回转周期` 比较插点收益。右侧目标型道具只会使用 MCP 当前返回且条件通过的真实目标，轨道扩建资源不会被当作战斗道具消耗。
+“运行轨道”区域可选择是否跳过普通事件剧情，以及“优先拿战车”或“优先拿弹射点”两种决策方向。剧情开关只作用于带剧情的普通事件；每章首个轨神事件仍按游戏原流程直接选择。设置会保存在当前 Manager 配置中。战斗维护以游戏容量服务返回的动态容量为准，轨道占用统一计算运行战车与 FIFO 等待战车；没有容量堵塞时，再按每辆战车的基础输出、独立速度、轨道长度和站点数估算扩轨吞吐。右侧目标型道具只会使用 MCP 当前返回且条件通过的真实目标，轨道扩建资源不会被当作战斗道具消耗。
 
 每次会话的数据默认位于：
 
@@ -65,7 +65,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 通过安全握手的游戏进程都可以随时打开独立的“作弊工具”窗口，再手动开启或关闭作弊模式；不需要启动前选择单独的作弊调试会话。作弊工具与 Manager 是两个独立任务栏窗口，最小化 Manager 不会同时最小化作弊工具，操作作弊工具也不会把 Manager 抢到前台。自动游玩期间可继续查询对象并显示怪物 ID 与 Buff，其他作弊写操作会锁定；基地无敌或地图跳关仍开启时不能开始自动游玩。玩家模式会直接修改当前玩家存档，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
 
-战车、附魔、消耗品、弹射点和遗物目录直接遍历当前游戏程序集中的完整枚举，怪物目录另行保留安全生成筛选；各目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断，配置缺少显示资料时才回退到内部 ID 和占位图。战车按去除 `_L1/_L2/...` 后的系列相邻排列并按等级递增，附魔按基础家族及 `Train/Railway/Domain` 变体相邻排列。插件不会为了读取中文名而切换游戏的全局语言。
+战车、附魔、消耗品、弹射点和遗物目录直接读取当前游戏程序集与配置，怪物目录另行保留安全生成筛选；各目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断，配置缺少显示资料时才回退到内部 ID 和占位图。战车底层目录仍保留内部过渡形态用于旧数据诊断，但快捷投放区每个系列只显示“初始形态 / 升级形态”。新增或设置附魔的选择器不显示已停用的群组专属附魔；旧存档已有项仍可在对象详情中查看和移除。插件不会为了读取中文名而切换游戏的全局语言。
 
 作弊工具提供以下能力：
 
@@ -111,7 +111,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 - 隔离 QA 模式通过游戏的 `SavePathUtility.GetCompanyAppDataPath` 契约把存档重定向到独立 profile。
 - 隔离 QA 模式的平台写入门禁是强制条件：必须同时成功阻断 Steam 成就、IGP 成就、结算飞书自动上传和 `RestartAppIfNecessary` 四个已知入口，否则不能开始自动游玩。
 - 隔离 QA 模式还必须把游戏诊断产物重定向到本次 artifact；重定向失败同样拒绝开始。
-- 开局默认防线若明确返回 `prepared=false`、`statePolluted=false` 且不要求 reset，会视为可恢复暂态，不累计普通连续失败。安全检查只依据当前写命令的有效结果，不把 `before`、`previous`、`history` 等历史快照中的旧标志误判为当前污染；只有当前结果明确为 `statePolluted=true`、`needsReset=true`，或存在无法确认回滚的部分写入时，才停止并要求新进程。若动力站点步骤曾提交、但最终状态已验证为无轨道、无车列且无已放置战车，则按干净检查点重试。
+- 开局默认防线若明确返回 `prepared=false`、`statePolluted=false` 且不要求 reset，会视为可恢复暂态，不累计普通连续失败。安全检查只依据当前写命令的有效结果，不把 `before`、`previous`、`history` 等历史快照中的旧标志误判为当前污染；只有当前结果明确为 `statePolluted=true`、`needsReset=true`，或存在无法确认回滚的部分写入时，才停止并要求新进程。若动力站点步骤曾提交、但最终状态已验证为无轨道、无运行或等待战车且背包身份完整，则按干净检查点重试。
 - 前端写操作会等待游戏的全局模块与当前场景 Main 完成初始化，并要求就绪状态稳定一个轮询周期。进入对局后，合法路线与子关卡选择优先于默认防线，避免在随机模式路线图背后提前放置道具或绘线。
 - “继续未完成对局”会操作当前模式正在使用的存档。成功执行 `continueGame` 后不会重新绘制开局默认防线，避免破坏存档中已有轨道和车辆。
 - Harmony 补丁只存在于当前游戏进程内；退出游戏后失效。
@@ -150,9 +150,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.42-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.43-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.43` 适配独立战车、轨道动态容量和装修厂直接升级：自动游玩只使用游戏容量服务返回的运行战车、FIFO 等待队列与溢出回包，不再执行群组调度或战车合成；轨道扩建改为逐车独立速度吞吐估值。装修厂会优先选择真实未升级战车，验证三项附魔候选并优先同名个人附魔，升级后逐项确认原附魔完整保留。Manager 改为“优先拿战车”，快捷目录只展示“初始形态 / 升级形态”。本版本以 `v0.6.42` 作为相邻增量更新基线。
 
 `v0.6.42` 修复游戏 1.390 开始新游戏后停在开局轨神事件的问题：控制器会在对局核心对象初始化门禁前同时探测旧版 `WaveFunctionUI` 与新版普通事件界面，旧版事件选项完整生成后按精确实例高亮 1 秒、分帧点击并进行只读对账，不再错误地等待尚未创建的主站点和弹射点。本版本以 `v0.6.41` 作为相邻增量更新基线。
 

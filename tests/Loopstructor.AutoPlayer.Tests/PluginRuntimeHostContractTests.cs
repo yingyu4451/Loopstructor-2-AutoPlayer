@@ -25,7 +25,6 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition normalEvent = RequireMethod(controller, "TryHandleNormalEventUi");
         MethodDefinition rewardWait = RequireMethod(controller, "TryWaitForRewardOptions");
         MethodDefinition eventWait = RequireMethod(controller, "TryWaitForEventOptions");
-        MethodDefinition merge = RequireMethod(controller, "RunMergeAutomationStep");
         MethodDefinition ensureMapOpen = RequireMethod(controller, "TryEnsureMapOpenForSelectionPreview");
         MethodDefinition continueMapAnimation = RequireMethod(controller, "TryContinueMapOpenAnimationWait");
         MethodDefinition show = RequireMethod(highlighter, "Show");
@@ -37,10 +36,12 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(Calls(normalEvent), IsCall(ControllerType, "ShowSelectionHighlight"));
         Assert.Contains(Calls(rewardWait), IsCall(ControllerType, "ShowRewardSelectionHighlight"));
         Assert.Contains(Calls(eventWait), IsCall(ControllerType, "ShowEventSelectionHighlight"));
-        Assert.Contains(Calls(merge), IsCall(ControllerType, "TryWaitForSelectionPreview"));
-        Assert.Contains(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_MergeRebuildPanel_VehicleItem");
-        Assert.Contains(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Merge");
-        Assert.DoesNotContain(LoadedStrings(merge), value => value == "MetroTD.UISystem.RebuildUI_Option_Fetter");
+        Assert.DoesNotContain(
+            assembly.MainModule.Types,
+            type => type.FullName.Contains("Merge", StringComparison.Ordinal));
+        Assert.Contains(
+            assembly.MainModule.Types,
+            type => type.FullName == "Loopstructor.AutoPlayer.Plugin.DirectUpgradeUiRuntimeFallback");
         Assert.Contains(LoadedStrings(ensureMapOpen), value => value == "uiClickMapButton");
         Assert.Contains(
             Calls(RequireMethod(controller, "TickInGame")),
@@ -172,6 +173,14 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(tickInGame), value => value == "queryVehicle");
         Assert.DoesNotContain(LoadedStrings(tickInGame), value => value == "queryState");
         Assert.Contains(LoadedStrings(ensureReady), value => value == "queryState");
+        Assert.Contains(
+            Calls(ensureReady),
+            IsCall(
+                "Loopstructor.AutoPlayer.Core.RuntimeResultInspector",
+                "IsIndependentOpeningReadyWithoutCatapult"));
+        Assert.Contains(
+            LoadedStrings(ensureReady),
+            value => value.Contains("仅未创建能量弹射点", StringComparison.Ordinal));
         Assert.Contains(LoadedStrings(observedWave), value => value == "queryWave");
         Assert.Contains(Calls(tickInGame), IsCall(BridgeType, "TryGetWavePulse"));
         Assert.Contains(Calls(tickInGame), IsCall(ControllerType, "TryQueryAdaptiveWaveState"));
@@ -190,7 +199,10 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition pulse = RequireMethod(bridge, "TryGetWavePulse");
         Assert.Contains(Calls(initialize), IsCall(BridgeType, "InitializeWavePulseContract"));
         Assert.DoesNotContain(Calls(pulse), IsCall(BridgeType, "FindType"));
-        Assert.Contains(Calls(invoke), IsCall(BridgeType, "AdaptRuntimeResult"));
+        Assert.Contains(Calls(invoke), IsCall(BridgeType, "InvokeNative"));
+        Assert.Contains(
+            Calls(RequireMethod(bridge, "InvokeNative")),
+            IsCall(BridgeType, "AdaptRuntimeResult"));
         Assert.DoesNotContain(
             Calls(invoke),
             call => call.DeclaringType.FullName == "Newtonsoft.Json.JsonConvert"
@@ -638,13 +650,13 @@ public sealed class PluginRuntimeHostContractTests
             LoadedStrings(prepareDefense),
             value => value == "prepareDefaultDefense");
         Assert.Contains(LoadedStrings(prepareDefense), value => value == "queryCatapults");
-        Assert.Contains(LoadedStrings(prepareDefense), value => value == "queryVehicle");
+        Assert.Contains(LoadedStrings(prepareDefense), value => value == "queryIndependentVehicleState");
         Assert.Contains(LoadedStrings(prepareDefense), value => value == "previewRailPath");
         Assert.Contains(LoadedStrings(prepareDefense), value => value == "queryRail");
         Assert.Contains(LoadedStrings(prepareDefense), value => value == "drawRailPath");
-        Assert.Contains(LoadedStrings(prepareDefense), value => value == "queryTrain");
-        Assert.Contains(LoadedStrings(prepareDefense), value => value == "moveVehicleInTrain");
-        Assert.Contains(LoadedStrings(prepareDefense), value => value == "placeVehicleOnLine");
+        Assert.Contains(LoadedStrings(prepareDefense), value => value == "deployVehicleToEnergyPoint");
+        Assert.DoesNotContain(LoadedStrings(prepareDefense), value => value is
+            "queryTrain" or "moveVehicleInTrain" or "placeVehicleOnLine" or "moveTrainToLine");
         Assert.Contains(
             Calls(prepareDefense),
             IsCall(ControllerType, "ExecuteOpeningDefenseReadOnly"));
@@ -658,25 +670,23 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(Calls(executeBattle), IsCall(BridgeType, "TryGetWavePulse"));
         Assert.Contains(LoadedStrings(ownsPreview), value => value == "interactionInstanceId");
         Assert.Contains(controller.Fields, field => field.Name == "_ownedDisposableInteractionInstanceId");
-        Assert.Contains(controller.Fields, field => field.Name == "_battleTrainIdentitiesMovedThisWave");
+        Assert.DoesNotContain(controller.Fields, field => field.Name.Contains("Train", StringComparison.Ordinal));
         Assert.Contains(Calls(handleWave), IsCall(ControllerType, "BeginBattleTacticCycle"));
         Assert.Contains(
             LoadedStrings(tactics),
             value => value.Contains("不会接管该交互", StringComparison.Ordinal));
-        Assert.Contains(LoadedStrings(bridgeContract), value => value == "moveTrainToLine");
         Assert.Contains(LoadedStrings(bridgeContract), value => value == "queryCatapults");
         Assert.Contains(LoadedStrings(bridgeContract), value => value == "previewRailPath");
         Assert.Contains(LoadedStrings(bridgeContract), value => value == "drawRailPath");
-        Assert.Contains(LoadedStrings(bridgeContract), value => value == "placeVehicleOnLine");
         Assert.DoesNotContain(LoadedStrings(bridgeContract), value => value == "prepareDefaultDefense");
-        Assert.Contains(LoadedStrings(maintenance), value => value == "queryTrain");
-        Assert.Contains(LoadedStrings(maintenance), value => value == "queryVehicle");
-        Assert.Contains(LoadedStrings(maintenance), value => value == "moveVehicleInTrain");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "queryIndependentVehicleState");
+        Assert.Contains(LoadedStrings(maintenance), value => value == "deployVehicleToEnergyPoint");
         Assert.Contains(LoadedStrings(maintenance), value => value == "queryCatapults");
         Assert.Contains(LoadedStrings(maintenance), value => value == "queryRail");
         Assert.Contains(LoadedStrings(maintenance), value => value == "previewRailPath");
         Assert.Contains(LoadedStrings(maintenance), value => value == "drawRailPath");
-        Assert.Contains(LoadedStrings(maintenance), value => value == "placeVehicleOnLine");
+        Assert.DoesNotContain(LoadedStrings(maintenance), value => value is
+            "queryTrain" or "moveVehicleInTrain" or "placeVehicleOnLine" or "moveTrainToLine");
         Assert.Contains(LoadedStrings(maintenance), value => value == "queryDisposableGridOptions");
         Assert.Contains(LoadedStrings(maintenance), value => value == "queryMovableStationState");
         Assert.Contains(LoadedStrings(maintenance), value => value == "startStationMove");
@@ -697,13 +707,22 @@ public sealed class PluginRuntimeHostContractTests
             IsCall(
                 "Loopstructor.AutoPlayer.Plugin.IncrementalDefenseStationGridProbe",
                 "ProbeNext"));
-        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "NeedsDefenseExpansion"));
+        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "NeedsIndependentDefenseExpansion"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideDefenseExpansion"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsLegalDefenseExpansionPreview"));
+        Assert.DoesNotContain(
+            LoadedStrings(maintenance),
+            value => value.Contains("额外闭环已携带选定战车身份", StringComparison.Ordinal));
+        Assert.Contains(
+            LoadedStrings(maintenance),
+            value => value.Contains("重新读取独立速度", StringComparison.Ordinal));
+        Assert.Contains(
+            LoadedStrings(RequireMethod(controller, "BuildIndependentDeploymentEvidence")),
+            value => value.Contains("FIFO 等待", StringComparison.Ordinal));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "IsUsableDefenseExpansionRailBaseline"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadDrawnRailInstanceId"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "VerifyDefenseExpansionRail"));
-        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionVehiclePlacement"));
+        Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideIndependentVehicleDeployment"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "RequiredExpansionDisposable"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "ReadExpansionInteractionId"));
         Assert.Contains(Calls(maintenance), IsCall("Loopstructor.AutoPlayer.Core.BattleDecisionEngine", "DecideExpansionDirectConfirmation"));
@@ -878,7 +897,7 @@ public sealed class PluginRuntimeHostContractTests
     }
 
     [Fact]
-    public void ActiveBattle_ForbidsDirectTrainWrites_AndRunsStationMaintenance()
+    public void ActiveBattle_ForbidsVehicleDeployment_AndRunsStationMaintenance()
     {
         using AssemblyDefinition assembly = ReadPlugin();
         TypeDefinition controller = RequireType(assembly, ControllerType);
@@ -889,18 +908,19 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(tactics.Body.Instructions, instruction =>
             instruction.Operand is MethodReference call && call.Name == "TryBeginBattleSpecialStationMaintenance");
 
-        MethodDefinition safety = RequireMethod(controller, "IsForbiddenActiveBattleTrainMutation");
+        MethodDefinition safety = RequireMethod(controller, "IsForbiddenActiveBattleStructuralMutation");
         string[] safetyStrings = LoadedStrings(safety).ToArray();
-        Assert.Contains("moveTrainToLine", safetyStrings);
-        Assert.Contains("moveVehicleInTrain", safetyStrings);
-        Assert.Contains("placeVehicleOnLine", safetyStrings);
+        Assert.Contains("deployVehicleToEnergyPoint", safetyStrings);
+        Assert.DoesNotContain("moveTrainToLine", safetyStrings);
+        Assert.DoesNotContain("moveVehicleInTrain", safetyStrings);
+        Assert.DoesNotContain("placeVehicleOnLine", safetyStrings);
 
         MethodDefinition guardedMutation = RequireMethod(controller, "IssueGuardedDefenseMutation");
         MethodDefinition execute = RequireMethod(controller, "ExecuteWithResult");
         MethodDefinition activeExecute = RequireMethod(controller, "TryExecuteActiveBattleAction");
-        Assert.Contains(Calls(guardedMutation), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
-        Assert.Contains(Calls(execute), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
-        Assert.Contains(Calls(activeExecute), IsCall(ControllerType, "ShouldBlockActiveBattleTrainMutation"));
+        Assert.Contains(Calls(guardedMutation), IsCall(ControllerType, "ShouldBlockActiveBattleStructuralMutation"));
+        Assert.Contains(Calls(execute), IsCall(ControllerType, "ShouldBlockActiveBattleStructuralMutation"));
+        Assert.Contains(Calls(activeExecute), IsCall(ControllerType, "ShouldBlockActiveBattleStructuralMutation"));
     }
 
     [Fact]

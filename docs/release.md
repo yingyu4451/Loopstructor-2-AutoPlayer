@@ -35,6 +35,24 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed。`test.ps1` 把 TRX 写入 `artifacts\TestResults`。
 
+## 0.6.43 构建与隔离 QA 记录
+
+2026-08-29 使用游戏开发包 `1.390`（Unity `2022.3.62f3c1`，Build GUID `b11b48d5c56b4efdb37026b58dbac8fa`）执行验证。Release 构建零警告，`scripts/test.ps1 -Configuration Release` 的 694 项测试全部通过，发布资产校验确认 ZIP 中 298 个文件与 staging 逐字节一致。
+
+| 工件 | SHA-256 |
+|---|---|
+| `Assembly-CSharp.dll` | `5fe335080178a72b8874bf8afe689d5360ff14f0624286abab4b7853c4c4327c` |
+| `Loopstructor.AutoPlayer.Plugin.dll` | `845f418e79fc50b61c83fa5d049862f0307916f7deebfac6cb6781c6fa337fed` |
+| `Loopstructor.AutoPlayer.Core.dll` | `1c1d86b5069899568d1e58945d23e2c31103a490b7e2f7490aac6faece3d6c86` |
+| `Loopstructor.AutoPlayer.Manager.dll` | `a830032b681936eea99de919c7e5dce4aacf52107673fc6c9f958341e1d81fd3` |
+| `Loopstructor.AutoPlayer-0.6.43-win-x64.zip` | `a113a5aeaa9658ef4b340cf68f326fe8a92a65d2ed0ddc5882d414592896e437` |
+
+最终发布载荷的隔离工件为 `%LOCALAPPDATA%\LoopstructorAutoPlayer\artifacts\70b8472d5fcb0cde\20260829-021003-b297f174`。插件 `0.6.43` 握手成功，运行时契约可用，程序集指纹被接受，`SaveIsolationVerified`、`PlatformWritesBlocked` 和 `GameArtifactsRedirected` 均为 true，`RunIntegrity=clean` 且 `NeedsProcessRestart=false`。无作弊运行在 7 分钟窗口内完成 5 波并推进到第 1 章第 8 层；窗口结束时是正常 `TimedOut`，没有伪报到达第 2 章。
+
+现场从同一容量服务重复读取动态容量、运行战车、FIFO 等待数、占用数和剩余名额，所有投放都按战车与唯一能量点实例提交，并在写后只读验证同一实例已运行。三次拓扑证据依次确认 1、2、3 条轨道全部为包围基地、无交叉的单一简单闭环；额外闭环只在已有合法轨道满载且背包仍有战车时创建，每条仅含一个能量点。两次装修厂流程都完成未升级战车锁定、三个稳定附魔候选、附魔选择、升级形态和原附魔保留复查及结算确认。该存档的投放在复查时均已转为运行态，现场没有出现非零 FIFO 瞬时样本；FIFO 顺序、`AlreadyQueued` 幂等、容量收缩回包、不同独立速度聚合与未知写入只读对账由 694 项测试中的容量服务契约和行为测试覆盖，不冒充现场观察。
+
+`run-autoplay-qa.ps1` 支持用 `-SeedProfileRoot` 从 `%LOCALAPPDATA%\LoopstructorAutoPlayer\profiles` 下的既有隔离 profile 复制种子，并配合 `-ContinueExistingProfile` 走游戏原生继续入口。脚本拒绝目录越界、源目标相同和包含重解析点的种子；种子始终复制到新的随机隔离 profile，不直接修改原存档。
+
 ## 当前 1.385 真实包验证基线
 
 2026-07-29 的本机验证使用 Windows x64、Unity `2022.3.62f3c1`、Skyspine `1.385` 和 BepInEx runtime `5.4.23.5`。每种模式都必须保留各自的端到端证据，不能由一种模式的结果推断另一种模式或 Steam 集成也已通过。
@@ -53,7 +71,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 运行时恢复语义也属于发布兼容性：玩家模式必须能连接手动启动的受信游戏，且待命时不重定向玩家存档或平台行为；隔离 QA 仍保持跨场景激活保护。普通战败、超时、只读失败和有界重试耗尽可以 Faulted，但不得设置 `NeedsProcessRestart`；只有不确定部分写入、明确污染标志或隔离门禁失效才要求彻底重启。此时 Manager 必须禁用 Start 并拒绝向旧进程发送新的 `start`。作弊写尝试只设置 `CheatUsed` 和 `cheat-modified`；作弊模式本身不阻止自动游玩，但开始前必须关闭基地无敌和地图节点自由跳转等持续效果。
 
-默认防线的干净初始化暂态会重试且不累计连续失败；当前写命令有效结果中的 `statePolluted=true`、`needsReset=true`，以及无法确认回滚的部分写入，必须被识别为不安全并要求新进程。历史快照中的旧标志不得触发污染判定；动力站点步骤曾提交但最终状态已验证为无轨道、无车列、无已放置战车时，应作为干净检查点重试。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
+默认防线的干净初始化暂态会重试且不累计连续失败；当前写命令有效结果中的 `statePolluted=true`、`needsReset=true`，以及无法确认回滚的部分写入，必须被识别为不安全并要求新进程。历史快照中的旧标志不得触发污染判定；动力站点步骤曾提交但最终状态已验证为无轨道、无运行或等待战车，且所有战车实例都能在背包对账时，应作为干净检查点重试。路线/子关卡选择必须先于开局防线；“继续 QA 存档”成功后不得再次执行开局默认防线宏，以免改写既有轨道。以上行为应由单元测试和真实包日志共同覆盖。
 
 ## 0.5.2 独立运行时宿主验收
 
@@ -76,27 +94,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.42
+.\scripts\package.ps1 -Version 0.6.43
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.42 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.43 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.42-win-x64.zip
-Loopstructor.AutoPlayer-0.6.42-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.41-to-0.6.42-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.41-to-0.6.42-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.43-win-x64.zip
+Loopstructor.AutoPlayer-0.6.43-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.42-to-0.6.43-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.42-to-0.6.43-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.42-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.43-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -126,15 +144,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.42",
+  "version": "0.6.43",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.42-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.43-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 65181362,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.41",
-      "assetName": "Loopstructor.AutoPlayer-0.6.41-to-0.6.42-win-x64.delta.zip",
+      "fromVersion": "0.6.42",
+      "assetName": "Loopstructor.AutoPlayer-0.6.42-to-0.6.43-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2524818
     }
@@ -207,8 +225,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.42
-git push origin v0.6.42
+git tag v0.6.43
+git push origin v0.6.43
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -229,7 +247,10 @@ git push origin v0.6.42
 - 验证地图跳关仍隐藏当前进度层及历史层，只开放进度之后的节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 验证普通事件剧情开关只点击 `EventUI_Normal` 的真实 Skip 按钮，轨神事件不受影响；两种决策优先级可持久化并改变奖励与路线排序；右侧目标型道具只使用最新 MCP 合法候选，扩轨资源不会被战斗逻辑消耗；
-- 验证车列容量已满时可创建额外合法闭环并放入背包战车；无容量堵塞时按 `N/T` 选择正收益插点。普通弹射点通过左下角库存正式放置，特殊点通过正式两阶段移动入口操作；所有结构写入一次提交、跨帧对账，暂停、停止和超时均不会重发；
+- 验证每条轨道只有一个能量点，动态容量以运行数加 FIFO 等待数计入占用；容量未满时按独立战车实例投放，发射点繁忙时安全排队，重复请求幂等，容量收缩的溢出战车回包，写入结果未知时只读对账且绝不重放；
+- 验证所有合法轨道满载且背包仍有战车时才创建只含一个能量点的新闭环；扩轨收益按逐车基础输出、独立速度、轨道长度和站点数计算，断轨前后按运行实例集合及等待顺序对账；
+- 验证装修厂优先直升真实且未升级的战车，并完整走过选择战车、确认、稳定三选一附魔和结算阶段；同名个人附魔优先升级，既有个人附魔全部保留且附魔数量不设上限；
+- 验证作弊快捷投放每个战车系列只显示“初始形态 / 升级形态”，内部过渡形态和车列专属附魔不出现在新增或设置目录，旧存档已有车列专属附魔仍可查看和移除；旧决策配置值 `0` 加载为“优先拿战车”；
 - 在受支持构建上验证运行时契约检查允许启动和执行；在程序集指纹或必需运行时契约未知的构建上验证插件拒绝写入并返回明确的不兼容原因；
 - 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的完整包资产名、大小和 SHA-256 正确；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；

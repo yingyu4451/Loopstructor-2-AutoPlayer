@@ -123,7 +123,7 @@ public sealed class ProtocolTests
         AutomationRunOptions current = new()
         {
             SkipStory = true,
-            DecisionPriority = AutomationDecisionPriority.ThreeStarVehicles
+            DecisionPriority = AutomationDecisionPriority.VehicleRewards
         };
 
         AutomationRunOptions roundTrip = JsonConvert.DeserializeObject<AutomationRunOptions>(
@@ -132,7 +132,7 @@ public sealed class ProtocolTests
         Assert.False(legacy.SkipStory);
         Assert.Equal(AutomationDecisionPriority.CatapultPoints, legacy.DecisionPriority);
         Assert.True(roundTrip.SkipStory);
-        Assert.Equal(AutomationDecisionPriority.ThreeStarVehicles, roundTrip.DecisionPriority);
+        Assert.Equal(AutomationDecisionPriority.VehicleRewards, roundTrip.DecisionPriority);
     }
 
     [Fact]

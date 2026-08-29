@@ -4,7 +4,9 @@ param(
     [int]$TargetChapter = 3,
     [int]$TimeoutMinutes = 45,
     [int]$StatusIntervalSeconds = 1,
-    [string]$ProfileName = "codex-qa"
+    [string]$ProfileName = "codex-qa",
+    [string]$SeedProfileRoot = "",
+    [switch]$ContinueExistingProfile
 )
 
 $ErrorActionPreference = "Stop"
@@ -161,6 +163,27 @@ $artifactRoot = Join-Path (Join-Path (Join-Path $dataRoot "artifacts") $gameId) 
 [System.IO.Directory]::CreateDirectory($profileRoot) | Out-Null
 [System.IO.Directory]::CreateDirectory($artifactRoot) | Out-Null
 $script:QaArtifactRoot = $artifactRoot
+$resolvedSeedProfile = ""
+
+if (-not [string]::IsNullOrWhiteSpace($SeedProfileRoot)) {
+    $resolvedSeedProfile = (Resolve-Path -LiteralPath $SeedProfileRoot).Path.TrimEnd('\', '/')
+    $profilesRoot = [System.IO.Path]::GetFullPath((Join-Path $dataRoot "profiles")).TrimEnd('\', '/')
+    if (-not $resolvedSeedProfile.StartsWith($profilesRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Seed profile must be an existing isolated QA profile under '$profilesRoot'."
+    }
+    if ([StringComparer]::OrdinalIgnoreCase.Equals($resolvedSeedProfile, $profileRoot)) {
+        throw "Seed profile and destination profile must be different."
+    }
+    if (Get-ChildItem -LiteralPath $resolvedSeedProfile -Recurse -Force | Where-Object {
+            $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        } | Select-Object -First 1) {
+        throw "Seed profile contains a reparse point and cannot be copied safely."
+    }
+
+    Get-ChildItem -LiteralPath $resolvedSeedProfile -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $profileRoot -Recurse -Force
+    }
+}
 
 $pipeName = "Loopstructor.AutoPlayer." + (New-RandomHex 8)
 $token = New-RandomHex 32
@@ -194,6 +217,8 @@ $metadata = [ordered]@{
     artifactRoot = $artifactRoot
     pipeName = $pipeName
     targetChapter = $TargetChapter
+    seedProfileRoot = $resolvedSeedProfile
+    continueExistingProfile = [bool]$ContinueExistingProfile
     startedAtUtc = [DateTime]::UtcNow
 }
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $artifactRoot "qa-run.json") -Encoding UTF8
@@ -237,7 +262,7 @@ $options = [ordered]@{
     speedState = 0
     maxRunMinutes = [Math]::Max($TimeoutMinutes, 5)
     maxWaves = 0
-    continueExistingProfile = $false
+    continueExistingProfile = [bool]$ContinueExistingProfile
 }
 $start = $null
 $startDeadline = [DateTime]::UtcNow.AddSeconds(90)

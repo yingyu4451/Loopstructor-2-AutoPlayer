@@ -181,7 +181,7 @@ public sealed class RailExpansionRuntimeContractTests
     }
 
     [Fact]
-    public void RailMaintenanceFingerprint_IgnoresDynamicCycleButTracksStructureAndTrainComposition()
+    public void RailMaintenanceFingerprint_IgnoresDynamicCycleButTracksStructureAndIndependentVehicles()
     {
         Assembly plugin = Assembly.LoadFrom(PluginPath());
         Type controller = plugin.GetType(ControllerType, throwOnError: true)!;
@@ -193,27 +193,27 @@ public sealed class RailExpansionRuntimeContractTests
             """
             {"catapults":[{"catapultInstanceId":100,"linePointInstanceId":200,"path":"station/a","recycleDisposableEnum":"FreePoint_Attribute","grid":{"x":4,"y":0},"railId":7,"railMembershipCount":1,"isAttribute":true,"canMove":true}]}
             """);
-        JObject trains = JObject.Parse(
+        JObject vehicles = JObject.Parse(
             """
-            {"trains":[{"railId":7,"index":0,"vehicles":[{"instanceId":300,"level":2,"isFixedHead":false}]}]}
+            {"vehicles":[{"instanceId":300,"railInstanceId":70,"runState":"Running","currentSpeed":1.5,"configuredSpeed":2.0}]}
             """);
         JObject fasterCycle = RailState(1.25d, 4);
         JObject slowerCycle = RailState(2.75d, 4);
 
-        string baseline = InvokeFingerprint(fingerprint, fasterCycle, catapults, trains);
-        string dynamicCycleChanged = InvokeFingerprint(fingerprint, slowerCycle, catapults, trains);
+        string baseline = InvokeFingerprint(fingerprint, fasterCycle, catapults, vehicles);
+        string dynamicCycleChanged = InvokeFingerprint(fingerprint, slowerCycle, catapults, vehicles);
         Assert.Equal(baseline, dynamicCycleChanged);
 
         JObject changedGeometry = RailState(1.25d, 6);
         Assert.NotEqual(
             baseline,
-            InvokeFingerprint(fingerprint, changedGeometry, catapults, trains));
+            InvokeFingerprint(fingerprint, changedGeometry, catapults, vehicles));
 
-        JObject changedTrain = (JObject)trains.DeepClone();
-        changedTrain.SelectToken("trains[0].vehicles[0].instanceId")!.Replace(301);
+        JObject changedVehicle = (JObject)vehicles.DeepClone();
+        changedVehicle.SelectToken("vehicles[0].instanceId")!.Replace(301);
         Assert.NotEqual(
             baseline,
-            InvokeFingerprint(fingerprint, fasterCycle, catapults, changedTrain));
+            InvokeFingerprint(fingerprint, fasterCycle, catapults, changedVehicle));
     }
 
     [Fact]

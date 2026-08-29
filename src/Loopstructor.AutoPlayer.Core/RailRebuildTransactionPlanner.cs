@@ -14,7 +14,8 @@ public sealed class RailRebuildSnapshot
     public IReadOnlyList<int> OriginalOrderedLinePointInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> OrderedLinePointInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> OrderedPointIds { get; set; } = Array.Empty<int>();
-    public IReadOnlyList<int> TrainInstanceIds { get; set; } = Array.Empty<int>();
+    public IReadOnlyList<int> RunningVehicleInstanceIds { get; set; } = Array.Empty<int>();
+    public IReadOnlyList<int> WaitingVehicleInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> VehicleInstanceIds { get; set; } = Array.Empty<int>();
     public IReadOnlyList<int> VehicleBusinessIds { get; set; } = Array.Empty<int>();
     public double LoopCycleSeconds { get; set; }
@@ -37,7 +38,7 @@ public sealed class RailRebuildVerification
 /// </summary>
 public sealed class RailRebuildTransactionPlanner
 {
-    public RailRebuildSnapshot? Capture(JObject? railResult, int railInstanceId, JObject? trainResult = null)
+    public RailRebuildSnapshot? Capture(JObject? railResult, int railInstanceId, JObject? vehicleStateResult = null)
     {
         JObject? rail = Rails(railResult).SingleOrDefault(item =>
             ReadInt(item["instanceId"]) == railInstanceId);
@@ -56,8 +57,15 @@ public sealed class RailRebuildTransactionPlanner
         if (origin == 0 || originStation == null || ordered.Length < 3 || ordered[0] != origin ||
             stablePointIds.Length != ordered.Length) return null;
 
-        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().ToArray()
-                       ?? Array.Empty<int>();
+        JObject independentState = State(vehicleStateResult);
+        JObject? capacityRail = (independentState["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["instanceId"], ReadInt(item["railInstanceId"])) == railInstanceId);
+        int[] runningVehicles = (capacityRail?["runningVehicleIds"] as JArray)?.Values<int>().ToArray()
+                                ?? Array.Empty<int>();
+        int[] waitingVehicles = (capacityRail?["waitingVehicleIds"] as JArray)?.Values<int>().ToArray()
+                                ?? Array.Empty<int>();
+        int[] allVehicles = runningVehicles.Concat(waitingVehicles).Distinct().OrderBy(id => id).ToArray();
         return new RailRebuildSnapshot
         {
             RailInstanceId = railInstanceId,
@@ -67,9 +75,10 @@ public sealed class RailRebuildTransactionPlanner
             OriginalOrderedLinePointInstanceIds = ordered,
             OrderedLinePointInstanceIds = ordered,
             OrderedPointIds = stablePointIds,
-            TrainInstanceIds = trains.Distinct().OrderBy(id => id).ToArray(),
-            VehicleInstanceIds = ReadVehicleIds(trainResult, trains, "instanceId"),
-            VehicleBusinessIds = ReadVehicleIds(trainResult, trains, "vehicleId"),
+            RunningVehicleInstanceIds = runningVehicles.Distinct().OrderBy(id => id).ToArray(),
+            WaitingVehicleInstanceIds = waitingVehicles,
+            VehicleInstanceIds = allVehicles,
+            VehicleBusinessIds = ReadVehicleBusinessIds(independentState, allVehicles),
             LoopCycleSeconds = rail["loopCycleSeconds"]?.Value<double?>() ?? 0d
         };
     }
@@ -82,7 +91,7 @@ public sealed class RailRebuildTransactionPlanner
             railInternalId = snapshot.RailInternalId
         }),
         AutomationStage.Battle,
-        "通过始发站的玩家右键语义断开闭环，并由游戏原生始发站缓存暂存车列。");
+        "通过始发站的玩家右键语义断开闭环，由游戏容量服务接管运行与等待中的独立战车。");
 
     public bool ApplyStablePointOrder(
         RailRebuildSnapshot snapshot,
@@ -128,16 +137,6 @@ public sealed class RailRebuildTransactionPlanner
         {
             ["linePointInstanceIds"] = new JArray(snapshot.OrderedLinePointInstanceIds)
         };
-        int speedSourceVehicle = snapshot.VehicleInstanceIds.FirstOrDefault();
-        if (speedSourceVehicle != 0)
-        {
-            arguments["vehicleInstanceId"] = speedSourceVehicle;
-        }
-        else
-        {
-            int speedSourceBusinessId = snapshot.VehicleBusinessIds.FirstOrDefault();
-            if (speedSourceBusinessId != 0) arguments["vehicleId"] = speedSourceBusinessId;
-        }
         return new AutomationAction(
             "previewRailPath",
             arguments,
@@ -149,7 +148,7 @@ public sealed class RailRebuildTransactionPlanner
         "drawRailPath",
         new JObject { ["linePointInstanceIds"] = new JArray(snapshot.OrderedLinePointInstanceIds) },
         AutomationStage.Battle,
-        "从始发站依次连接全部目标站点并回到始发站，使用玩家原生闭环流程恢复车列。");
+        "从始发站依次连接全部目标站点并回到始发站，由游戏容量服务恢复独立战车。");
 
     public RailRebuildVerification VerifyDisconnect(JObject? deleteResult, RailRebuildSnapshot snapshot)
     {
@@ -161,9 +160,6 @@ public sealed class RailRebuildTransactionPlanner
             return new RailRebuildVerification { Pending = true, Detail = "尚未观察到始发站闭环已断开。" };
 
         JObject? outcome = state["deletionOutcome"] as JObject;
-        if (snapshot.TrainInstanceIds.Count > 0 && outcome?["trainStashed"]?.Value<bool>() != true)
-            return Failure("断环完成，但游戏没有证明原车列已缓存到始发站。", false);
-
         JObject[] stashedStates = (outcome?["stashedVehicles"] as JArray)?.OfType<JObject>().ToArray()
                                   ?? Array.Empty<JObject>();
         int[] stashedVehicles = stashedStates
@@ -172,14 +168,11 @@ public sealed class RailRebuildTransactionPlanner
         int[] stashedBusinessIds = stashedStates
             .Select(item => ReadInt(item["vehicleId"]))
             .Where(id => id != 0).Distinct().OrderBy(id => id).ToArray();
-        if (snapshot.VehicleBusinessIds.Count > 0 &&
-            !snapshot.VehicleBusinessIds.SequenceEqual(stashedBusinessIds))
-            return Failure("始发站缓存的战车业务身份与断环前快照不一致。", false);
-        if (snapshot.VehicleInstanceIds.Count > 0 &&
-            !snapshot.VehicleInstanceIds.SequenceEqual(stashedVehicles))
-            return Failure("始发站缓存未能完整证明断环前的战车实例身份。", false);
+        if (stashedBusinessIds.Except(snapshot.VehicleBusinessIds).Any() ||
+            stashedVehicles.Except(snapshot.VehicleInstanceIds).Any())
+            return Failure("始发站缓存出现断环前快照之外的战车身份。", false);
 
-        return new RailRebuildVerification { Verified = true, Detail = "闭环已断开，原车列已由始发站完整缓存。" };
+        return new RailRebuildVerification { Verified = true, Detail = "闭环已断开，独立战车身份由游戏容量服务接管。" };
     }
 
     public bool IsLegalPreview(JObject? previewResult, RailRebuildSnapshot snapshot, out double cycle)
@@ -188,7 +181,7 @@ public sealed class RailRebuildTransactionPlanner
         cycle = state["predictedLoopCycleSeconds"]?.Value<double?>() ?? 0d;
         return state["wouldBeLegal"]?.Value<bool>() == true &&
                state["sideEffectCheckPassed"]?.Value<bool>() == true &&
-               state["statePolluted"]?.Value<bool>() != true && cycle > 0d;
+               state["statePolluted"]?.Value<bool>() != true;
     }
 
     public void RefreshMovedStationIdentity(
@@ -226,7 +219,8 @@ public sealed class RailRebuildTransactionPlanner
             OriginalOrderedLinePointInstanceIds = snapshot.OriginalOrderedLinePointInstanceIds,
             OrderedLinePointInstanceIds = ordered,
             OrderedPointIds = snapshot.OrderedPointIds,
-            TrainInstanceIds = snapshot.TrainInstanceIds,
+            RunningVehicleInstanceIds = snapshot.RunningVehicleInstanceIds,
+            WaitingVehicleInstanceIds = snapshot.WaitingVehicleInstanceIds,
             VehicleInstanceIds = snapshot.VehicleInstanceIds,
             VehicleBusinessIds = snapshot.VehicleBusinessIds,
             LoopCycleSeconds = snapshot.LoopCycleSeconds,
@@ -236,27 +230,201 @@ public sealed class RailRebuildTransactionPlanner
 
     public IReadOnlyList<RailRebuildSnapshot> BuildSpecialInsertionCandidates(
         JObject? railResult,
-        JObject? trainResult,
+        JObject? independentVehicleState,
         JObject? catapultResult) =>
         BuildUnassignedInsertionCandidates(
             railResult,
-            trainResult,
+            independentVehicleState,
             catapultResult,
             movableSpecialOnly: true);
 
     public IReadOnlyList<RailRebuildSnapshot> BuildUnassignedInsertionCandidates(
         JObject? railResult,
-        JObject? trainResult,
+        JObject? independentVehicleState,
         JObject? catapultResult) =>
         BuildUnassignedInsertionCandidates(
             railResult,
-            trainResult,
+            independentVehicleState,
             catapultResult,
             movableSpecialOnly: false);
 
+    /// <summary>
+    /// Reorders an invalid existing loop together with every compatible unassigned common station.
+    /// This is used after a fixed-position map station cannot be inserted edge-by-edge without
+    /// crossing the loop. The attribute/energy point remains the unique first point, while the
+    /// game preview still decides whether the complete player-equivalent redraw is legal.
+    /// </summary>
+    public RailRebuildSnapshot? BuildFullTopologyRepair(
+        JObject? railResult,
+        JObject? independentVehicleState,
+        JObject? catapultResult) =>
+        BuildFullTopologyRepair(railResult, independentVehicleState, catapultResult, out _);
+
+    public RailRebuildSnapshot? BuildFullTopologyRepair(
+        JObject? railResult,
+        JObject? independentVehicleState,
+        JObject? catapultResult,
+        out string detail)
+    {
+        List<string> diagnostics = new();
+        JObject[] unassignedCommons = (State(catapultResult)["catapults"] as JArray)?
+            .OfType<JObject>()
+            .Where(item => item["active"]?.Value<bool>() != false &&
+                           item["isAttribute"]?.Value<bool>() != true &&
+                           item["canUseForNewRail"]?.Value<bool>() == true &&
+                           item["canPickLine"]?.Value<bool>() != false &&
+                           item["frozen"]?.Value<bool>() != true &&
+                           item["railReachMax"]?.Value<bool>() != true &&
+                           ReadInt(item["railMembershipCount"]) == 0 &&
+                           ReadInt(item["linePointInstanceId"]) != 0)
+            .OrderBy(item => ReadInt(item["linePointInstanceId"]))
+            .ToArray() ?? Array.Empty<JObject>();
+
+        List<(RailRebuildSnapshot Snapshot, double Length)> repairs = new();
+        foreach (JObject rail in Rails(railResult).OrderBy(item => ReadInt(item["instanceId"])))
+        {
+            if (RailRuntimeTopologyInspector.InspectRail(rail).Loop.IsValid) continue;
+            RailRebuildSnapshot? snapshot = Capture(
+                railResult,
+                ReadInt(rail["instanceId"]),
+                independentVehicleState) ?? CaptureMalformedForFullRepair(rail, independentVehicleState);
+            if (snapshot == null)
+            {
+                diagnostics.Add($"轨道 {ReadInt(rail["instanceId"])} 无法锁定唯一能量点或战车快照。");
+                continue;
+            }
+
+            JObject[] existing = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+                .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+            JObject[] combined = existing.Concat(unassignedCommons)
+                .Where(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])) != 0)
+                .GroupBy(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])))
+                .Select(group => group.First())
+                .ToArray();
+            JObject[] attributes = combined.Where(item => item["isAttribute"]?.Value<bool>() == true).ToArray();
+            if (attributes.Length != 1 || combined.Length < 3 ||
+                combined.Any(item => !TryReadGrid(item["grid"], out _, out _)))
+            {
+                diagnostics.Add(
+                    $"轨道 {snapshot.RailInstanceId} 的完整站点集无法验证：" +
+                    $"站点 {combined.Length} 个、能量点 {attributes.Length} 个或存在缺失网格。");
+                continue;
+            }
+
+            int attributeInstanceId = ReadInt(
+                attributes[0]["linePointInstanceId"],
+                ReadInt(attributes[0]["instanceId"]));
+            Dictionary<int, JObject> stationByInstanceId = combined.ToDictionary(
+                item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])),
+                item => item);
+            IReadOnlyList<int> ordered = RailLayoutStrategyPlanner.OrderSimplePlayerLoop(
+                combined.Select(item =>
+                {
+                    TryReadGrid(item["grid"], out double x, out double y);
+                    return new RailLoopPointCandidate
+                    {
+                        InstanceId = ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])),
+                        IsAttribute = item["isAttribute"]?.Value<bool>() == true,
+                        Grid = new RailLayoutPoint(x, y)
+                    };
+                }),
+                attributeInstanceId);
+            if (ordered.Count != combined.Length || ordered[0] != snapshot.OriginLinePointInstanceId)
+            {
+                diagnostics.Add(
+                    $"轨道 {snapshot.RailInstanceId} 的稳定极角排序未保留唯一能量点作为起点。" );
+                continue;
+            }
+
+            RailLoopValidationResult validation = RailLoopValidator.ValidateOrdered(
+                ordered.Select(instanceId =>
+                {
+                    JObject station = stationByInstanceId[instanceId];
+                    TryReadGrid(station["grid"], out double x, out double y);
+                    return new RailLoopNode
+                    {
+                        Id = instanceId,
+                        IsAttribute = station["isAttribute"]?.Value<bool>() == true,
+                        Point = new RailLayoutPoint(x, y)
+                    };
+                }));
+            if (!validation.IsValid)
+            {
+                diagnostics.Add(
+                    $"轨道 {snapshot.RailInstanceId} 的完整排序仍未形成包围基地的简单闭环：" +
+                    string.Join("；", validation.Errors));
+                continue;
+            }
+
+            snapshot.OrderedLinePointInstanceIds = ordered.ToArray();
+            snapshot.OriginalOrderedLinePointInstanceIds = ordered.ToArray();
+            snapshot.OrderedPointIds = ordered
+                .Select(instanceId => ReadStablePointId(stationByInstanceId[instanceId]))
+                .ToArray();
+            double length = 0d;
+            for (int index = 0; index < ordered.Count; index++)
+            {
+                JObject left = stationByInstanceId[ordered[index]];
+                JObject right = stationByInstanceId[ordered[(index + 1) % ordered.Count]];
+                TryReadGrid(left["grid"], out double leftX, out double leftY);
+                TryReadGrid(right["grid"], out double rightX, out double rightY);
+                length += Distance(leftX, leftY, rightX, rightY);
+            }
+            repairs.Add((snapshot, length));
+        }
+
+        RailRebuildSnapshot? selected = repairs.OrderBy(item => item.Length)
+            .ThenBy(item => item.Snapshot.RailInstanceId)
+            .Select(item => item.Snapshot)
+            .FirstOrDefault();
+        detail = selected != null
+            ? $"已把 {selected.OrderedLinePointInstanceIds.Count} 个固定站点重排为单能量点简单闭环。"
+            : diagnostics.Count > 0
+                ? string.Join(" ", diagnostics)
+                : $"没有可重排的无效轨道；检测到 {unassignedCommons.Length} 个兼容未接入普通站点。";
+        return selected;
+    }
+
+    private static RailRebuildSnapshot? CaptureMalformedForFullRepair(
+        JObject rail,
+        JObject? vehicleStateResult)
+    {
+        JObject[] stations = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+            .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+        JObject[] origins = stations.Where(item => item["isAttribute"]?.Value<bool>() == true).ToArray();
+        if (origins.Length != 1 || stations.Length < 3) return null;
+        int originInstanceId = ReadInt(
+            origins[0]["linePointInstanceId"],
+            ReadInt(origins[0]["instanceId"]));
+        if (originInstanceId == 0) return null;
+
+        int railInstanceId = ReadInt(rail["instanceId"]);
+        JObject independentState = State(vehicleStateResult);
+        JObject? capacityRail = (independentState["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item =>
+                ReadInt(item["instanceId"], ReadInt(item["railInstanceId"])) == railInstanceId);
+        int[] runningVehicles = (capacityRail?["runningVehicleIds"] as JArray)?.Values<int>().ToArray()
+                                ?? Array.Empty<int>();
+        int[] waitingVehicles = (capacityRail?["waitingVehicleIds"] as JArray)?.Values<int>().ToArray()
+                                ?? Array.Empty<int>();
+        int[] allVehicles = runningVehicles.Concat(waitingVehicles).Distinct().OrderBy(id => id).ToArray();
+        return new RailRebuildSnapshot
+        {
+            RailInstanceId = railInstanceId,
+            RailInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"])),
+            OriginLinePointInstanceId = originInstanceId,
+            OriginPointId = ReadStablePointId(origins[0]),
+            RunningVehicleInstanceIds = runningVehicles.Distinct().OrderBy(id => id).ToArray(),
+            WaitingVehicleInstanceIds = waitingVehicles,
+            VehicleInstanceIds = allVehicles,
+            VehicleBusinessIds = ReadVehicleBusinessIds(independentState, allVehicles),
+            LoopCycleSeconds = rail["loopCycleSeconds"]?.Value<double?>() ?? 0d
+        };
+    }
+
     private IReadOnlyList<RailRebuildSnapshot> BuildUnassignedInsertionCandidates(
         JObject? railResult,
-        JObject? trainResult,
+        JObject? independentVehicleState,
         JObject? catapultResult,
         bool movableSpecialOnly)
     {
@@ -280,7 +448,7 @@ public sealed class RailRebuildTransactionPlanner
         foreach (JObject rail in Rails(railResult).OrderBy(item => ReadInt(item["instanceId"])))
         {
             int railInstanceId = ReadInt(rail["instanceId"]);
-            RailRebuildSnapshot? baseline = Capture(railResult, railInstanceId, trainResult);
+            RailRebuildSnapshot? baseline = Capture(railResult, railInstanceId, independentVehicleState);
             if (baseline == null || baseline.VehicleInstanceIds.Count == 0) continue;
             foreach (JObject station in availableStations)
             {
@@ -317,17 +485,25 @@ public sealed class RailRebuildTransactionPlanner
     public RailRebuildVerification VerifyRestored(
         JObject? railResult,
         RailRebuildSnapshot snapshot,
-        JObject? trainResult = null)
+        JObject? vehicleStateResult = null)
     {
         JObject[] matches = Rails(railResult).Where(rail =>
         {
-            int[] points = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
-                .OfType<JObject>()
+            JObject[] stations = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
+                .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+            int[] stablePointIds = stations.Select(ReadStablePointId).Where(id => id != 0).ToArray();
+            bool stableMatch = snapshot.OrderedPointIds.Count == snapshot.OrderedLinePointInstanceIds.Count &&
+                               stablePointIds.Length == snapshot.OrderedPointIds.Count &&
+                               stablePointIds.OrderBy(id => id).SequenceEqual(
+                                   snapshot.OrderedPointIds.OrderBy(id => id));
+            if (stableMatch) return true;
+
+            int[] instanceIds = stations
                 .Select(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])))
-                .Where(id => id != 0).ToArray() ?? Array.Empty<int>();
-            return points.Length == snapshot.OrderedLinePointInstanceIds.Count &&
-                   points[0] == snapshot.OriginLinePointInstanceId &&
-                   points.OrderBy(id => id).SequenceEqual(snapshot.OrderedLinePointInstanceIds.OrderBy(id => id));
+                .Where(id => id != 0).ToArray();
+            return instanceIds.Length == snapshot.OrderedLinePointInstanceIds.Count &&
+                   instanceIds.OrderBy(id => id).SequenceEqual(
+                       snapshot.OrderedLinePointInstanceIds.OrderBy(id => id));
         }).ToArray();
         if (matches.Length == 0) return new RailRebuildVerification { Pending = true, Detail = "尚未观察到目标闭环。" };
         if (matches.Length != 1) return Failure("目标站点集合对应多个闭环，无法安全确认。", false);
@@ -340,36 +516,36 @@ public sealed class RailRebuildTransactionPlanner
             if (!topology.Loop.IsValid)
                 return Failure("目标轨道是伪闭环：" + string.Join("；", topology.Loop.Errors), false);
         }
-        int[] trains = (rail["trainIds"] as JArray)?.Values<int>().Distinct().OrderBy(id => id).ToArray()
-                       ?? Array.Empty<int>();
-        bool vehiclesRestored = snapshot.VehicleInstanceIds.Count > 0 || snapshot.VehicleBusinessIds.Count > 0
-            ? trains.Length > 0
-            : snapshot.TrainInstanceIds.Count == 0 ||
-              snapshot.TrainInstanceIds.OrderBy(id => id).SequenceEqual(trains.OrderBy(id => id));
-        if (!vehiclesRestored) return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，正在等待始发站还原原车列身份。" };
-        if (trainResult != null)
+        if (vehicleStateResult != null)
         {
-            int[] restoredVehicleInstances = ReadRailVehicleIds(
-                trainResult,
-                snapshot.RailInternalId,
-                "instanceId");
-            int[] restoredVehicleBusinessIds = ReadRailVehicleIds(
-                trainResult,
-                snapshot.RailInternalId,
-                "vehicleId");
-            if (snapshot.VehicleInstanceIds.Count > 0 &&
-                !snapshot.VehicleInstanceIds.SequenceEqual(restoredVehicleInstances))
-                return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，原战车实例身份尚未完整回到车列。" };
-            if (snapshot.VehicleBusinessIds.Count > 0 &&
-                !snapshot.VehicleBusinessIds.SequenceEqual(restoredVehicleBusinessIds))
-                return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，原战车业务身份尚未完整回到车列。" };
+            JObject independentState = State(vehicleStateResult);
+            JObject? capacityRail = (independentState["rails"] as JArray)?.OfType<JObject>()
+                .SingleOrDefault(item =>
+                    ReadInt(item["instanceId"], ReadInt(item["railInstanceId"])) ==
+                    ReadInt(rail["instanceId"]));
+            if (capacityRail == null)
+                return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，正在等待容量服务发布轨道状态。" };
+
+            int[] running = (capacityRail["runningVehicleIds"] as JArray)?.Values<int>().ToArray()
+                            ?? Array.Empty<int>();
+            int[] waiting = (capacityRail["waitingVehicleIds"] as JArray)?.Values<int>().ToArray()
+                            ?? Array.Empty<int>();
+            HashSet<int> onRail = new(running.Concat(waiting));
+            HashSet<int> bag = new((independentState["vehicles"] as JArray)?.OfType<JObject>()
+                .Where(item => item["inBag"]?.Value<bool>() == true)
+                .Select(item => ReadInt(item["instanceId"]))
+                .Where(id => id != 0) ?? Enumerable.Empty<int>());
+            if (snapshot.VehicleInstanceIds.Any(id => !onRail.Contains(id) && !bag.Contains(id)))
+                return new RailRebuildVerification { Pending = true, Detail = "闭环已恢复，仍有独立战车身份尚未在轨道或背包中出现。" };
+            if (!IsOrderedSubsequence(snapshot.WaitingVehicleInstanceIds, waiting))
+                return Failure("闭环恢复后的 FIFO 等待顺序与断环前不一致。", false);
         }
         return new RailRebuildVerification
         {
             Verified = true,
             VehiclesRestored = true,
             LoopCycleSeconds = rail["loopCycleSeconds"]?.Value<double?>() ?? 0d,
-            Detail = "闭环合法，始发站已恢复原车列身份。"
+            Detail = "闭环合法；原独立战车均已恢复运行、按原 FIFO 排队，或因容量收缩合法回到背包。"
         };
     }
 
@@ -402,29 +578,28 @@ public sealed class RailRebuildTransactionPlanner
         return Math.Sqrt(x * x + y * y);
     }
 
-    private static IReadOnlyList<int> ReadVehicleIds(
-        JObject? trainResult,
-        IReadOnlyCollection<int> trainIndexes,
-        string key)
-    {
-        if (trainIndexes.Count == 0) return Array.Empty<int>();
-        return ((State(trainResult)["trains"] as JArray)?.OfType<JObject>()
-                .Where(train => trainIndexes.Contains(ReadInt(train["index"])))
-                .SelectMany(train => (train["vehicles"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
-                .Select(vehicle => ReadInt(vehicle[key]))
-                .Where(id => id != 0).Distinct().OrderBy(id => id).ToArray())
-               ?? Array.Empty<int>();
-    }
-
-    private static int[] ReadRailVehicleIds(JObject? trainResult, int railInternalId, string key) =>
-        ((State(trainResult)["trains"] as JArray)?.OfType<JObject>()
-            .Where(train => ReadInt(train["railId"]) == railInternalId)
-            .SelectMany(train => (train["vehicles"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
-            .Select(vehicle => ReadInt(vehicle[key]))
+    private static IReadOnlyList<int> ReadVehicleBusinessIds(
+        JObject state,
+        IReadOnlyCollection<int> vehicleInstanceIds) =>
+        ((state["vehicles"] as JArray)?.OfType<JObject>()
+            .Where(vehicle => vehicleInstanceIds.Contains(ReadInt(vehicle["instanceId"])))
+            .Select(vehicle => ReadInt(vehicle["gameVehicleId"], ReadInt(vehicle["vehicleId"])))
             .Where(id => id != 0)
             .Distinct()
             .OrderBy(id => id)
             .ToArray()) ?? Array.Empty<int>();
+
+    private static bool IsOrderedSubsequence(IReadOnlyList<int> expected, IReadOnlyList<int> actual)
+    {
+        int cursor = 0;
+        foreach (int id in actual)
+        {
+            while (cursor < expected.Count && expected[cursor] != id) cursor++;
+            if (cursor >= expected.Count) return false;
+            cursor++;
+        }
+        return true;
+    }
 
     private static RailRebuildVerification Failure(string detail, bool polluted) => new()
     {

@@ -86,7 +86,7 @@ public sealed class DecisionEngineStrategyTests
     }
 
     [Fact]
-    public void RewardSelection_ImmediateMergeBeatsAnEpicSuperModule()
+    public void RewardSelection_DuplicateInitialVehicleHasNoMergeMaterialBonus()
     {
         JObject reward = RewardOptions(
             new
@@ -113,7 +113,7 @@ public sealed class DecisionEngineStrategyTests
         AutomationAction action = new DecisionEngine().DecideReward(reward, vehicles);
 
         Assert.Equal("chooseRewardOption", action.Command);
-        Assert.Equal(6, action.Arguments.Value<int>("index"));
+        Assert.Equal(1, action.Arguments.Value<int>("index"));
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public sealed class DecisionEngineStrategyTests
         AutomationAction vehicleFirst = engine.DecideReward(
             reward,
             vehicles,
-            AutomationDecisionPriority.ThreeStarVehicles);
+            AutomationDecisionPriority.VehicleRewards);
         AutomationAction pointFirst = engine.DecideReward(
             reward,
             vehicles,
@@ -437,7 +437,7 @@ public sealed class DecisionEngineStrategyTests
             affordances,
             null,
             null,
-            AutomationDecisionPriority.ThreeStarVehicles);
+            AutomationDecisionPriority.VehicleRewards);
         AutomationAction pointFirst = engine.DecideInGame(
             affordances,
             null,

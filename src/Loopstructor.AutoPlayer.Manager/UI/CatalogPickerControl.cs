@@ -439,6 +439,19 @@ internal sealed class CatalogPickerItem
 
     private static string ResolveLevelLabel(object? payload, string id)
     {
+        if (payload is JObject vehicle &&
+            (vehicle["groupKey"]?.Value<string>()?.StartsWith("vehicle:", StringComparison.OrdinalIgnoreCase) == true ||
+             (vehicle["tags"] as JArray)?.Values<string>().Contains("战车", StringComparer.Ordinal) == true) &&
+            TryReadLevel(payload, out int vehicleLevel))
+        {
+            return vehicleLevel switch
+            {
+                1 => "初始形态",
+                3 => "升级形态",
+                2 => "内部过渡形态",
+                _ => "内部形态"
+            };
+        }
         if (TryReadLevel(payload, out int payloadLevel) && payloadLevel >= 0) return $"Lv.{payloadLevel}";
         Match match = LevelSuffix.Match(id);
         return match.Success ? $"Lv.{match.Groups[1].Value}" : string.Empty;

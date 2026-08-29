@@ -457,7 +457,9 @@ internal sealed class CheatRuntimeBridge
         EnsureAvailable();
         InvalidateRuntimeCatalogCache();
         IReadOnlyList<object> vehicles = AllVehicleValues(reportUnavailable: true);
-        IReadOnlyList<object> enchantments = AllEnchantmentValues(reportUnavailable: true);
+        IReadOnlyList<object> enchantments = AllEnchantmentValues(reportUnavailable: true)
+            .Where(value => !(value.ToString() ?? string.Empty).EndsWith("_Train", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         IReadOnlyList<object> allDisposables = AllEnumValues(_disposableType!);
         IReadOnlyList<object> catapultPoints = allDisposables.Where(IsCatapultPoint).ToList();
         IReadOnlyList<object> disposables = allDisposables.Where(value => !IsCatapultPoint(value)).ToList();

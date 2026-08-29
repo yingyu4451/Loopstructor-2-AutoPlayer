@@ -221,7 +221,7 @@ public sealed class DecisionEngineInGameTests
     }
 
     [Fact]
-    public void RewardSelection_WithVehicleContext_PrefersImmediateSameTypeMerge()
+    public void RewardSelection_WithVehicleContext_PrefersUpgradedVehicleForm()
     {
         JObject reward = RewardOptions(
             new
@@ -230,7 +230,7 @@ public sealed class DecisionEngineInGameTests
                 buttonActive = true,
                 rewardKind = "vehicle",
                 rewardRare = "legend",
-                vehicleType = "Link_IceRipple_L2",
+                vehicleType = "Link_IceRipple_L3",
                 effectiveFetters = Array.Empty<object>()
             },
             new
@@ -249,7 +249,7 @@ public sealed class DecisionEngineInGameTests
         AutomationAction action = new DecisionEngine().DecideReward(reward, vehicles);
 
         Assert.Equal("chooseRewardOption", action.Command);
-        Assert.Equal(3, action.Arguments.Value<int>("index"));
+        Assert.Equal(8, action.Arguments.Value<int>("index"));
     }
 
     [Fact]

@@ -135,7 +135,7 @@ internal sealed partial class MainForm : Window
             Reason = "连接游戏后读取可玩内容"
         });
         _speed.ItemsSource = new[] { "跟随游戏", "1x · 常速（推荐）", "2x · 加速", "3x · 高速" };
-        _decisionPriority.ItemsSource = new[] { "优先拿三星车", "优先拿弹射点", "优先拿遗物" };
+        _decisionPriority.ItemsSource = new[] { "优先拿战车", "优先拿弹射点", "优先拿遗物" };
         _uiScaleMode.ItemsSource = new[] { "跟随系统 DPI", "自定义" };
         _uiScalePercent.ItemsSource = Enumerable.Range(0, 26)
             .Select(index => 75 + index * 5)

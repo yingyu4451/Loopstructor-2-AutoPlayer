@@ -30,13 +30,7 @@ internal sealed class AutoPlayController
 
     private enum DefenseMaintenanceStep
     {
-        QueryTrain,
-        QueryVehicle,
-        RunMerge,
-        ObserveMergeSettlement,
-        ConfirmMergeSettlement,
-        CloseMergePanel,
-        ReconcileMerge,
+        QueryIndependentState,
         QueryCatapults,
         QueryRailExpansionCandidates,
         ProbeJointRailLayout,
@@ -81,8 +75,9 @@ internal sealed class AutoPlayController
         DrawExpansion,
         VerifyExpansionRail,
         VerifyExpansion,
-        PlaceExpansionVehicle,
-        MoveVehicle
+        DeployExpansionVehicle,
+        DeployVehicle,
+        VerifyVehicleDeployment
     }
 
     private enum OwnedPreviewReleaseOperation
@@ -132,13 +127,9 @@ internal sealed class AutoPlayController
     private const float MapOpenAnimationPollSeconds = 0.1f;
     private const float RewardObjectAppearanceGraceSeconds = 1.25f;
     private const float RewardObjectAppearancePollSeconds = 0.1f;
-    private const float MergeSettlementObservationSeconds = 0.75f;
-    private const float MergeSettlementAppearanceTimeoutSeconds = 10f;
-    private const float MergePassTimeoutSeconds = 30f;
     private const float RewardVehicleContextFrameDelaySeconds = 0.02f;
     private const float RewardSelectionSettlementPollSeconds = 0.5f;
     private const float RewardSelectionSettlementTimeoutSeconds = 20f;
-    private const float MergeMutationSettlementTimeoutSeconds = 20f;
     private const float WaveFunctionOptionSettlementTimeoutSeconds = 20f;
     private const int MaxOpeningDefenseConfirmGuardFailures = 12;
     private const float MapProgressProbeIntervalSeconds = 1f;
@@ -147,7 +138,6 @@ internal sealed class AutoPlayController
     private const int MaxDisposableSettlementObservationAttempts = 80;
     private const int MaxOwnedPreviewReleaseVerificationAttempts = 12;
     private const int MaxWaveStartAttempts = 3;
-    private const int MaxMergePassesPerMaintenance = 8;
     private const float RequiredRailTopologyRetryBaseSeconds = 0.75f;
     private static readonly TimeSpan FrontEndTransitionTimeout = TimeSpan.FromSeconds(20);
 
@@ -159,11 +149,10 @@ internal sealed class AutoPlayController
     private readonly EvidenceRecorder _evidence;
     private readonly ManualLogSource _log;
     private readonly DecisionEngine _decisionEngine = new();
+    private readonly DirectUpgradeAutomationPlanner _directUpgradeAutomationPlanner = new();
     private readonly BattleDecisionEngine _battleDecisionEngine = new();
     private readonly RailExpansionPlanner _railExpansionPlanner = new();
     private readonly RailRebuildTransactionPlanner _railRebuildPlanner = new();
-    private readonly MergeAutomationPlanner _mergeAutomationPlanner = new();
-    private readonly MergeMutationSettlementGuard _mergeMutationSettlementGuard = new();
     private readonly RewardObjectSettlementGuard _rewardObjectSettlementGuard = new();
     private readonly HashSet<int> _rewardObjectCollectionLedger = new();
     private readonly RewardSelectionSettlementGuard _rewardSelectionSettlementGuard = new();
@@ -220,6 +209,8 @@ internal sealed class AutoPlayController
     private int _normalEventProbeFailures;
     private bool _openingWaveFunctionObserved;
     private AutomationAction? _deferredOpeningWaveFunctionAction;
+    private bool _directUpgradeAutomationActive;
+    private AutomationAction? _directUpgradePendingAction;
     private AutomationAction? _pendingMapAction;
     private AutomationAction? _deferredMapSelectionAction;
     private string _preMapStationFingerprint = string.Empty;
@@ -282,7 +273,6 @@ internal sealed class AutoPlayController
     private JObject? _pendingOpeningVehicleState;
     private bool _battleDisposableUsedThisWave;
     private bool _battleDisposableUnavailableThisWave;
-    private readonly HashSet<int> _battleTrainIdentitiesMovedThisWave = new();
     private string _ownedDisposableEnum = string.Empty;
     private int _ownedDisposableInteractionInstanceId;
     private JObject? _battleWaveSnapshot;
@@ -290,25 +280,13 @@ internal sealed class AutoPlayController
     private JObject? _battleThreats;
     private JObject? _battleDisposable;
     private JObject? _battleRail;
-    private JObject? _battleTrain;
     private JObject? _battleConfirmationArguments;
     private int _battleDisposableSettlementObservationAttempts;
     private bool _battleWaveEndPendingPreviewRelease;
     private bool _defenseMaintenanceRequested;
     private bool _defenseMaintenanceReady;
     private DefenseMaintenanceStep _defenseMaintenanceStep;
-    private JObject? _defenseTrain;
-    private JObject? _defenseVehicle;
-    private MergeAutomationState _mergeAutomationState = MergeAutomationState.Initial;
-    private JObject? _mergeAutomationQueryResult;
-    private bool _mergeExhausted;
-    private int _mergePassCount;
-    private float _mergeSettlementWaitStartedAt = -1f;
-    private float _mergeSettlementObservedAt = -1f;
-    private int _mergeSettlementQueryFailures;
-    private float _mergePassStartedAt = -1f;
-    private string _mergeRecoveryReason = string.Empty;
-    private int _mergeRecoveryAttempts;
+    private JObject? _defenseIndependentVehicleState;
     private AutomationAction? _defensePendingAction;
     private AutomationAction? _defenseExpansionAction;
     private JObject? _defenseExpansionDrawResult;
@@ -316,7 +294,6 @@ internal sealed class AutoPlayController
     private JObject? _defenseVerifiedRailResult;
     private int _defenseExpectedRailInstanceId;
     private int _defenseRailVerificationAttempts;
-    private int _defenseTrainCountBeforeExpansion;
     private int _defenseExpansionVerificationAttempts;
     private readonly HashSet<string> _rejectedDefenseExpansionPaths = new(StringComparer.Ordinal);
     private bool _defenseExpansionSuspended;
@@ -338,7 +315,6 @@ internal sealed class AutoPlayController
     private bool _defensePendingDisposableQueryCatapults;
     private JObject? _defensePendingDisposableObservation;
     private bool _defenseNeedsNewLoopExpansion;
-    private bool _defenseIndependentVehicleMode;
     private string _defensePlacementDisposableEnum = "FreePoint_Attribute";
     private int _defensePlacementCountBefore;
     private JObject? _defenseRailExpansionBaseline;
@@ -524,7 +500,6 @@ internal sealed class AutoPlayController
             _deferredMapSelectionAction = null;
             _preMapStationFingerprint = string.Empty;
             _wasInWave = false;
-            _battleTrainIdentitiesMovedThisWave.Clear();
             _wishReturnClicked = false;
             _restartFromDefeatSettlementPending = restartFromDefeatSettlement;
             _frontEndReadinessObserved = false;
@@ -1309,7 +1284,7 @@ internal sealed class AutoPlayController
         {
             _defenseMaintenanceReady = true;
             _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
-            SetStage(AutomationStage.PreparingDefense, "防线当前可编辑，准备检查背包战车与车列容量。");
+            SetStage(AutomationStage.PreparingDefense, "防线当前可编辑，准备检查背包战车、运行数与 FIFO 等待容量。");
             return;
         }
 
@@ -1489,7 +1464,7 @@ internal sealed class AutoPlayController
                 _defensePrepared = true;
                 RequestDefenseMaintenance();
                 AddTimeline("defense", "已检测到场上现有战车，将从当前防线继续自动游玩。");
-                SetStage(AutomationStage.PreparingDefense, "已识别现有防线，下一轮将检查背包战车与车列容量。");
+                SetStage(AutomationStage.PreparingDefense, "已识别现有防线，下一轮将检查独立战车动态容量。");
                 return;
             }
         }
@@ -1692,13 +1667,11 @@ internal sealed class AutoPlayController
                                              _bridge.HasCommand("queryDisposable") &&
                                              _bridge.HasCommand("confirmDisposableGrid") &&
                                              _bridge.HasCommand("cancelDisposable") &&
-                                             _bridge.HasCommand("queryVehicle") &&
+                                             _bridge.HasCommand("queryIndependentVehicleState") &&
+                                             _bridge.HasCommand("deployVehicleToEnergyPoint") &&
                                              _bridge.HasCommand("previewRailPath") &&
                                              _bridge.HasCommand("queryRail") &&
-                                             _bridge.HasCommand("drawRailPath") &&
-                                             _bridge.HasCommand("queryTrain") &&
-                                             _bridge.HasCommand("moveVehicleInTrain") &&
-                                             _bridge.HasCommand("placeVehicleOnLine");
+                                             _bridge.HasCommand("drawRailPath");
         if (!incrementalContractAvailable)
         {
             Fault(
@@ -1860,7 +1833,7 @@ internal sealed class AutoPlayController
         }
         if (observedPhase == OpeningDefensePreparationPhase.VerifyAttributePlacement &&
             accepted &&
-            _openingDefensePreparationPlanner.Phase == OpeningDefensePreparationPhase.QueryVehicle)
+            _openingDefensePreparationPlanner.Phase == OpeningDefensePreparationPhase.QueryIndependentVehicles)
         {
             _ownedPreviewConfirmationOutcomeUncertain = false;
             ResetOwnedPreviewCancellationTrackingIfNoIdentity();
@@ -1935,6 +1908,8 @@ internal sealed class AutoPlayController
         _deferredNormalEventChoosingOption = false;
         _openingWaveFunctionObserved = false;
         _deferredOpeningWaveFunctionAction = null;
+        _directUpgradeAutomationActive = false;
+        _directUpgradePendingAction = null;
         _deferredRewardAction = null;
         _deferredSettlementAction = null;
         _pendingMapDecisionState = null;
@@ -1946,7 +1921,6 @@ internal sealed class AutoPlayController
         _runtimeInitialized = false;
         ResetBattleTactics();
         ResetFullWaveQueryPolling();
-        _mergeMutationSettlementGuard.Reset();
         RequestDefenseMaintenance();
         _pendingActionKey = string.Empty;
         ResetWaveStartObservation();
@@ -2454,6 +2428,17 @@ internal sealed class AutoPlayController
         switch (RuntimeResultInspector.ClassifyReadOnly(initialization))
         {
             case RuntimeResultDisposition.Pending:
+                if (RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(initialization))
+                {
+                    _runtimeInitialized = true;
+                    ScheduleContinuationFrame();
+                    const string message =
+                        "对局核心对象已就绪；当前仅未创建能量弹射点，将由独立战车开局布防流程规划。";
+                    AddTimeline("compatibility", message);
+                    SetStage(AutomationStage.InitializingRun, message);
+                    return false;
+                }
+
                 SetStage(AutomationStage.InitializingRun, Message(initialization));
                 return false;
             case RuntimeResultDisposition.Failure:
@@ -2559,6 +2544,7 @@ internal sealed class AutoPlayController
             if (_openingWaveFunctionObserved && !reconcilingOpeningChoice)
             {
                 _openingWaveFunctionObserved = false;
+                _normalEventProbeRequired = true;
                 ResetEventOptionObservation();
                 AddTimeline("event", "开局轨神事件对象已经释放，正在重新读取对局核心对象。");
                 MarkProgress();
@@ -2599,8 +2585,9 @@ internal sealed class AutoPlayController
             if (_openingWaveFunctionObserved)
             {
                 _openingWaveFunctionObserved = false;
+                _normalEventProbeRequired = true;
                 ResetEventOptionObservation();
-                AddTimeline("event", "开局轨神事件面板已关闭，正在重新读取对局核心对象。");
+                AddTimeline("event", "开局轨神事件面板已关闭，正在探测可能连续出现的普通事件并重新读取对局核心对象。");
                 MarkProgress();
             }
 
@@ -2888,8 +2875,67 @@ internal sealed class AutoPlayController
         return true;
     }
 
+    private bool TryHandleDirectUpgradeAutomation()
+    {
+        if (!_directUpgradeAutomationActive) return false;
+
+        if (_directUpgradePendingAction != null)
+        {
+            AutomationAction action = _directUpgradePendingAction;
+            _directUpgradePendingAction = null;
+            bool accepted = ExecuteWithResult(action, optional: true, out JObject writeResult);
+            if (!accepted && RuntimeResultInspector.IsUnsafe(writeResult))
+            {
+                // The UI adapter embeds all identities needed for the next read. Keep the flow
+                // active and reconcile without replaying this action.
+                AddWarning("装修厂升级写入结果未知；已锁定本次动作，下一帧只读对账且不会重放。");
+            }
+            else if (!accepted)
+            {
+                AddWarning("装修厂升级阶段未接受本次动作；将重新读取面板，不会原样重试。");
+            }
+            ScheduleContinuationFrame();
+            return true;
+        }
+
+        JObject query = _bridge.Invoke("queryDirectUpgradeState");
+        if (RuntimeResultInspector.ClassifyReadOnly(query) != RuntimeResultDisposition.Success)
+        {
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticRetryDelaySeconds;
+            SetStage(AutomationStage.ManagingEvent, "正在等待可读取的装修厂升级面板。");
+            return true;
+        }
+
+        JObject state = State(query);
+        if (state["panelOpen"]?.Value<bool>() != true ||
+            string.Equals(state["phase"]?.Value<string>(), "Resolved", StringComparison.Ordinal))
+        {
+            _directUpgradeAutomationActive = false;
+            _directUpgradePendingAction = null;
+            _pendingEventPanel = string.Empty;
+            ScheduleContinuationFrame();
+            SetStage(AutomationStage.ManagingEvent, "装修厂升级流程已经结束，正在确认事件流程收束。");
+            return true;
+        }
+
+        AutomationAction next = _directUpgradeAutomationPlanner.Decide(query);
+        if (string.Equals(next.Command, "wait", StringComparison.OrdinalIgnoreCase))
+        {
+            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+            SetStage(next.Stage, next.Reason);
+            return true;
+        }
+
+        _directUpgradePendingAction = next;
+        ScheduleContinuationFrame();
+        SetStage(next.Stage, next.Reason + " 下一帧执行，避免读取与写入叠加。");
+        return true;
+    }
+
     private bool TryHandlePendingMapSelection()
     {
+        if (TryHandleDirectUpgradeAutomation()) return true;
+
         if (_pendingMapAction != null)
         {
             AutomationAction action = _pendingMapAction;
@@ -3604,7 +3650,6 @@ internal sealed class AutoPlayController
                     return;
                 }
                 _battleRail = rail;
-                TryInvokeOptionalReadOnly("queryTrain", null, out _battleTrain);
                 _battleTacticStep = TryBeginBattleSpecialStationMaintenance()
                     ? BattleTacticStep.RunSpecialStationMaintenance
                     : BattleTacticStep.Complete;
@@ -3678,151 +3723,52 @@ internal sealed class AutoPlayController
         }
 
         if (!_defenseBattleSpecialMoveOnly &&
-            (!_bridge.HasCommand("queryTrain") ||
-             (!_requiredRailTopologyMaintenance &&
-              (!_bridge.HasCommand("queryVehicle") ||
-               !_bridge.HasCommand("moveVehicleInTrain")))))
+            (!_bridge.HasCommand("queryIndependentVehicleState") ||
+             !_bridge.HasCommand("deployVehicleToEnergyPoint")))
         {
-            FinishDefenseMaintenance("当前游戏构建缺少战车自动编列接口，已保留现有防线继续游玩。", warning: true);
+            FinishDefenseMaintenance("当前游戏构建缺少独立战车容量或投放接口，已保留现有防线继续游玩。", warning: true);
             return true;
         }
 
         switch (_defenseMaintenanceStep)
         {
-            case DefenseMaintenanceStep.QueryTrain:
-                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject train))
+            case DefenseMaintenanceStep.QueryIndependentState:
+                if (!TryInvokeOptionalReadOnly("queryIndependentVehicleState", null, out JObject independentState))
                 {
-                    FinishDefenseMaintenance("无法读取现有车列，已跳过本轮防线维护。", warning: true);
+                    FinishDefenseMaintenance("无法读取独立战车、动态容量或 FIFO 队列，已跳过本轮防线维护。", warning: true);
                     return true;
                 }
 
-                _defenseTrain = train;
-                _defenseIndependentVehicleMode =
-                    _bridge.TryGetIndependentVehicleMode(out bool independentVehicleMode) &&
-                    independentVehicleMode;
+                _defenseIndependentVehicleState = independentState;
+                _defenseRailExpansionBaseline = independentState;
                 if (_requiredRailTopologyMaintenance)
                 {
-                    _defenseNeedsNewLoopExpansion = false;
-                    _defenseVehicle = null;
-                    _defenseTrainCountBeforeExpansion = CountTrainEntries(_defenseTrain);
+                    _defenseNeedsNewLoopExpansion =
+                        _battleDecisionEngine.NeedsIndependentDefenseExpansion(independentState);
                     _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
                     ScheduleDefenseMaintenanceStep(
-                        "地图新增弹射点尚未接入；跳过合成和战车部署，优先重连实际闭环。");
+                        _defenseNeedsNewLoopExpansion
+                            ? "地图新增能量点待接入，且所有合法轨道已满载、背包仍有战车；优先规划单能量点新闭环。"
+                            : "地图新增普通弹射点尚未接入；跳过战车部署，优先重连实际闭环。");
                     return true;
                 }
-                _defenseMaintenanceStep = DefenseMaintenanceStep.QueryVehicle;
-                ScheduleDefenseMaintenanceStep(_defenseIndependentVehicleMode
-                    ? "当前游戏采用一辆战车一个车列；正在读取每条轨道的实时车列容量。"
-                    : "正在检查现有车列容量。");
-                return true;
-
-            case DefenseMaintenanceStep.QueryVehicle:
-                if (!TryInvokeOptionalReadOnly("queryVehicle", null, out JObject vehicles))
-                {
-                    FinishDefenseMaintenance("无法读取背包战车，已跳过本轮防线维护。", warning: true);
-                    return true;
-                }
-
-                _defenseVehicle = vehicles;
-                JObject? reinforcementRails = null;
-                if (_defenseIndependentVehicleMode)
-                {
-                    if (!IndependentVehiclePlacementPatch.Applied ||
-                        !_bridge.HasCommand("queryRail") ||
-                        !_bridge.HasCommand("placeVehicleOnLine"))
-                    {
-                        FinishDefenseMaintenance(
-                            "当前游戏采用独立战车车列，但玩家等价放车容量接口不可用；已保留现有防线。",
-                            warning: true);
-                        return true;
-                    }
-
-                    if (!TryInvokeOptionalReadOnly("queryRail", null, out JObject liveCapacityRails))
-                    {
-                        FinishDefenseMaintenance(
-                            "无法读取轨道实时车列容量，已跳过本轮战车部署。",
-                            warning: true);
-                        return true;
-                    }
-
-                    reinforcementRails = liveCapacityRails;
-                    _defenseRailExpansionBaseline = liveCapacityRails;
-                }
-                bool hasPotentialMerge = _mergeAutomationPlanner.HasPotentialMergeCandidate(vehicles);
-                if (!_mergeExhausted && hasPotentialMerge)
-                {
-                    if (_mergePassCount >= MaxMergePassesPerMaintenance)
-                    {
-                        _mergeExhausted = true;
-                        AddWarning("本轮防线维护已达到自动合成次数上限，剩余组合留到下一轮维护处理。");
-                    }
-                    else if (!HasMergeAutomationContract())
-                    {
-                        _mergeExhausted = true;
-                        AddWarning("检测到可合成战车，但当前游戏构建缺少完整的玩家等价合成接口；已跳过自动合成。");
-                    }
-                    else if (!TryInvokeOptionalReadOnly("queryMergeUiState", null, out JObject mergeUiState))
-                    {
-                        _mergeExhausted = true;
-                        AddWarning("无法确认游戏原生合成面板当前是否关闭；为避免接管未知界面，已跳过自动合成。");
-                    }
-                    else if (State(mergeUiState)["mergeOpen"]?.Value<bool>() == true)
-                    {
-                        PauseForRecoverableRuntimeState(
-                            "开始自动合成前发现游戏原生合成面板已经打开。自动游玩已暂停且不要求重启；请关闭该面板后继续。" );
-                        return true;
-                    }
-                    else
-                    {
-                        _mergeAutomationState = MergeAutomationState.Initial;
-                        _mergeAutomationQueryResult = null;
-                        _mergeSettlementWaitStartedAt = -1f;
-                        _mergeSettlementObservedAt = -1f;
-                        _mergeSettlementQueryFailures = 0;
-                        _mergePassStartedAt = Time.realtimeSinceStartup;
-                        _mergeRecoveryReason = string.Empty;
-                        _mergeRecoveryAttempts = 0;
-                        _defenseMaintenanceStep = DefenseMaintenanceStep.RunMerge;
-                        ScheduleDefenseMaintenanceStep("发现符合玩家公式的同型战车，准备打开游戏原生合成面板。");
-                        return true;
-                    }
-                }
-                else if (!hasPotentialMerge)
-                {
-                    _mergeExhausted = true;
-                }
-
-                AutomationAction? reinforcement = _battleDecisionEngine.Decide(
-                    new BattleDecisionContext
-                    {
-                        AllowDisposableUse = false,
-                        AllowVehicleReinforcement = true,
-                        RailResult = reinforcementRails,
-                        IndependentVehicleMode = _defenseIndependentVehicleMode
-                    },
-                    null,
-                    null,
-                    _defenseTrain,
-                    vehicles);
+                AutomationAction? reinforcement =
+                    _battleDecisionEngine.DecideIndependentVehicleDeployment(independentState);
                 if (reinforcement != null)
                 {
                     _defensePendingAction = reinforcement;
-                    _defenseMaintenanceStep = DefenseMaintenanceStep.MoveVehicle;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.DeployVehicle;
                     ScheduleDefenseMaintenanceStep(reinforcement.Reason);
                     return true;
                 }
 
                 _defenseNeedsNewLoopExpansion =
-                    _battleDecisionEngine.NeedsDefenseExpansion(
-                        _defenseTrain,
-                        vehicles,
-                        reinforcementRails,
-                        _defenseIndependentVehicleMode);
+                    _battleDecisionEngine.NeedsIndependentDefenseExpansion(independentState);
 
                 if (_defenseNeedsNewLoopExpansion && _defenseExpansionSuspended)
                 {
                     FinishDefenseMaintenance(
-                        "本局此前的扩建已提交但未完成车列验证；为避免重复创建轨道，本局不再自动扩建。",
+                        "本局此前的扩建已提交但未完成独立战车验证；为避免重复创建轨道，本局不再自动扩建。",
                         warning: true);
                     return true;
                 }
@@ -3832,8 +3778,7 @@ internal sealed class AutoPlayController
                     !_bridge.HasCommand("previewRailPath") ||
                     (!_bridge.HasCommand("insertPointFromLine") &&
                      (!_defenseNeedsNewLoopExpansion ||
-                      !_bridge.HasCommand("drawRailPath") ||
-                      !_bridge.HasCommand("placeVehicleOnLine"))))
+                      !_bridge.HasCommand("drawRailPath"))))
                 {
                     FinishDefenseMaintenance(
                         "当前游戏构建缺少玩家等价的轨道扩建接口；已保留现有防线继续游玩。",
@@ -3841,32 +3786,11 @@ internal sealed class AutoPlayController
                     return true;
                 }
 
-                _defenseTrainCountBeforeExpansion = CountTrainEntries(_defenseTrain);
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
                 ScheduleDefenseMaintenanceStep(
                     _defenseNeedsNewLoopExpansion
-                        ? "现有车列已满，正在查找未占用的合法轨道站点。"
-                        : "正在读取未占用站点，准备按回转周期计算扩轨收益。");
-                return true;
-
-            case DefenseMaintenanceStep.RunMerge:
-                RunMergeAutomationStep();
-                return true;
-
-            case DefenseMaintenanceStep.ObserveMergeSettlement:
-                ObserveMergeSettlement();
-                return true;
-
-            case DefenseMaintenanceStep.ConfirmMergeSettlement:
-                ConfirmMergeSettlement();
-                return true;
-
-            case DefenseMaintenanceStep.CloseMergePanel:
-                CloseMergePanel();
-                return true;
-
-            case DefenseMaintenanceStep.ReconcileMerge:
-                ReconcileMergeState();
+                        ? "所有合法轨道均已满载，正在查找未占用站点创建单能量点新闭环。"
+                        : "正在读取未占用站点，准备按逐车吞吐计算扩轨收益。");
                 return true;
 
             case DefenseMaintenanceStep.QueryCatapults:
@@ -3879,12 +3803,9 @@ internal sealed class AutoPlayController
                 _defenseCatapults = catapults;
                 _defenseExpansionAction = _defenseNeedsNewLoopExpansion
                     ? _battleDecisionEngine.DecideDefenseExpansion(
-                        _defenseTrain,
-                        _defenseVehicle,
+                        _defenseIndependentVehicleState,
                         catapults,
-                        _rejectedDefenseExpansionPaths,
-                        _defenseRailExpansionBaseline,
-                        _defenseIndependentVehicleMode)
+                        _rejectedDefenseExpansionPaths)
                     : null;
                 if (_defenseExpansionAction == null)
                 {
@@ -3926,7 +3847,7 @@ internal sealed class AutoPlayController
                     }
 
                     _defenseMaintenanceStep = DefenseMaintenanceStep.QueryRailExpansionCandidates;
-                    ScheduleDefenseMaintenanceStep("正在读取现有轨道的站点数和回转周期。");
+                    ScheduleDefenseMaintenanceStep("正在读取现有轨道与逐车吞吐数据。");
                     return true;
                 }
 
@@ -3960,12 +3881,36 @@ internal sealed class AutoPlayController
                     AddWarning(
                         "检测到现有轨道不是合法简单闭环，将忽略旧连接顺序并执行完整重规划：" +
                         baselineTopology.Detail);
+                    if (_requiredRailTopologyMaintenance &&
+                        _bridge.HasCommand("deleteLinePoint"))
+                    {
+                        RailRebuildSnapshot? fullRepair =
+                            _railRebuildPlanner.BuildFullTopologyRepair(
+                                expansionRailState,
+                                _defenseIndependentVehicleState,
+                                _defenseCatapults,
+                                out string fullRepairDetail);
+                        if (fullRepair != null)
+                        {
+                            _defenseRailRebuildSnapshot = fullRepair;
+                            _defenseRailRebuildRecoveryAttempted = false;
+                            _defenseRailRebuildExplicitPollution = false;
+                            _defenseRailRebuildPreviewCycleSeconds = 0d;
+                            AddTimeline("rail-repair-plan", fullRepairDetail);
+                            _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
+                            ScheduleDefenseMaintenanceStep(
+                                "已锁定全部固定站点、原独立战车身份与 FIFO 顺序；" +
+                                "下一帧从唯一能量点断环，断开后再执行合法性预览。" );
+                            return true;
+                        }
+                        AddWarning("完整断轨重建暂不可用：" + fullRepairDetail);
+                    }
                 }
                 _defenseRailMaintenanceLayoutFingerprint =
                     BuildDefenseRailMaintenanceLayoutFingerprint(
                         expansionRailState,
                         _defenseCatapults,
-                        _defenseBattleSpecialMoveOnly ? _battleTrain : _defenseTrain);
+                        _defenseIndependentVehicleState);
                 if (_defenseBattleSpecialMoveOnly &&
                     !string.IsNullOrWhiteSpace(_defenseRailMaintenanceStableLayoutFingerprint) &&
                     string.Equals(
@@ -4025,7 +3970,7 @@ internal sealed class AutoPlayController
                     _defenseRailRebuildCandidates =
                         _railRebuildPlanner.BuildUnassignedInsertionCandidates(
                             expansionRailState,
-                            _battleTrain,
+                            _defenseIndependentVehicleState,
                             _defenseCatapults);
                     if (_bridge.HasCommand("deleteLinePoint") &&
                         _defenseRailRebuildCandidates.Count > 0)
@@ -4056,7 +4001,7 @@ internal sealed class AutoPlayController
                 _defenseRailInsertionCandidates = _railExpansionPlanner.BuildCandidates(
                     expansionRailState,
                     _defenseCatapults,
-                    _defenseTrain);
+                    _defenseIndependentVehicleState);
                 _defenseRailInsertionScores.Clear();
                 _defenseRailInsertionPreviewIndex = 0;
                 if (_defenseRailInsertionCandidates.Count == 0)
@@ -4087,7 +4032,7 @@ internal sealed class AutoPlayController
                         return true;
                     }
 
-                    FinishDefenseMaintenance("没有携带可验证车头身份的合法扩轨候选。");
+                    FinishDefenseMaintenance("没有携带可验证独立战车身份的合法扩轨候选。");
                     return true;
                 }
 
@@ -4111,7 +4056,7 @@ internal sealed class AutoPlayController
                         _defenseRailRebuildCandidates =
                             _railRebuildPlanner.BuildUnassignedInsertionCandidates(
                                 _defenseRailExpansionBaseline,
-                                _battleTrain,
+                                _defenseIndependentVehicleState,
                                 _defenseCatapults);
                         if (_bridge.HasCommand("deleteLinePoint") && _defenseRailRebuildCandidates.Count > 0)
                         {
@@ -4138,7 +4083,7 @@ internal sealed class AutoPlayController
                     _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
                         _defenseRailExpansionBaseline,
                         _defenseJointLayoutPlan.RailInstanceId,
-                        _battleTrain);
+                        _defenseIndependentVehicleState);
                     if (_defenseRailRebuildSnapshot == null)
                     {
                         MarkDefenseRailMaintenanceStable();
@@ -4192,7 +4137,8 @@ internal sealed class AutoPlayController
                         battleRebuildPreviewResult,
                         battleRebuildCandidate,
                         out double battleRebuildCycle) &&
-                    ImprovesRailTriggerRate(battleRebuildCandidate, battleRebuildCycle))
+                    (_requiredRailTopologyMaintenance ||
+                     ImprovesRailTriggerRate(battleRebuildCandidate, battleRebuildCycle)))
                 {
                     _defenseRailRebuildScores.Add((battleRebuildCandidate, battleRebuildCycle));
                 }
@@ -4235,7 +4181,9 @@ internal sealed class AutoPlayController
                 _defenseRailRebuildScores.Clear();
                 _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
                 ScheduleDefenseMaintenanceStep(
-                    $"已选择未接入中继站重连，预测周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；下一帧从始发站断环。");
+                    _defenseRailRebuildPreviewCycleSeconds > 0d
+                        ? $"已选择未接入中继站重连，预览周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；下一帧从始发站断环。"
+                        : "完整重排已通过独立战车轨道合法性预览；下一帧从始发站断环。" );
                 return true;
 
             case DefenseMaintenanceStep.PreviewRailInsertionCandidate:
@@ -4280,7 +4228,7 @@ internal sealed class AutoPlayController
                     }
                     FinishDefenseMaintenance(
                         _requiredRailTopologyMaintenance
-                            ? "地图新增弹射点当前没有保持周向覆盖的合法接入方案；将重新读取站点状态后重试。"
+                            ? "地图新增弹射点当前没有通过游戏合法性预览的接入方案；将重新读取站点状态后重试。"
                             : "没有候选能够修复周向覆盖，或在相同覆盖层级下提高站点触发率 N/T。",
                         warning: false);
                     return true;
@@ -4288,18 +4236,19 @@ internal sealed class AutoPlayController
 
                 _defenseRailMaintenanceActionFingerprints.Add(
                     BuildDefenseRailInsertionActionFingerprint(
-                        _defenseSelectedRailInsertion));
+                    _defenseSelectedRailInsertion));
+                MarkProgress();
 
                 AddTimeline(
                     "rail-plan",
                     $"选定轨道 {_defenseSelectedRailInsertion.Candidate.RailInternalId}，" +
-                    $"N={_defenseSelectedRailInsertion.Candidate.StationCount}，" +
-                    $"T={_defenseSelectedRailInsertion.Candidate.CurrentLoopCycleSeconds:0.###} 秒，" +
-                    $"预测 T'={_defenseSelectedRailInsertion.PredictedLoopCycleSeconds:0.###} 秒，" +
-                    $"触发率变化 {_defenseSelectedRailInsertion.RelativeGain:P2}。");
+                    $"逐车吞吐估值 {_defenseSelectedRailInsertion.BaselineEffectiveAttackRate:0.###}" +
+                    $"→{_defenseSelectedRailInsertion.PredictedEffectiveAttackRate:0.###}，" +
+                    $"轨道长度 {_defenseSelectedRailInsertion.BaselineRailLength:0.###}" +
+                    $"→{_defenseSelectedRailInsertion.PredictedRailLength:0.###}。");
                 _defenseStructuralVerificationAttempts = 0;
                 _defenseMaintenanceStep = DefenseMaintenanceStep.InsertRailPoint;
-                ScheduleDefenseMaintenanceStep("已记录预测周期，下一帧只提交一次轨道插点命令。");
+                ScheduleDefenseMaintenanceStep("已记录逐车吞吐预测，下一帧只提交一次轨道插点命令。");
                 return true;
 
             case DefenseMaintenanceStep.InsertRailPoint:
@@ -4357,9 +4306,10 @@ internal sealed class AutoPlayController
                 {
                     _defenseStructuralMutationGuard.Reset();
                     _pendingActionKey = string.Empty;
+                    MarkProgress();
                     ContinueDefenseRailOptimization(
                         insertionVerification.Beneficial
-                            ? $"扩轨完成；实测回转周期 {insertionVerification.ObservedLoopCycleSeconds:0.###} 秒。"
+                            ? $"扩轨完成；实测轨道长度 {insertionVerification.ObservedRailLength:0.###}。"
                             : insertionVerification.Detail +
                               " 结构写入已完整对账，不要求重启；将从当前布局继续寻找下一项优化。");
                     return true;
@@ -4442,13 +4392,13 @@ internal sealed class AutoPlayController
                     _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
                         _defenseRailExpansionBaseline,
                         _defenseSpecialMoveCandidate.RailInstanceId,
-                        _battleTrain);
+                        _defenseIndependentVehicleState);
                     if (_defenseRailRebuildSnapshot == null)
                     {
                         _defenseRailMaintenanceActionFingerprints.Add(moveActionFingerprint);
                         _defenseMaintenanceStep = DefenseMaintenanceStep.QueryRailExpansionCandidates;
                         ScheduleDefenseMaintenanceStep(
-                            "无法为目标闭环建立始发站、站点顺序和车列身份快照；未断环，将检查其他候选。");
+                            "无法为目标闭环建立始发站、站点顺序和独立战车快照；未断环，将检查其他候选。");
                         return true;
                     }
 
@@ -4458,7 +4408,7 @@ internal sealed class AutoPlayController
                     _defenseMaintenanceStep = DefenseMaintenanceStep.DisconnectRailForRebuild;
                     ScheduleDefenseMaintenanceStep(
                         $"已预计算完整闭环；预测移动后回转周期 {_defenseSpecialMovePredictedCycleSeconds:0.###} 秒，" +
-                        "下一帧从始发站按玩家右键语义断环并缓存原车列。");
+                        "下一帧从始发站按玩家右键语义断环，并由容量服务接管原独立战车。");
                     return true;
                 }
 
@@ -4534,7 +4484,7 @@ internal sealed class AutoPlayController
                 _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildDisconnected;
                 ScheduleDefenseMaintenanceStep(
                     disconnectVerification.Detail +
-                    " 未取得完整车列缓存证明；后续只读确认并优先恢复原闭环，不会继续移动站点或重发断环命令。");
+                    " 未取得完整独立战车身份证明；后续只读确认并优先恢复原闭环，不会继续移动站点或重发断环命令。");
                 return true;
 
             case DefenseMaintenanceStep.VerifyRailRebuildDisconnected:
@@ -4571,7 +4521,7 @@ internal sealed class AutoPlayController
                 _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
                 _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
                 ScheduleDefenseMaintenanceStep(
-                    "已确认旧轨消失，但没有取得原车列完整缓存证明；只按原站点顺序恢复闭环，不执行目标布局。");
+                    "已确认旧轨消失，但没有取得原独立战车完整身份证明；只按原站点顺序恢复闭环，不执行目标布局。");
                 return true;
 
             case DefenseMaintenanceStep.QueryFreshMovableStation:
@@ -5227,7 +5177,8 @@ internal sealed class AutoPlayController
                 if (!ImprovesRailTriggerRate(
                         _defenseRailRebuildSnapshot,
                         _defenseRailRebuildPreviewCycleSeconds) &&
-                    !_defenseRailRebuildRecoveryAttempted)
+                    !_defenseRailRebuildRecoveryAttempted &&
+                    !_requiredRailTopologyMaintenance)
                 {
                     AddWarning(
                         $"目标闭环预测触发率未严格优于原回路（新周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒）；" +
@@ -5256,7 +5207,9 @@ internal sealed class AutoPlayController
                 }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.DrawRailRebuild;
                 ScheduleDefenseMaintenanceStep(
-                    $"闭环预览合法，预测回转周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；" +
+                    (_defenseRailRebuildPreviewCycleSeconds > 0d
+                        ? $"闭环预览合法，运行时参考周期 {_defenseRailRebuildPreviewCycleSeconds:0.###} 秒；"
+                        : "闭环预览合法；") +
                     "下一帧从始发站依次连接并回到始发站。");
                 return true;
 
@@ -5290,7 +5243,7 @@ internal sealed class AutoPlayController
                 _defenseMaintenanceStep = _defenseRailRebuildRecoveryAttempted
                     ? DefenseMaintenanceStep.VerifyRailRebuildRecovery
                     : DefenseMaintenanceStep.VerifyRailRebuild;
-                ScheduleDefenseMaintenanceStep("重新闭环命令已锁定；下一帧只读验证轨道与原车列身份。");
+                ScheduleDefenseMaintenanceStep("重新闭环命令已锁定；下一帧只读验证轨道、原战车身份和 FIFO 顺序。");
                 return true;
 
             case DefenseMaintenanceStep.VerifyRailRebuild:
@@ -5316,7 +5269,7 @@ internal sealed class AutoPlayController
                         }
                         return true;
                     }
-                    ScheduleDefenseMaintenanceStep("正在只读等待重连后的轨道和原车列恢复。");
+                    ScheduleDefenseMaintenanceStep("正在只读等待重连后的轨道和独立战车恢复。");
                     return true;
                 }
                 _defenseVerifiedRailResult = rebuiltRails;
@@ -5342,17 +5295,17 @@ internal sealed class AutoPlayController
                     return true;
                 }
                 _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyRailRebuildVehicles;
-                ScheduleDefenseMaintenanceStep("已读取重连轨道；下一帧核对始发站恢复的原战车身份。");
+                ScheduleDefenseMaintenanceStep("已读取重连轨道；下一帧核对原独立战车与 FIFO 顺序。");
                 return true;
 
             case DefenseMaintenanceStep.VerifyRailRebuildVehicles:
                 if (_defenseRailRebuildSnapshot == null ||
                     _defenseVerifiedRailResult == null)
                 {
-                    FinishDefenseMaintenance("车列恢复验证快照已丢失，停止本轮维护。", warning: true);
+                    FinishDefenseMaintenance("独立战车恢复验证快照已丢失，停止本轮维护。", warning: true);
                     return true;
                 }
-                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject rebuiltTrains))
+                if (!TryInvokeOptionalReadOnly("queryIndependentVehicleState", null, out JObject rebuiltVehicles))
                 {
                     if (_defenseStructuralMutationGuard.HasTimedOut(
                             Time.realtimeSinceStartup,
@@ -5368,14 +5321,14 @@ internal sealed class AutoPlayController
                         }
                         return true;
                     }
-                    ScheduleDefenseMaintenanceStep("正在读取重连后的车列与战车身份，不会重复绘制命令。");
+                    ScheduleDefenseMaintenanceStep("正在读取重连后的运行战车、FIFO 队列与背包身份，不会重复绘制命令。");
                     return true;
                 }
                 RailRebuildVerification rebuildVerification =
                     _railRebuildPlanner.VerifyRestored(
                         _defenseVerifiedRailResult,
                         _defenseRailRebuildSnapshot,
-                        rebuiltTrains);
+                        rebuiltVehicles);
                 if (rebuildVerification.Verified)
                 {
                     bool strictImprovement = ImprovesRailTriggerRate(
@@ -5389,6 +5342,7 @@ internal sealed class AutoPlayController
                         strictImprovement = JointLayoutMeetsFinalAcceptance(observedJoint);
                     }
                     _defenseStructuralMutationGuard.Reset();
+                    MarkProgress();
                     RememberCommittedSpecialStationMove();
                     if (_defenseJointLayoutPlan != null)
                     {
@@ -5414,7 +5368,7 @@ internal sealed class AutoPlayController
                         _defenseRailRebuildSnapshot = _railRebuildPlanner.Capture(
                             _defenseVerifiedRailResult,
                             _defenseJointLayoutPlan.RailInstanceId,
-                            rebuiltTrains);
+                            rebuiltVehicles);
                         if (_defenseRailRebuildSnapshot == null)
                         {
                             FinishDefenseMaintenance(
@@ -5496,7 +5450,7 @@ internal sealed class AutoPlayController
                 _railRebuildPlanner.RestoreOriginalOrder(_defenseRailRebuildSnapshot);
                 _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailRebuild;
                 ScheduleDefenseMaintenanceStep(
-                    "正在按原站点身份顺序和当前合法位置预览恢复闭环；不会移动或传送车列。");
+                    "正在按原站点身份顺序和当前合法位置预览恢复闭环；不会主动移动或传送战车。");
                 return true;
 
             case DefenseMaintenanceStep.QueryExpansionAttributeDisposable:
@@ -6012,8 +5966,8 @@ internal sealed class AutoPlayController
 
                 AddTimeline(
                     "rail-plan",
-                    $"额外闭环已携带选定战车身份完成预览；预测回转周期 " +
-                    $"{State(preview)["predictedLoopCycleSeconds"]?.Value<double>() ?? 0d:0.###} 秒。");
+                    "额外闭环已按唯一能量点规则完成合法性与无副作用预览；" +
+                    "逐车吞吐将在轨道提交并重新读取独立速度后评估。");
 
                 _defenseMaintenanceStep = DefenseMaintenanceStep.QueryExpansionRailBaseline;
                 ScheduleDefenseMaintenanceStep("额外闭环已通过只读预览，正在记录绘制前的轨道身份基线。");
@@ -6097,7 +6051,7 @@ internal sealed class AutoPlayController
                     };
                     _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyExpansion;
                     ScheduleDefenseMaintenanceStep(
-                        $"已验证唯一新增轨道 {railVerification.RailInstanceId}，下一帧检查车列。");
+                        $"已验证唯一新增轨道 {railVerification.RailInstanceId}，下一帧检查单能量点容量。");
                     return true;
                 }
 
@@ -6121,528 +6075,128 @@ internal sealed class AutoPlayController
                 return true;
 
             case DefenseMaintenanceStep.VerifyExpansion:
-                if (!TryInvokeOptionalReadOnly("queryTrain", null, out JObject expandedTrains))
+                if (!TryInvokeOptionalReadOnly("queryIndependentVehicleState", null, out JObject expandedState))
                 {
                     _defenseExpansionSuspended = true;
-                    FinishDefenseMaintenance("扩建后无法读取车列，已停止本轮维护以避免重复拖线。", warning: true);
+                    FinishDefenseMaintenance("扩建后无法读取动态容量，已停止本轮维护以避免重复拖线。", warning: true);
                     return true;
                 }
 
-                int expandedTrainCount = CountTrainEntries(expandedTrains);
-                if (expandedTrainCount > _defenseTrainCountBeforeExpansion)
+                int verifiedRailInstanceId = ReadRailInstanceId(_defenseVerifiedRailResult?["rail"] as JObject);
+                JObject? expandedRail = (State(expandedState)["rails"] as JArray)?.OfType<JObject>()
+                    .SingleOrDefault(item => ReadRailInstanceId(item) == verifiedRailInstanceId);
+                if (expandedRail == null ||
+                    ReadInt(expandedRail["energyPointCount"], 0) != 1 ||
+                    ReadInt(expandedRail["energyPointInstanceId"], 0) == 0)
                 {
-                    _defenseTrain = expandedTrains;
-                    _defenseVehicle = null;
-                    _defenseExpansionVerificationAttempts = 0;
-                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryVehicle;
-                    ScheduleDefenseMaintenanceStep("已验证额外闭环生成了新车列，准备把背包战车编入新车列。");
+                    _defenseExpansionSuspended = true;
+                    FinishDefenseMaintenance("新增闭环没有且仅有一个可验证能量点；已停止本轮维护。", warning: true);
                     return true;
                 }
 
-                if (_defenseExpansionVerificationAttempts == 0)
+                if (ReadInt(expandedRail["occupiedCount"], 0) > 0)
                 {
-                    AutomationAction? placeVehicle = _battleDecisionEngine.DecideExpansionVehiclePlacement(
-                        _defenseVehicle,
-                        _defenseVerifiedRailResult);
-                    if (placeVehicle != null)
-                    {
-                        _defensePendingAction = placeVehicle;
-                        _defenseMaintenanceStep = DefenseMaintenanceStep.PlaceExpansionVehicle;
-                        ScheduleDefenseMaintenanceStep(placeVehicle.Reason);
-                        return true;
-                    }
+                    FinishDefenseMaintenance("新增单能量点闭环已由独立战车占用，扩建验证完成。", warning: false);
+                    return true;
                 }
 
-                _defenseExpansionVerificationAttempts++;
-                if (_defenseExpansionVerificationAttempts >= MaxDefenseExpansionVerificationAttempts)
+                AutomationAction? expansionDeployment =
+                    _battleDecisionEngine.DecideIndependentVehicleDeployment(expandedState);
+                if (expansionDeployment == null ||
+                    expansionDeployment.Arguments["railInstanceId"]?.Value<int?>() != verifiedRailInstanceId)
                 {
                     _defenseExpansionSuspended = true;
                     FinishDefenseMaintenance(
-                        "额外闭环提交后未在安全时限内观察到新车列；已停止本轮维护以避免重复创建轨道。",
+                        "新增闭环已验证，但没有可按动态容量投放的背包战车；不会重复创建轨道。",
                         warning: true);
                     return true;
                 }
 
-                ScheduleDefenseMaintenanceStep(
-                    $"额外闭环已提交，正在等待新车列（{_defenseExpansionVerificationAttempts}/{MaxDefenseExpansionVerificationAttempts}）。");
+                _defensePendingAction = expansionDeployment;
+                _defenseMaintenanceStep = DefenseMaintenanceStep.DeployExpansionVehicle;
+                ScheduleDefenseMaintenanceStep(expansionDeployment.Reason);
                 return true;
 
-            case DefenseMaintenanceStep.PlaceExpansionVehicle:
+            case DefenseMaintenanceStep.DeployExpansionVehicle:
                 AutomationAction? placement = _defensePendingAction;
-                _defensePendingAction = null;
-                if (placement == null || !ExecuteWithResult(placement, optional: true, out _))
+                if (placement == null)
                 {
                     _defenseExpansionSuspended = true;
-                    if (_runState == AutoPlayerRunState.Running)
-                    {
-                        FinishDefenseMaintenance(
-                            "新闭环没有自动车头，且玩家放车流程未能创建车列；已停止本轮维护以避免重复操作。",
-                            warning: true);
-                    }
+                    FinishDefenseMaintenance("新增闭环投放身份丢失；已停止且不会重复操作。", warning: true);
                     return true;
                 }
 
-                _defenseExpansionVerificationAttempts = 1;
-                _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyExpansion;
-                ScheduleDefenseMaintenanceStep("战车已放入新闭环，正在验证新车列已经创建。");
+                bool placementAccepted = ExecuteWithResult(placement, optional: true, out JObject placementResult);
+                if (!placementAccepted && !RuntimeResultInspector.IsUnsafe(placementResult))
+                {
+                    _defensePendingAction = null;
+                    FinishDefenseMaintenance("游戏容量服务拒绝了新增闭环投放；本轮不重试。", warning: true);
+                    return true;
+                }
+                _defenseExpansionVerificationAttempts = 0;
+                _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyVehicleDeployment;
+                ScheduleDefenseMaintenanceStep("投放写入已锁定；下一帧只读核对运行或 FIFO 排队状态。");
                 return true;
 
-            case DefenseMaintenanceStep.MoveVehicle:
+            case DefenseMaintenanceStep.DeployVehicle:
                 AutomationAction? pendingAction = _defensePendingAction;
+                if (pendingAction == null)
+                {
+                    FinishDefenseMaintenance("独立战车投放身份丢失；本轮未写入。", warning: true);
+                    return true;
+                }
+                bool deploymentAccepted = ExecuteWithResult(pendingAction, optional: true, out JObject deploymentResult);
+                if (!deploymentAccepted && !RuntimeResultInspector.IsUnsafe(deploymentResult))
+                {
+                    _defensePendingAction = null;
+                    FinishDefenseMaintenance("游戏容量服务拒绝投放；容量不足不会重试。", warning: true);
+                    return true;
+                }
+                _defenseExpansionVerificationAttempts = 0;
+                _defenseMaintenanceStep = DefenseMaintenanceStep.VerifyVehicleDeployment;
+                ScheduleDefenseMaintenanceStep("投放写入已锁定；下一帧只读对账且不会重复投放。");
+                return true;
+
+            case DefenseMaintenanceStep.VerifyVehicleDeployment:
+                AutomationAction? submittedDeployment = _defensePendingAction;
+                if (submittedDeployment == null ||
+                    !TryInvokeOptionalReadOnly("queryIndependentVehicleState", null, out JObject reconciledState))
+                {
+                    _defenseExpansionVerificationAttempts++;
+                    if (_defenseExpansionVerificationAttempts < MaxDefenseExpansionVerificationAttempts)
+                    {
+                        ScheduleDefenseMaintenanceStep("投放结果尚不可读；继续只读对账，不重发写命令。");
+                        return true;
+                    }
+                    _defenseExpansionSuspended = true;
+                    FinishDefenseMaintenance("投放结果在安全时限内仍未知；本局暂停自动扩建且不会重发。", warning: true);
+                    return true;
+                }
+
+                if (!IsIndependentDeploymentSettled(reconciledState, submittedDeployment))
+                {
+                    _defenseExpansionVerificationAttempts++;
+                    if (_defenseExpansionVerificationAttempts < MaxDefenseExpansionVerificationAttempts)
+                    {
+                        ScheduleDefenseMaintenanceStep("尚未观察到目标战车运行或排队；继续只读对账。");
+                        return true;
+                    }
+                    _defenseExpansionSuspended = true;
+                    FinishDefenseMaintenance("未能对账目标战车投放；已停止且不会重复投放。", warning: true);
+                    return true;
+                }
+
                 _defensePendingAction = null;
-                bool executed = pendingAction != null && Execute(pendingAction, optional: true);
-                ResetDefenseMaintenanceState();
-                _defenseMaintenanceReady = false;
-                if (!executed) _defenseMaintenanceRequested = false;
+                FinishDefenseMaintenance(
+                    "独立战车投放已完成只读对账：" +
+                    BuildIndependentDeploymentEvidence(reconciledState, submittedDeployment),
+                    warning: false);
                 return true;
 
             default:
                 FinishDefenseMaintenance("防线维护状态无效，已安全重置。", warning: true);
                 return true;
         }
-    }
-
-    private bool HasMergeAutomationContract()
-    {
-        string[] commands =
-        {
-            "openMergePanel",
-            "queryMergeState",
-            "selectMergeVehicle",
-            "submitMergeSelection",
-            "chooseMergeFetter",
-            "queryMergeUiState",
-            "closeMergePanel",
-            "confirmMergeSettlement"
-        };
-        return commands.All(_bridge.HasCommand);
-    }
-
-    private void RunMergeAutomationStep()
-    {
-        if (_mergePassStartedAt >= 0f &&
-            Time.realtimeSinceStartup - _mergePassStartedAt >= MergePassTimeoutSeconds)
-        {
-            BeginMergeReconciliation("本次原生合成流程 30 秒内没有完成，正在只读对账面板阶段。");
-            return;
-        }
-
-        MergeAutomationDecision decision = _mergeAutomationPlanner.Decide(
-            _mergeAutomationQueryResult,
-            _mergeAutomationState);
-        AutomationAction? action = decision.Action;
-        if (action == null)
-        {
-            _mergeAutomationState = decision.NextState;
-            _mergeAutomationQueryResult = null;
-            if (decision.CompletionKind == MergeAutomationCompletionKind.SafeEmptyPanel)
-            {
-                _defenseMaintenanceStep = DefenseMaintenanceStep.CloseMergePanel;
-                ScheduleDefenseMaintenanceStep(decision.Detail + " 正在按原生关闭动作退出空白合成面板。");
-            }
-            else
-            {
-                BeginMergeReconciliation(decision.Detail);
-            }
-            return;
-        }
-
-        if (string.Equals(action.Command, "wait", StringComparison.OrdinalIgnoreCase))
-        {
-            _mergeAutomationState = decision.NextState;
-            _mergeAutomationQueryResult = null;
-            ScheduleDefenseMaintenanceStep(decision.Detail);
-            return;
-        }
-
-        if (string.Equals(action.Command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase))
-        {
-            JObject mergeState = State(_mergeAutomationQueryResult);
-            int itemInstanceId = action.Arguments["itemInstanceId"]?.Value<int>() ?? 0;
-            int itemIndex = action.Arguments["index"]?.Value<int>() ?? -1;
-            JObject? item = (mergeState["mergeVehicles"] as JArray)?.OfType<JObject>()
-                .FirstOrDefault(candidate => itemInstanceId != 0
-                    ? candidate["instanceId"]?.Value<int>() == itemInstanceId
-                    : candidate["index"]?.Value<int>() == itemIndex);
-            int targetInstanceId = item?["instanceId"]?.Value<int>() ?? itemInstanceId;
-            string targetPath = item?["path"]?.Value<string>() ?? string.Empty;
-            NativeSelectionTarget? target = targetInstanceId == 0 && string.IsNullOrWhiteSpace(targetPath)
-                ? null
-                : NativeSelectionTarget.ByInstance(
-                    "MetroTD.UISystem.RebuildUI_MergeRebuildPanel_VehicleItem",
-                    targetInstanceId,
-                    targetPath);
-            if (target != null && TryWaitForSelectionPreview(
-                    "merge-vehicle",
-                    action,
-                    target,
-                    "已用绿色边框标出下一辆升星素材战车；观察时间结束后再选择。"))
-            {
-                return;
-            }
-        }
-
-        if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
-        {
-            JObject mergeState = State(_mergeAutomationQueryResult);
-            int optionIndex = action.Arguments["index"]?.Value<int>() ?? -1;
-            JObject? option = (mergeState["mergeOptions"] as JArray)?.OfType<JObject>()
-                .FirstOrDefault(candidate => candidate["index"]?.Value<int>() == optionIndex);
-            int targetInstanceId = option?["instanceId"]?.Value<int>() ?? 0;
-            string targetPath = option?["path"]?.Value<string>() ?? string.Empty;
-            NativeSelectionTarget? target = targetInstanceId == 0 && string.IsNullOrWhiteSpace(targetPath)
-                ? null
-                : NativeSelectionTarget.ByInstance(
-                    "MetroTD.UISystem.RebuildUI_Option_Merge",
-                    targetInstanceId,
-                    targetPath);
-            if (target != null && TryWaitForSelectionPreview(
-                    "merge-fetter",
-                    action,
-                    target,
-                    "已用绿色边框标出将选择的合成附魔；观察时间结束后再选择。"))
-            {
-                return;
-            }
-        }
-
-        if (string.Equals(action.Command, "queryMergeState", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!TryInvokeOptionalReadOnly(action.Command, action.Arguments, out JObject queryResult))
-            {
-                BeginMergeReconciliation("自动合成无法读取游戏原生合成面板。");
-                return;
-            }
-
-            _mergeAutomationState = decision.NextState;
-            _mergeAutomationQueryResult = queryResult;
-            ScheduleDefenseMaintenanceStep(decision.Detail);
-            return;
-        }
-
-        bool executed = ExecuteWithResult(action, optional: true, out JObject result);
-        if (!executed)
-        {
-            if (_runState == AutoPlayerRunState.Running)
-            {
-                if (_mergeMutationSettlementGuard.IsArmed)
-                {
-                    _mergeAutomationState = decision.NextState;
-                    _mergeAutomationQueryResult = null;
-                }
-
-                BeginMergeReconciliation(
-                    "自动合成命令 " + action.Command + " 未得到最终成功确认。");
-            }
-
-            return;
-        }
-
-        _mergeAutomationState = decision.NextState;
-        _mergeAutomationQueryResult = string.Equals(
-            action.Command,
-            "selectMergeVehicle",
-            StringComparison.OrdinalIgnoreCase)
-            ? result
-            : null;
-        if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
-        {
-            _mergeSettlementWaitStartedAt = Time.realtimeSinceStartup;
-            _mergeSettlementObservedAt = -1f;
-            _mergeSettlementQueryFailures = 0;
-            _defenseMaintenanceStep = DefenseMaintenanceStep.ObserveMergeSettlement;
-            ScheduleDefenseMaintenanceStep("已选择合成附魔，正在等待游戏原生结算画面出现。");
-            return;
-        }
-
-        ScheduleDefenseMaintenanceStep(decision.Detail);
-    }
-
-    private void ObserveMergeSettlement()
-    {
-        float now = Time.realtimeSinceStartup;
-        if (_mergeSettlementWaitStartedAt < 0f)
-        {
-            _mergeSettlementWaitStartedAt = now;
-        }
-
-        if (!TryInvokeOptionalReadOnly("queryMergeUiState", null, out JObject queryResult))
-        {
-            _mergeSettlementQueryFailures++;
-            if (_mergeSettlementQueryFailures >= 3)
-            {
-                PauseForRecoverableRuntimeState(
-                    "连续三次无法读取合成结算阶段。已暂停并保留当前界面，不要求重启游戏。" );
-                return;
-            }
-
-            ScheduleDefenseMaintenanceStep(
-                $"合成结算阶段暂时不可读（{_mergeSettlementQueryFailures}/3），下一帧继续确认。");
-            return;
-        }
-
-        _mergeSettlementQueryFailures = 0;
-        JObject state = State(queryResult);
-        if (state["mergeOpen"]?.Value<bool>() != true)
-        {
-            RecoverFromClosedMergePanel(
-                "选择合成附魔后原生面板已经关闭；将以实际战车状态判断合成结果。");
-            return;
-        }
-
-        if (state["settlementVisible"]?.Value<bool>() == true)
-        {
-            if (_mergeSettlementObservedAt < 0f)
-            {
-                _mergeSettlementObservedAt = now;
-                AddTimeline("merge-settlement", "已观察到游戏原生合成结算，保留画面 0.75 秒供观察。");
-            }
-
-            float confirmationAt = _mergeSettlementObservedAt + MergeSettlementObservationSeconds;
-            if (now < confirmationAt)
-            {
-                _nextTickAt = Math.Max(_nextTickAt, confirmationAt);
-                SetStage(AutomationStage.PreparingDefense, "合成结算已经稳定，正在保留 0.75 秒观察时间。");
-                return;
-            }
-
-            _defenseMaintenanceStep = DefenseMaintenanceStep.ConfirmMergeSettlement;
-            ScheduleDefenseMaintenanceStep("合成结算观察时间已结束，准备按原生确认按钮完成结算。");
-            return;
-        }
-
-        if (now - _mergeSettlementWaitStartedAt >= MergeSettlementAppearanceTimeoutSeconds)
-        {
-            BeginMergeReconciliation(
-                "选择合成附魔后 10 秒内没有观察到原生结算画面。");
-            return;
-        }
-
-        ScheduleDefenseMaintenanceStep("正在等待合成动画完成并显示原生结算画面。");
-    }
-
-    private void ConfirmMergeSettlement()
-    {
-        AutomationAction action = new(
-            "confirmMergeSettlement",
-            null,
-            AutomationStage.PreparingDefense,
-            "按游戏原生确认按钮完成合成结算。");
-        bool executed = ExecuteWithResult(action, optional: true, out JObject result);
-        if (!executed || State(result)["mergeOpen"]?.Value<bool>() == true)
-        {
-            if (_runState == AutoPlayerRunState.Running)
-            {
-                BeginMergeReconciliation("游戏未确认合成结算已经关闭。");
-            }
-
-            return;
-        }
-
-        _mergePassCount++;
-        AddTimeline("merge", $"已通过玩家等价流程完成第 {_mergePassCount} 次战车合成。");
-        ResetCurrentMergePass();
-        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
-        ScheduleDefenseMaintenanceStep("合成已经完成，正在重新读取战车与车列，检查是否还能继续合成。");
-    }
-
-    private void CloseMergePanel()
-    {
-        AutomationAction action = new(
-            "closeMergePanel",
-            null,
-            AutomationStage.PreparingDefense,
-            "按游戏原生关闭按钮退出空白合成面板。");
-        bool executed = ExecuteWithResult(action, optional: true, out JObject result);
-        if (!executed || State(result)["mergeOpen"]?.Value<bool>() == true)
-        {
-            if (_runState == AutoPlayerRunState.Running)
-            {
-                BeginMergeReconciliation("合成面板无法在安全的空白选车阶段关闭。");
-            }
-
-            return;
-        }
-
-        _mergeExhausted = true;
-        ResetCurrentMergePass();
-        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
-        ScheduleDefenseMaintenanceStep("当前没有更多合法合成组，已关闭原生面板并重新读取防线。");
-    }
-
-    private void BeginMergeReconciliation(string reason)
-    {
-        _mergeRecoveryReason = reason;
-        _mergeAutomationQueryResult = null;
-        _defenseMaintenanceStep = DefenseMaintenanceStep.ReconcileMerge;
-        ScheduleDefenseMaintenanceStep(reason + " 正在只读确认面板实际阶段。");
-    }
-
-    private void ReconcileMergeState()
-    {
-        if (_mergeMutationSettlementGuard.IsArmed)
-        {
-            ReconcileUnknownMergeMutation();
-            return;
-        }
-
-        _mergeRecoveryAttempts++;
-        if (!TryInvokeOptionalReadOnly("queryMergeUiState", null, out JObject queryResult))
-        {
-            if (_mergeRecoveryAttempts >= 3)
-            {
-                PauseForRecoverableRuntimeState(
-                    _mergeRecoveryReason +
-                    " 连续三次无法只读确认合成面板，自动游玩已暂停；游戏进程无需重启。" );
-                return;
-            }
-
-            ScheduleDefenseMaintenanceStep(
-                $"合成面板对账暂时失败（{_mergeRecoveryAttempts}/3），下一帧重试。");
-            return;
-        }
-
-        JObject state = State(queryResult);
-        if (state["mergeOpen"]?.Value<bool>() != true)
-        {
-            RecoverFromClosedMergePanel(_mergeRecoveryReason + " 面板现已关闭。");
-            return;
-        }
-
-        if (state["settlementVisible"]?.Value<bool>() == true)
-        {
-            _mergeSettlementWaitStartedAt = Time.realtimeSinceStartup;
-            _mergeSettlementObservedAt = -1f;
-            _mergeSettlementQueryFailures = 0;
-            _defenseMaintenanceStep = DefenseMaintenanceStep.ObserveMergeSettlement;
-            ScheduleDefenseMaintenanceStep(
-                _mergeRecoveryReason + " 已对账到原生结算阶段，将重新观察后安全确认。");
-            return;
-        }
-
-        bool emptySelection = state["isInSelect"]?.Value<bool>() == true &&
-                              state["selectedVehicleCount"]?.Value<int?>() == 0;
-        if (emptySelection && _mergeRecoveryAttempts < 3)
-        {
-            _defenseMaintenanceStep = DefenseMaintenanceStep.CloseMergePanel;
-            ScheduleDefenseMaintenanceStep(
-                _mergeRecoveryReason + " 已对账到空白选车阶段，准备按原生关闭动作退出。");
-            return;
-        }
-
-        string phase = state["phase"]?.Value<string>() ?? "unknown";
-        int selectedCount = state["selectedVehicleCount"]?.Value<int?>() ?? -1;
-        PauseForRecoverableRuntimeState(
-            _mergeRecoveryReason +
-            $" 当前面板阶段为 {phase}，已选素材数为 {selectedCount}；自动游玩不会接管半完成选择。" +
-            " 请在游戏中完成或关闭该面板后继续，游戏进程无需重启。");
-    }
-
-    private void ReconcileUnknownMergeMutation()
-    {
-        _mergeRecoveryAttempts++;
-        JObject? queryResult = null;
-        if (TryInvokeOptionalReadOnly("queryMergeState", null, out JObject observedState))
-        {
-            queryResult = observedState;
-        }
-
-        MergeMutationSettlementStatus status = _mergeMutationSettlementGuard.Observe(
-            queryResult,
-            Time.realtimeSinceStartup,
-            MergeMutationSettlementTimeoutSeconds);
-        if (status == MergeMutationSettlementStatus.Waiting)
-        {
-            ScheduleDefenseMaintenanceStep(
-                "合成写命令结果未知，正在用轻量面板状态只读对账；已锁定且不会重放。" +
-                $"（第 {_mergeRecoveryAttempts} 次观察）");
-            return;
-        }
-
-        if (status == MergeMutationSettlementStatus.TimedOut)
-        {
-            string timedOutCommand = _mergeMutationSettlementGuard.Command;
-            if (_mergeMutationSettlementGuard.OutcomeUnknown)
-            {
-                FaultRequiringProcessRestart(
-                    "合成写命令 " + timedOutCommand +
-                    " 已禁止重放，但 20 秒内无法通过面板身份、名单、车辆选择或阶段变化证明最终结果；" +
-                    "这是未能对账的写入结果未知，请彻底重启游戏进程。");
-            }
-            else
-            {
-                PauseForRecoverableRuntimeState(
-                    "合成写命令 " + timedOutCommand +
-                    " 长时间没有收敛；已保留写入锁且不会重放。请在游戏中完成或关闭合成面板后继续。");
-            }
-
-            return;
-        }
-
-        if (status != MergeMutationSettlementStatus.Settled || queryResult == null)
-        {
-            ScheduleDefenseMaintenanceStep(
-                "合成写命令对账尚未取得完整面板快照；继续保持锁定。");
-            return;
-        }
-
-        string command = _mergeMutationSettlementGuard.Command;
-        _mergeMutationSettlementGuard.Reset();
-        _pendingActionKey = string.Empty;
-        _mergeRecoveryAttempts = 0;
-        _mergeAutomationQueryResult = queryResult;
-        switch (command)
-        {
-            case "confirmMergeSettlement":
-                _mergePassCount++;
-                AddTimeline("merge", $"已通过只读对账确认第 {_mergePassCount} 次战车合成结算完成。");
-                ResetCurrentMergePass();
-                _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
-                ScheduleDefenseMaintenanceStep("合成结算已经通过面板状态对账，正在重新读取实际战车。");
-                return;
-
-            case "closeMergePanel":
-                _mergeExhausted = true;
-                ResetCurrentMergePass();
-                _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
-                ScheduleDefenseMaintenanceStep("合成面板关闭已经通过只读状态确认，正在重新读取防线。");
-                return;
-
-            case "chooseMergeFetter":
-                _mergeSettlementWaitStartedAt = Time.realtimeSinceStartup;
-                _mergeSettlementObservedAt = -1f;
-                _mergeSettlementQueryFailures = 0;
-                _defenseMaintenanceStep = DefenseMaintenanceStep.ObserveMergeSettlement;
-                ScheduleDefenseMaintenanceStep("合成附魔选择已经对账，正在观察原生结算画面。");
-                return;
-
-            default:
-                _defenseMaintenanceStep = DefenseMaintenanceStep.RunMerge;
-                ScheduleDefenseMaintenanceStep(
-                    "合成写命令已经通过只读面板状态对账；按最新状态继续规划，不会重放原命令。");
-                return;
-        }
-    }
-
-    private void RecoverFromClosedMergePanel(string detail)
-    {
-        _mergeExhausted = true;
-        AddWarning(detail);
-        ResetCurrentMergePass();
-        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryTrain;
-        ScheduleDefenseMaintenanceStep(detail + " 正在重新读取实际战车与车列状态。");
-    }
-
-    private void ResetCurrentMergePass()
-    {
-        _mergeAutomationState = MergeAutomationState.Initial;
-        _mergeAutomationQueryResult = null;
-        _mergeSettlementWaitStartedAt = -1f;
-        _mergeSettlementObservedAt = -1f;
-        _mergeSettlementQueryFailures = 0;
-        _mergePassStartedAt = -1f;
-        _mergeRecoveryReason = string.Empty;
-        _mergeRecoveryAttempts = 0;
     }
 
     private void ScheduleDefenseMaintenanceStep(string detail)
@@ -7107,7 +6661,7 @@ internal sealed class AutoPlayController
     private static string BuildDefenseRailMaintenanceLayoutFingerprint(
         JObject? railResult,
         JObject? catapultResult,
-        JObject? trainResult)
+        JObject? independentVehicleState)
     {
         IEnumerable<string> rails =
             (State(railResult)["rails"] as JArray)?.OfType<JObject>()
@@ -7161,30 +6715,21 @@ internal sealed class AutoPlayController
                 .OrderBy(value => value, StringComparer.Ordinal)
             ?? Enumerable.Empty<string>();
 
-        IEnumerable<string> trains =
-            (State(trainResult)["trains"] as JArray)?.OfType<JObject>()
-                .Select(train =>
-                {
-                    IEnumerable<string> vehicles =
-                        (train["vehicles"] as JArray)?.OfType<JObject>()
-                            .Select(vehicle => string.Join(
-                                ",",
-                                vehicle["instanceId"]?.Value<int?>() ?? 0,
-                                vehicle["level"]?.Value<int?>() ?? 0,
-                                vehicle["isFixedHead"]?.Value<bool?>() == true ? 1 : 0))
-                            .OrderBy(value => value, StringComparer.Ordinal)
-                        ?? Enumerable.Empty<string>();
-                    return string.Join(
-                        ":",
-                        "train",
-                        train["railId"]?.Value<int?>() ?? 0,
-                        train["index"]?.Value<int?>() ?? 0,
-                        string.Join(";", vehicles));
-                })
+        IEnumerable<string> vehicles =
+            (State(independentVehicleState)["vehicles"] as JArray)?.OfType<JObject>()
+                .Select(vehicle => string.Join(
+                    ":",
+                    "vehicle",
+                    vehicle["instanceId"]?.Value<int?>() ?? 0,
+                    vehicle["railInstanceId"]?.Value<int?>() ?? 0,
+                    vehicle["runState"]?.Value<string>() ?? string.Empty,
+                    vehicle["waitingIndex"]?.Value<int?>() ?? -1,
+                    FingerprintNumber(vehicle["currentSpeed"]),
+                    FingerprintNumber(vehicle["configuredSpeed"])))
                 .OrderBy(value => value, StringComparer.Ordinal)
             ?? Enumerable.Empty<string>();
 
-        return string.Join("|", rails.Concat(catapults).Concat(trains));
+        return string.Join("|", rails.Concat(catapults).Concat(vehicles));
     }
 
     private string BuildDefenseRailMoveCandidateFingerprint(RailStationMoveCandidate candidate) =>
@@ -7380,20 +6925,10 @@ internal sealed class AutoPlayController
         }
 
         bool preservePendingDisposableMutation = _defensePendingDisposableMutationGuard.IsArmed;
-        bool preserveUnknownMerge = _mergeMutationSettlementGuard.IsArmed;
         _defenseMaintenanceStep = preservePendingDisposableMutation
             ? DefenseMaintenanceStep.WaitForExpansionAttributeSettlement
-            : preserveUnknownMerge
-                ? DefenseMaintenanceStep.ReconcileMerge
-                : DefenseMaintenanceStep.QueryTrain;
-        _defenseTrain = null;
-        _defenseVehicle = null;
-        if (!preserveUnknownMerge)
-        {
-            ResetCurrentMergePass();
-            _mergeExhausted = false;
-            _mergePassCount = 0;
-        }
+            : DefenseMaintenanceStep.QueryIndependentState;
+        _defenseIndependentVehicleState = null;
         _defenseCatapults = null;
         _defensePendingAction = null;
         _defenseExpansionAction = null;
@@ -7402,10 +6937,8 @@ internal sealed class AutoPlayController
         _defenseVerifiedRailResult = null;
         _defenseExpectedRailInstanceId = 0;
         _defenseRailVerificationAttempts = 0;
-        _defenseTrainCountBeforeExpansion = 0;
         _defenseExpansionVerificationAttempts = 0;
         _defenseNeedsNewLoopExpansion = false;
-        _defenseIndependentVehicleMode = false;
         _defensePlacementDisposableEnum = "FreePoint_Attribute";
         _defensePlacementCountBefore = 0;
         _defenseRailExpansionBaseline = null;
@@ -7472,9 +7005,6 @@ internal sealed class AutoPlayController
         if (!string.IsNullOrWhiteSpace(key)) _rejectedDefenseExpansionPaths.Add(key);
     }
 
-    private static int CountTrainEntries(JObject? trainResult) =>
-        (State(trainResult)["trains"] as JArray)?.OfType<JObject>().Count() ?? 0;
-
     private bool TryInvokeOptionalReadOnly(string command, JObject? arguments, out JObject result)
     {
         result = new JObject();
@@ -7512,7 +7042,7 @@ internal sealed class AutoPlayController
     {
         disposition = RuntimeResultDisposition.Failure;
         result = new JObject();
-        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        if (ShouldBlockActiveBattleStructuralMutation(action.Command, out string blockedDetail))
         {
             AddWarning(blockedDetail);
             SetStage(AutomationStage.Battle, blockedDetail);
@@ -7653,7 +7183,6 @@ internal sealed class AutoPlayController
         _battlePendingAction = null;
         _battleDisposable = null;
         _battleRail = null;
-        _battleTrain = null;
         _battleConfirmationArguments = null;
         _battleDisposableSettlementObservationAttempts = 0;
     }
@@ -7662,7 +7191,6 @@ internal sealed class AutoPlayController
     {
         if (_defenseStructuralMutationGuard.IsArmed ||
             _defensePendingDisposableMutationGuard.IsArmed ||
-            _mergeMutationSettlementGuard.IsArmed ||
             _defenseAttributeInteractionInstanceId != 0 ||
             _ownedDisposableInteractionInstanceId != 0 ||
             State(_battleDisposable)["isInPreview"]?.Value<bool>() == true)
@@ -7689,7 +7217,7 @@ internal sealed class AutoPlayController
         _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
         SetStage(
             AutomationStage.Battle,
-            "本波列车调度已完成；准备持续移动可随时调整的弹射点，直到周向覆盖与站点触发率 N/T 都无法继续改善。");
+            "本波独立战车调度已完成；准备持续移动可随时调整的弹射点，直到周向覆盖与逐车吞吐都无法继续改善。");
         return true;
     }
 
@@ -8090,7 +7618,7 @@ internal sealed class AutoPlayController
     private bool TryExecuteActiveBattleAction(AutomationAction action, out JObject result)
     {
         result = new JObject();
-        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        if (ShouldBlockActiveBattleStructuralMutation(action.Command, out string blockedDetail))
         {
             AddWarning(blockedDetail);
             SetStage(AutomationStage.Battle, blockedDetail);
@@ -8115,19 +7643,13 @@ internal sealed class AutoPlayController
         return false;
     }
 
-    private static bool IsForbiddenActiveBattleTrainMutation(string command) =>
-        string.Equals(command, "moveTrainToLine", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "moveVehicleInTrain", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "placeVehicleOnLine", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "openMergePanel", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "submitMergeSelection", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase);
+    private static bool IsForbiddenActiveBattleStructuralMutation(string command) =>
+        string.Equals(command, "deployVehicleToEnergyPoint", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShouldBlockActiveBattleTrainMutation(string command, out string detail)
+    private bool ShouldBlockActiveBattleStructuralMutation(string command, out string detail)
     {
         detail = string.Empty;
-        if (!IsForbiddenActiveBattleTrainMutation(command))
+        if (!IsForbiddenActiveBattleStructuralMutation(command))
         {
             return false;
         }
@@ -8141,7 +7663,7 @@ internal sealed class AutoPlayController
             return false;
         }
 
-        detail = "战斗中已拒绝直接车列写命令 " + command +
+        detail = "战斗中已拒绝独立战车投放命令 " + command +
                  "；只允许站点道具、可移动站点和从始发站断环后的玩家原生重连。";
         return true;
     }
@@ -8292,49 +7814,6 @@ internal sealed class AutoPlayController
         }
     }
 
-    private static bool DidTrainReachMovementTarget(
-        JObject moveResult,
-        JObject railResult,
-        AutomationAction movement)
-    {
-        int trainIndex = movement.Arguments["trainIndex"]?.Value<int?>() ?? -1;
-        int targetLineInstanceId = movement.Arguments["lineInstanceId"]?.Value<int?>() ?? 0;
-        if (trainIndex < 0 || targetLineInstanceId == 0)
-        {
-            return false;
-        }
-
-        JObject? targetRail = (State(railResult)["rails"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(rail => (rail["lines"] as JArray)?.OfType<JObject>().Any(line =>
-                (line["lineInstanceId"]?.Value<int?>()
-                 ?? line["instanceId"]?.Value<int?>()
-                 ?? 0) == targetLineInstanceId) == true);
-        JObject? targetLine = (targetRail?["lines"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(line =>
-                (line["lineInstanceId"]?.Value<int?>()
-                 ?? line["instanceId"]?.Value<int?>()
-                 ?? 0) == targetLineInstanceId);
-        string targetLineName = targetLine?["name"]?.Value<string>() ?? string.Empty;
-        int? targetRailId = targetRail?["railInternalId"]?.Value<int?>()
-                            ?? targetRail?["id"]?.Value<int?>();
-        if (string.IsNullOrWhiteSpace(targetLineName))
-        {
-            return false;
-        }
-
-        JObject? movedTrain = (State(moveResult)["trains"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(train => train["index"]?.Value<int?>() == trainIndex);
-        if (movedTrain == null ||
-            !string.Equals(movedTrain["line"]?.Value<string>(), targetLineName, StringComparison.Ordinal) ||
-            targetRailId.HasValue && movedTrain["railId"]?.Value<int?>() != targetRailId.Value)
-        {
-            return false;
-        }
-
-        bool? expectedForward = movement.Arguments["forward"]?.Value<bool?>();
-        return !expectedForward.HasValue || movedTrain["forward"]?.Value<bool?>() == expectedForward.Value;
-    }
-
     private static bool IsFreshDisconnectedMovableStation(
         JObject? catapultResult,
         JObject? movableResult,
@@ -8391,6 +7870,63 @@ internal sealed class AutoPlayController
         ?? result?["state"] as JObject
         ?? result
         ?? new JObject();
+
+    private static int ReadInt(JToken? token, int fallback = 0) =>
+        token?.Type == JTokenType.Integer ? token.Value<int>() : fallback;
+
+    private static int ReadRailInstanceId(JObject? rail) =>
+        ReadInt(rail?["instanceId"], ReadInt(rail?["railInstanceId"]));
+
+    private static bool IsIndependentDeploymentSettled(
+        JObject stateResult,
+        AutomationAction deployment)
+    {
+        JObject state = State(stateResult);
+        int vehicleInstanceId = ReadInt(deployment.Arguments["vehicleInstanceId"]);
+        int railInstanceId = ReadInt(deployment.Arguments["railInstanceId"]);
+        JObject? rail = (state["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item => ReadRailInstanceId(item) == railInstanceId);
+        JObject? vehicle = (state["vehicles"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item => ReadInt(item["instanceId"]) == vehicleInstanceId);
+        if (rail == null || vehicle == null || vehicle["inBag"]?.Value<bool>() == true)
+            return false;
+        int railInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"]));
+        return (vehicle["running"]?.Value<bool>() == true || vehicle["queued"]?.Value<bool>() == true) &&
+               (railInternalId == 0 || ReadInt(vehicle["railId"]) == railInternalId);
+    }
+
+    private static string BuildIndependentDeploymentEvidence(
+        JObject stateResult,
+        AutomationAction deployment)
+    {
+        JObject state = State(stateResult);
+        int vehicleInstanceId = ReadInt(deployment.Arguments["vehicleInstanceId"]);
+        int railInstanceId = ReadInt(deployment.Arguments["railInstanceId"]);
+        JObject? rail = (state["rails"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item => ReadRailInstanceId(item) == railInstanceId);
+        JObject? vehicle = (state["vehicles"] as JArray)?.OfType<JObject>()
+            .SingleOrDefault(item => ReadInt(item["instanceId"]) == vehicleInstanceId);
+        string vehicleState = vehicle?["running"]?.Value<bool>() == true
+            ? "运行中"
+            : vehicle?["queued"]?.Value<bool>() == true
+                ? "FIFO 等待"
+                : "状态未知";
+        string speed = FormatIndependentSpeed(
+            vehicle?["configuredSpeed"] ?? vehicle?["currentSpeed"] ?? vehicle?["speed"]);
+        return $"战车实例 {vehicleInstanceId} 为{vehicleState}，独立速度 {speed}；" +
+               $"轨道实例 {railInstanceId} 动态容量 {ReadInt(rail?["capacity"], -1)}，" +
+               $"运行 {ReadInt(rail?["runningCount"], -1)}，FIFO 等待 {ReadInt(rail?["waitingCount"], -1)}，" +
+               $"占用 {ReadInt(rail?["occupiedCount"], -1)}，剩余 {ReadInt(rail?["freeCapacity"], -1)}。";
+    }
+
+    private static string FormatIndependentSpeed(JToken? token)
+    {
+        if (token?.Type is not (JTokenType.Integer or JTokenType.Float)) return "未知";
+        double speed = token.Value<double>();
+        return double.IsNaN(speed) || double.IsInfinity(speed)
+            ? "未知"
+            : speed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     private bool HandleWaveObservation(
         bool inWave,
@@ -8802,15 +8338,7 @@ internal sealed class AutoPlayController
         {
             ClearSelectionHighlight("map");
         }
-        else if (string.Equals(action.Command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase))
-        {
-            ClearSelectionHighlight("merge-vehicle");
-        }
-        else if (string.Equals(action.Command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase))
-        {
-            ClearSelectionHighlight("merge-fetter");
-        }
-        if (ShouldBlockActiveBattleTrainMutation(action.Command, out string blockedDetail))
+        if (ShouldBlockActiveBattleStructuralMutation(action.Command, out string blockedDetail))
         {
             AddWarning(blockedDetail);
             SetStage(AutomationStage.Battle, blockedDetail);
@@ -8835,6 +8363,11 @@ internal sealed class AutoPlayController
             action.Command,
             "collectRewardObject",
             StringComparison.OrdinalIgnoreCase);
+        bool independentDeploymentCommand = string.Equals(
+            action.Command,
+            "deployVehicleToEnergyPoint",
+            StringComparison.OrdinalIgnoreCase);
+        bool directUpgradeMutationCommand = IsDirectUpgradeMutationCommand(action.Command);
         int rewardObjectInstanceId = rewardObjectCollectionCommand
             ? action.Arguments["instanceId"]?.Value<int>() ?? 0
             : 0;
@@ -8849,18 +8382,6 @@ internal sealed class AutoPlayController
             SetStage(
                 action.Stage,
                 "该奖励物实例已经领取过；等待旧对象从奖励列表移除，不会再次发送领取命令。");
-            return false;
-        }
-
-        bool mergeMutationCommand = IsMergeMutationCommand(action.Command);
-        if (mergeMutationCommand && _mergeMutationSettlementGuard.IsArmed)
-        {
-            _nextTickAt = Math.Max(
-                _nextTickAt,
-                Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds);
-            SetStage(
-                action.Stage,
-                "上一条合成写命令仍在只读对账；锁定解除前不会发送任何新的合成写命令。");
             return false;
         }
 
@@ -8914,14 +8435,28 @@ internal sealed class AutoPlayController
         _lastRuntimeResult = result;
         _lastMessage = Message(result);
         RuntimeResultDisposition disposition = RuntimeResultInspector.Classify(result);
+        if (string.Equals(action.Command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase) &&
+            action.Arguments["directUpgrade"]?.Value<bool>() == true &&
+            disposition != RuntimeResultDisposition.Failure)
+        {
+            _directUpgradeAutomationActive = true;
+            _directUpgradePendingAction = null;
+            AddTimeline("direct-upgrade", "已选择装修厂战车升级；后续逐阶段验证目标、三项附魔和结算。");
+        }
         if (disposition == RuntimeResultDisposition.Unsafe)
         {
-            if (mergeMutationCommand && TryArmMergeMutation(action, result, outcomeUnknown: true))
+            if (independentDeploymentCommand)
             {
                 _pendingActionKey = string.Empty;
                 AddWarning(
-                    "合成写命令 " + action.Command +
-                    " 的调用结果未知；已保留完整身份并切换到只读对账，不会重复执行。");
+                    "独立战车投放写入结果未知；保留战车与能量点身份，下一帧只读对账且不会重放。");
+                return false;
+            }
+
+            if (directUpgradeMutationCommand)
+            {
+                _pendingActionKey = string.Empty;
+                AddWarning("装修厂升级写入结果未知；保留阶段和实例身份，只读对账且不会重放。");
                 return false;
             }
 
@@ -8965,13 +8500,6 @@ internal sealed class AutoPlayController
 
             FaultRequiringProcessRestart(UnsafeWriteMessage(action.Command, result));
             return false;
-        }
-
-        if (mergeMutationCommand &&
-            disposition == RuntimeResultDisposition.Pending &&
-            !_mergeMutationSettlementGuard.IsArmed)
-        {
-            TryArmMergeMutation(action, result, outcomeUnknown: false);
         }
 
         bool rewardObjectCollectionIssued = rewardObjectCollectionCommand &&
@@ -9082,23 +8610,11 @@ internal sealed class AutoPlayController
         string.Equals(command, "chooseRewardOption", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsMergeMutationCommand(string command) =>
-        string.Equals(command, "openMergePanel", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "submitMergeSelection", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "chooseMergeFetter", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "confirmMergeSettlement", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(command, "closeMergePanel", StringComparison.OrdinalIgnoreCase);
-
-    private bool TryArmMergeMutation(
-        AutomationAction action,
-        JObject result,
-        bool outcomeUnknown) =>
-        _mergeMutationSettlementGuard.TryArm(
-            action,
-            _mergeAutomationQueryResult ?? result,
-            outcomeUnknown,
-            Time.realtimeSinceStartup);
+    private static bool IsDirectUpgradeMutationCommand(string command) =>
+        string.Equals(command, "selectDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "confirmDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "chooseDirectUpgradeEnchantment", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(command, "confirmDirectUpgradeSettlement", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRewardPanelCommand(string command) =>
         string.Equals(command, "collectRewardObject", StringComparison.OrdinalIgnoreCase) ||
@@ -9742,7 +9258,7 @@ internal sealed class AutoPlayController
                 AutomationStage.ManagingRewards,
                 _rewardVehicleContextFailed
                     ? "车辆上下文不可用，下一帧将沿用原有奖励评分。"
-                    : "车辆上下文已读取，下一帧再结合合成、等级和羁绊选择奖励。");
+                    : "车辆上下文已读取，下一帧按独立战车形态和个人附魔选择奖励。");
         }
 
         AutomationAction decision = _rewardVehicleContextFailed || _rewardVehicleContextResult == null
@@ -10239,7 +9755,6 @@ internal sealed class AutoPlayController
         {
             ResetWaveStartObservation();
             _wasInWave = true;
-            _battleTrainIdentitiesMovedThisWave.Clear();
             _wavesStarted++;
             ResetBattleTactics();
             AddTimeline("wave-start", "已观察到第 " + _wavesStarted + " 个波次开始。");
@@ -10269,7 +9784,6 @@ internal sealed class AutoPlayController
 
             ResetWaveStartObservation();
             _wasInWave = false;
-            _battleTrainIdentitiesMovedThisWave.Clear();
             _wavesCompleted++;
             ResetBattleTactics();
             RequestDefenseMaintenance();

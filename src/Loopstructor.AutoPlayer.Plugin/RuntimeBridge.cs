@@ -32,8 +32,6 @@ internal sealed class RuntimeBridge
     private Animator? _roomMapAnimator;
     private PropertyInfo? _settlementUiInstance;
     private MethodInfo? _settlementUiAgain;
-    private PropertyInfo? _trainConfigInstance;
-    private FieldInfo? _independentVehicleMode;
 
     private static readonly (string Command, string Type, string Method)[] RequiredContract =
     {
@@ -64,7 +62,6 @@ internal sealed class RuntimeBridge
         ("cancelDisposable", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "CancelDisposable"),
         ("queryVehicle", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "QueryVehicleState"),
         ("cancelVehicleInteraction", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "CancelVehicleInteraction"),
-        ("moveVehicleInTrain", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "MoveVehicleInTrain"),
         ("queryMap", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "QueryMapState"),
         ("uiClickMapButton", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "UiClickMapButton"),
         ("selectMapNode", "GuiGameAutomation.Runtime.GuiGameMcpMapRuntime", "SelectMapNode"),
@@ -82,7 +79,6 @@ internal sealed class RuntimeBridge
         ("confirmDisposableGrid", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableGrid"),
         ("confirmDisposableWorld", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableWorld"),
         ("confirmDisposableTarget", "GuiGameAutomation.Runtime.GuiGameMcpDisposableRuntime", "ConfirmDisposableTarget"),
-        ("queryTrain", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "QueryTrainState"),
         ("queryRail", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "QueryRailState"),
         ("queryCatapults", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "QueryCatapults"),
         ("previewRailPath", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "PreviewRailPath"),
@@ -91,14 +87,7 @@ internal sealed class RuntimeBridge
         ("deleteLinePoint", "GuiGameAutomation.Runtime.GuiGameMcpLineRuntime", "DeleteLinePoint"),
         ("queryMovableStationState", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "QueryMovableStationState"),
         ("startStationMove", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "StartStationMove"),
-        ("confirmStationMoveGrid", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "ConfirmStationMoveGrid"),
-        ("placeVehicleOnLine", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "PlaceVehicleOnLine"),
-        ("moveTrainToLine", "GuiGameAutomation.Runtime.GuiGameMcpVehicleRuntime", "MoveTrainToLine"),
-        ("openMergePanel", "GuiGameAutomation.Runtime.GuiGameMcpRebuildSellRuntime", "OpenMergePanel"),
-        ("queryMergeState", "GuiGameAutomation.Runtime.GuiGameMcpRebuildSellRuntime", "QueryMergeState"),
-        ("selectMergeVehicle", "GuiGameAutomation.Runtime.GuiGameMcpRebuildSellRuntime", "SelectMergeVehicle"),
-        ("submitMergeSelection", "GuiGameAutomation.Runtime.GuiGameMcpRebuildSellRuntime", "SubmitMergeSelection"),
-        ("chooseMergeFetter", "GuiGameAutomation.Runtime.GuiGameMcpRebuildSellRuntime", "ChooseMergeFetter")
+        ("confirmStationMoveGrid", "GuiGameAutomation.Runtime.GuiGameMcpStationRuntime", "ConfirmStationMoveGrid")
     };
 
     public bool IsAvailable { get; private set; }
@@ -167,8 +156,15 @@ internal sealed class RuntimeBridge
         InitializeWaveFunctionOptionFlowContract();
         InitializeMapAnimationContract();
         InitializeSettlementRestartContract();
-        InitializeTrainPolicyContract();
         _liveEnemyThreatReader.Initialize();
+        if (!IndependentVehicleRuntimeFallback.IsAvailable)
+        {
+            missing.Add("EnergyCatapultTrainCacheService independent-vehicle contract");
+        }
+        if (!DirectUpgradeUiRuntimeFallback.IsAvailable)
+        {
+            missing.Add("RebuildUI_DirectUpgradePanel decoration-factory contract");
+        }
         MissingMembers = missing;
         IsAvailable = missing.Count == 0;
         return IsAvailable;
@@ -177,35 +173,13 @@ internal sealed class RuntimeBridge
     public bool HasCommand(string command) =>
         !string.IsNullOrWhiteSpace(command) &&
         (_commands.ContainsKey(command) ||
-         string.Equals(command, "queryMergeUiState", StringComparison.OrdinalIgnoreCase) ||
-         string.Equals(command, "closeMergePanel", StringComparison.OrdinalIgnoreCase) ||
-         string.Equals(command, "confirmMergeSettlement", StringComparison.OrdinalIgnoreCase));
-
-    public bool TryGetIndependentVehicleMode(out bool enabled)
-    {
-        enabled = false;
-        if (_trainConfigInstance == null || _independentVehicleMode == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            object? config = _trainConfigInstance.GetValue(null, null);
-            if (config == null || _independentVehicleMode.GetValue(config) is not bool value)
-            {
-                return false;
-            }
-
-            enabled = value;
-            return true;
-        }
-        catch
-        {
-            enabled = false;
-            return false;
-        }
-    }
+         string.Equals(command, "queryIndependentVehicleState", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "deployVehicleToEnergyPoint", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "queryDirectUpgradeState", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "selectDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "confirmDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "chooseDirectUpgradeEnchantment", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(command, "confirmDirectUpgradeSettlement", StringComparison.OrdinalIgnoreCase));
 
     public bool TryGetWavePulse(out bool inWave, out bool gameOver, out int remainingEnemies)
     {
@@ -316,32 +290,66 @@ internal sealed class RuntimeBridge
                     "当前无法绑定已注册奖励物及其玩家点击链；已阻止回落到原生全场景扫描命令，请重新查询奖励状态。");
             }
 
-            if (string.Equals(command, "queryMergeState", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(command, "queryIndependentVehicleState", StringComparison.OrdinalIgnoreCase))
             {
-                return InvokeLightweightMergeQuery();
+                JObject rail = InvokeNative("queryRail", null, false, out _);
+                if (rail["success"]?.Value<bool>() == false) return rail;
+                JObject vehicle = InvokeNative("queryVehicle", null, false, out _);
+                if (vehicle["success"]?.Value<bool>() == false) return vehicle;
+                return IndependentVehicleRuntimeFallback.TryBuildState(rail, vehicle, out JObject state)
+                    ? state
+                    : LightweightContractUnavailable(
+                        command,
+                        "独立战车容量服务反射契约不可用；无法安全读取容量与 FIFO 等待队列。");
             }
 
-            if (string.Equals(command, "selectMergeVehicle", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(command, "deployVehicleToEnergyPoint", StringComparison.OrdinalIgnoreCase))
             {
-                return InvokeLightweightMergeSelection(arguments);
+                mutationInvocationStarted = true;
+                return IndependentVehicleRuntimeFallback.TryDeploy(arguments, out JObject deployment)
+                    ? deployment
+                    : LightweightContractUnavailable(
+                        command,
+                        "独立战车投放契约不可用；本次未投放，也不会回落到已废弃调度命令。");
             }
 
-            if (string.Equals(command, "queryMergeUiState", StringComparison.OrdinalIgnoreCase) &&
-                MergeUiRuntimeFallback.TryQueryState(out JObject mergeUiState))
+            if (string.Equals(command, "queryDirectUpgradeState", StringComparison.OrdinalIgnoreCase))
             {
-                return mergeUiState;
+                return DirectUpgradeUiRuntimeFallback.TryQuery(out JObject directUpgradeState)
+                    ? directUpgradeState
+                    : LightweightContractUnavailable(command, "装修厂升级面板反射契约不可用。");
             }
 
-            if (string.Equals(command, "closeMergePanel", StringComparison.OrdinalIgnoreCase) &&
-                MergeUiRuntimeFallback.TryClosePanel(out JObject mergeClose))
+            if (string.Equals(command, "selectDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase))
             {
-                return mergeClose;
+                mutationInvocationStarted = true;
+                return DirectUpgradeUiRuntimeFallback.TrySelectVehicle(arguments, out JObject selection)
+                    ? selection
+                    : LightweightContractUnavailable(command, "装修厂选车契约不可用；本次未选择。");
             }
 
-            if (string.Equals(command, "confirmMergeSettlement", StringComparison.OrdinalIgnoreCase) &&
-                MergeUiRuntimeFallback.TryConfirmSettlement(out JObject mergeConfirmation))
+            if (string.Equals(command, "confirmDirectUpgradeVehicle", StringComparison.OrdinalIgnoreCase))
             {
-                return mergeConfirmation;
+                mutationInvocationStarted = true;
+                return DirectUpgradeUiRuntimeFallback.TryConfirmVehicle(arguments, out JObject confirmation)
+                    ? confirmation
+                    : LightweightContractUnavailable(command, "装修厂升级确认契约不可用；本次未确认。");
+            }
+
+            if (string.Equals(command, "chooseDirectUpgradeEnchantment", StringComparison.OrdinalIgnoreCase))
+            {
+                mutationInvocationStarted = true;
+                return DirectUpgradeUiRuntimeFallback.TryChooseEnchantment(arguments, out JObject enchantment)
+                    ? enchantment
+                    : LightweightContractUnavailable(command, "装修厂附魔选择契约不可用；本次未选择。");
+            }
+
+            if (string.Equals(command, "confirmDirectUpgradeSettlement", StringComparison.OrdinalIgnoreCase))
+            {
+                mutationInvocationStarted = true;
+                return DirectUpgradeUiRuntimeFallback.TryConfirmSettlement(arguments, out JObject settlement)
+                    ? settlement
+                    : LightweightContractUnavailable(command, "装修厂结算确认契约不可用；本次未确认。");
             }
 
             if (string.Equals(command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase))
@@ -354,22 +362,7 @@ internal sealed class RuntimeBridge
                 return InvokeLightweightWaveFunctionQuery(arguments);
             }
 
-            if (!_commands.TryGetValue(command, out MethodInfo method))
-            {
-                return Error("自动游玩命令不可用：" + command);
-            }
-
-            string jsonArguments = arguments == null ? "{}" : arguments.ToString(Formatting.None);
-            mutationInvocationStarted = IsMutatingCommand(command);
-            object? result = method.Invoke(null, new object[] { jsonArguments });
-            if (result == null)
-            {
-                return mutationInvocationStarted
-                    ? UncertainMutationError("自动游玩写命令已经开始执行，但运行时返回了空结果：" + command)
-                    : Error("自动游玩运行时返回了空结果：" + command);
-            }
-
-            JObject adapted = AdaptRuntimeResult(result);
+            JObject adapted = InvokeNative(command, arguments, IsMutatingCommand(command), out mutationInvocationStarted);
             if (string.Equals(command, "queryWaveThreats", StringComparison.OrdinalIgnoreCase) &&
                 adapted["success"]?.Value<bool>() != false)
             {
@@ -560,17 +553,6 @@ internal sealed class RuntimeBridge
             BindingFlags.Public | BindingFlags.Instance);
     }
 
-    private void InitializeTrainPolicyContract()
-    {
-        Type? configType = FindType("MetroTD.LineSystem.TrainConfigSO");
-        _trainConfigInstance = configType?.GetProperty(
-            "Instance",
-            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
-        _independentVehicleMode = configType?.GetField(
-            "independentVehicleMode",
-            BindingFlags.Public | BindingFlags.Instance);
-    }
-
     private void InitializeMapAnimationContract()
     {
         _roomMapAnimator = null;
@@ -648,6 +630,31 @@ internal sealed class RuntimeBridge
             ["data"] = ToJsonToken(_resultData.GetValue(result)),
             ["suggestion"] = ToJsonToken(_resultSuggestion.GetValue(result))
         };
+    }
+
+    private JObject InvokeNative(
+        string command,
+        JObject? arguments,
+        bool mutating,
+        out bool mutationInvocationStarted)
+    {
+        mutationInvocationStarted = false;
+        if (!_commands.TryGetValue(command, out MethodInfo method))
+        {
+            return Error("自动游玩命令不可用：" + command);
+        }
+
+        string jsonArguments = arguments == null ? "{}" : arguments.ToString(Formatting.None);
+        mutationInvocationStarted = mutating;
+        object? result = method.Invoke(null, new object[] { jsonArguments });
+        if (result == null)
+        {
+            return mutating
+                ? UncertainMutationError("自动游玩写命令已经开始执行，但运行时返回了空结果：" + command)
+                : Error("自动游玩运行时返回了空结果：" + command);
+        }
+
+        return AdaptRuntimeResult(result);
     }
 
     private static JToken ToJsonToken(object? value) => value switch
@@ -849,20 +856,6 @@ internal sealed class RuntimeBridge
             : LightweightContractUnavailable(
                 "skipReward",
                 "轻量奖励跳过反射契约不可用；本次未跳过，并已阻止回落到原生 MCP 写命令。");
-
-    private static JObject InvokeLightweightMergeQuery() =>
-        MergeUiRuntimeFallback.TryQueryAutomationState(out JObject result)
-            ? result
-            : LightweightContractUnavailable(
-                "queryMergeState",
-                "轻量合成面板反射契约不可用；已阻止回落到会扫描整个场景的原生 MCP 查询。");
-
-    private static JObject InvokeLightweightMergeSelection(JObject? arguments) =>
-        MergeUiRuntimeFallback.TrySelectMergeVehicle(arguments, out JObject result)
-            ? result
-            : LightweightContractUnavailable(
-                "selectMergeVehicle",
-                "轻量合成选车反射契约不可用；本次未点击，并已阻止回落到原生 MCP 写命令。");
 
     private static JObject InvokeLightweightWaveFunctionQuery(JObject? arguments)
     {

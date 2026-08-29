@@ -55,7 +55,7 @@ public enum AutomationGameMode
 
 public enum AutomationDecisionPriority
 {
-    ThreeStarVehicles = 0,
+    VehicleRewards = 0,
     CatapultPoints = 1,
     Relics = 2
 }

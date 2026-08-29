@@ -20,9 +20,10 @@ public sealed class LiveThreatRuntimeContractTests
         Assert.Contains(Calls(initialize), IsCall(ReaderType, "Initialize"));
         Assert.Contains(LoadedStrings(invoke), value => value == "queryWaveThreats");
 
-        int adapt = FindCall(instructions, BridgeType, "AdaptRuntimeResult");
+        int nativeDispatch = FindCall(instructions, BridgeType, "InvokeNative");
         int enrich = FindCall(instructions, ReaderType, "TryEnrich");
-        Assert.True(adapt >= 0 && adapt < enrich);
+        Assert.True(nativeDispatch >= 0 && nativeDispatch < enrich);
+        Assert.Contains(Calls(RequireMethod(bridge, "InvokeNative")), IsCall(BridgeType, "AdaptRuntimeResult"));
         Assert.Contains(Calls(invoke), IsCall(BridgeType, "TryGetWavePulse"));
     }
 

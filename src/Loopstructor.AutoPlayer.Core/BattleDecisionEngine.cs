@@ -19,8 +19,7 @@ public sealed class BattleDecisionContext
     public bool AllowVehicleReinforcement { get; set; } = true;
     public JObject? DisposableConfirmationArguments { get; set; }
     public JObject? DisposableGridOptionsResult { get; set; }
-    public JObject? RailResult { get; set; }
-    public bool IndependentVehicleMode { get; set; }
+    public JObject? IndependentVehicleState { get; set; }
 }
 
 public sealed class DefenseExpansionRailVerification
@@ -49,14 +48,6 @@ public sealed class RuntimeSpecialStationDisposable
 /// </summary>
 public sealed class BattleDecisionEngine
 {
-    // The supported game build uses two world units per logical rail grid cell.
-    private const double WorldToGridScale = 0.5d;
-    private const double MinimumTrainMovementImprovement = 0.01d;
-    private const double MinimumTrainMovementRelativeImprovement = 0.01d;
-    private const double LiveThreatUrgencyReserve = 0.6d;
-    private const double LiveThreatUrgencyDistanceOffset = 0.5d;
-    private const double LiveThreatUrgencyExponent = 4d;
-    private const double LiveThreatUrgencyActivationRadius = 3d;
     private const string ExpansionAttributeDisposableEnum = "FreePoint_Attribute";
     private const string ExpansionCommonDisposableEnum = "FreePoint";
     private static readonly HashSet<string> ReservedRailExpansionDisposableEnums = new(StringComparer.OrdinalIgnoreCase)
@@ -73,7 +64,7 @@ public sealed class BattleDecisionEngine
         BattleDecisionContext context,
         JObject? waveResult,
         JObject? disposableResult,
-        JObject? trainResult,
+        JObject? independentVehicleState,
         JObject? vehicleResult)
     {
         if (context == null)
@@ -124,226 +115,68 @@ public sealed class BattleDecisionEngine
         }
 
         return context.AllowVehicleReinforcement
-            ? DecideVehicleReinforcement(
-                State(trainResult),
-                State(vehicleResult),
-                State(context.RailResult),
-                context.IndependentVehicleMode)
+            ? DecideIndependentVehicleDeployment(
+                vehicleResult ?? independentVehicleState ?? context.IndependentVehicleState)
             : null;
     }
 
-    public AutomationAction DecideTrainMovement(
-        JObject? waveThreatsResult,
-        JObject? railResult,
-        JObject? trainResult,
-        ISet<int>? excludedTrainIndexes = null)
+    /// <summary>
+    /// Chooses one identity-safe deployment from the independent-vehicle snapshot. Capacity is
+    /// authoritative only when it includes both running and FIFO-waiting vehicles.
+    /// </summary>
+    public AutomationAction? DecideIndependentVehicleDeployment(JObject? stateResult)
     {
-        JObject threats = State(waveThreatsResult);
-        JObject rails = State(railResult);
-        JObject trains = State(trainResult);
-
-        List<ThreatCandidate> activeThreats = BuildThreatCandidates(threats);
-        if (activeThreats.Count == 0)
-        {
-            return AutomationAction.Wait(AutomationStage.Battle, "当前没有可用于列车机动的活动威胁。");
-        }
-
-        List<JObject> allMovableTrains = ((trains["trains"] as JArray)?.OfType<JObject>()
-                ?? Enumerable.Empty<JObject>())
-            .Where(IsMovableTrain)
-            .GroupBy(item => ReadInt(item["index"], -1))
-            .Where(group => group.Count() == 1)
-            .Select(group => group.Single())
-            .ToList();
-        if (allMovableTrains.Count == 0)
-        {
-            return AutomationAction.Wait(AutomationStage.Battle, "当前没有可移动的既有车列。");
-        }
-
-        List<JObject> candidateTrains = allMovableTrains
-            .Where(train => excludedTrainIndexes?.Contains(TrainStableIdentity(train)) != true)
-            .ToList();
-        if (candidateTrains.Count == 0)
-        {
-            return AutomationAction.Wait(AutomationStage.Battle, "本波所有可移动车列都已经完成一次调度，不再重复移动。");
-        }
-
-        JArray? railItems = rails["rails"] as JArray;
-        if (railItems == null || railItems.Count == 0)
-        {
-            return AutomationAction.Wait(AutomationStage.Battle, "当前没有可用于列车机动的轨道。");
-        }
-
-        HashSet<int> uniqueLineInstanceIds = new HashSet<int>(railItems
-            .OfType<JObject>()
-            .SelectMany(rail => (rail["lines"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
-            .Select(line => ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0)))
-            .Where(instanceId => instanceId != 0)
-            .GroupBy(instanceId => instanceId)
-            .Where(group => group.Count() == 1)
-            .Select(group => group.Key));
-
-        List<TrainCoveragePosition> currentPositions = new();
-        Dictionary<int, List<LineCandidate>> candidatesByTrain = new();
-        foreach (JObject train in allMovableTrains)
-        {
-            int trainIndex = ReadInt(train["index"], -1);
-            int? sourceRailId = ReadNullableInt(train["railId"]);
-            string currentLineName = train["line"]?.Value<string>() ?? string.Empty;
-            List<LineCandidate> lineCandidates = EnumerateLineCandidates(
-                    railItems,
-                    sourceRailId,
-                    currentLineName)
-                .Where(candidate => uniqueLineInstanceIds.Contains(candidate.LineInstanceId))
-                .ToList();
-            candidatesByTrain[trainIndex] = lineCandidates;
-            LineCandidate? currentLine = lineCandidates.Count(candidate => candidate.IsCurrentLine) == 1
-                ? lineCandidates.Single(candidate => candidate.IsCurrentLine)
-                : null;
-            currentPositions.Add(new TrainCoveragePosition(
-                trainIndex,
-                TrainPowerScore(train),
-                currentLine));
-        }
-
-        double baselineUtility = CoverageUtility(activeThreats, currentPositions, null);
-        List<TrainMovementCandidate> improvements = new();
-        List<TrainMovementCandidate> recoveryCandidates = new();
-
-        foreach (JObject train in candidateTrains)
-        {
-            int trainIndex = ReadInt(train["index"], -1);
-            int trainIdentity = TrainStableIdentity(train);
-            int vehicleCount = TrainVehicleCount(train);
-            double trainPower = TrainPowerScore(train);
-            List<LineCandidate> lineCandidates = candidatesByTrain.TryGetValue(trainIndex, out List<LineCandidate>? value)
-                ? value
-                : new List<LineCandidate>();
-            List<LineCandidate> currentLines = lineCandidates
-                .Where(candidate => candidate.IsCurrentLine)
-                .ToList();
-            LineCandidate? currentLine = currentLines.Count == 1 ? currentLines[0] : null;
-
-            foreach (LineCandidate target in lineCandidates.Where(candidate => !candidate.IsCurrentLine))
-            {
-                TrainCoveragePosition replacement = new(trainIndex, trainPower, target);
-                double afterUtility = CoverageUtility(activeThreats, currentPositions, replacement);
-                ThreatCandidate servedThreat = SelectServedThreat(
-                    activeThreats,
-                    currentPositions,
-                    replacement);
-                if (currentLine == null)
-                {
-                    recoveryCandidates.Add(new TrainMovementCandidate(
-                        trainIndex,
-                        trainIdentity,
-                        vehicleCount,
-                        trainPower,
-                        target,
-                        afterUtility,
-                        servedThreat));
-                    continue;
-                }
-
-                double improvement = afterUtility - baselineUtility;
-                double relativeImprovement = improvement / Math.Max(Math.Abs(baselineUtility), 1d);
-                if (improvement > MinimumTrainMovementImprovement &&
-                    relativeImprovement >= MinimumTrainMovementRelativeImprovement)
-                {
-                    improvements.Add(new TrainMovementCandidate(
-                        trainIndex,
-                        trainIdentity,
-                        vehicleCount,
-                        trainPower,
-                        target,
-                        improvement,
-                        servedThreat));
-                }
-            }
-        }
-
-        TrainMovementCandidate? selected = improvements
-            .OrderByDescending(candidate => candidate.Improvement)
-            .ThenByDescending(candidate => candidate.TrainPower)
-            .ThenByDescending(candidate => candidate.VehicleCount)
-            .ThenBy(candidate => candidate.TrainIndex)
-            .ThenBy(candidate => candidate.Target.LineInstanceId)
+        JObject state = State(stateResult);
+        JObject? vehicle = (state["vehicles"] as JArray)?.OfType<JObject>()
+            .Where(IsBagVehicle)
+            .Where(item => ReadInt(item["instanceId"], 0) != 0)
+            .OrderByDescending(item => ReadDouble(item["baseCombatPower"], 0d))
+            .ThenBy(item => ReadInt(item["instanceId"], int.MaxValue))
             .FirstOrDefault();
-        bool recoveringMissingPosition = false;
-        if (selected == null)
-        {
-            selected = recoveryCandidates
-                .OrderByDescending(candidate => candidate.Improvement)
-                .ThenByDescending(candidate => candidate.TrainPower)
-                .ThenByDescending(candidate => candidate.VehicleCount)
-                .ThenBy(candidate => candidate.TrainIndex)
-                .ThenBy(candidate => candidate.Target.LineInstanceId)
-                .FirstOrDefault();
-            recoveringMissingPosition = selected != null;
-        }
+        JObject? rail = (state["rails"] as JArray)?.OfType<JObject>()
+            .Where(IsUsablePlayerRail)
+            .Where(item => ReadInt(item["energyPointCount"], 0) == 1)
+            .Where(item => ReadInt(item["energyPointInstanceId"], 0) != 0)
+            .Where(item => ReadInt(item["freeCapacity"], 0) > 0)
+            .OrderByDescending(item => ReadInt(item["occupiedCount"], 0))
+            .ThenBy(item => ReadDouble(item["loopCycleSeconds"], double.MaxValue))
+            .ThenBy(item => ReadInt(item["instanceId"], int.MaxValue))
+            .FirstOrDefault();
+        if (vehicle == null || rail == null) return null;
 
-        if (selected == null)
-        {
-            return AutomationAction.Wait(
-                AutomationStage.Battle,
-                "所有可定位车列都没有距离上的正改善，或主威胁方向上没有空闲合法目标，无需重复调度。");
-        }
+        int vehicleInstanceId = ReadInt(vehicle["instanceId"], 0);
+        int energyPointInstanceId = ReadInt(rail["energyPointInstanceId"], 0);
+        int railInstanceId = ReadInt(rail["instanceId"], ReadInt(rail["railInstanceId"], 0));
+        if (vehicleInstanceId == 0 || energyPointInstanceId == 0 || railInstanceId == 0) return null;
 
+        string name = vehicle["name"]?.Value<string>()
+                      ?? vehicle["vehicleType"]?.Value<string>()
+                      ?? "未知战车";
         return new AutomationAction(
-                "moveTrainToLine",
-            JObject.FromObject(new
-            {
-                trainIndex = selected.TrainIndex,
-                trainIdentity = selected.TrainIdentity,
-                lineInstanceId = selected.Target.LineInstanceId,
-                forward = selected.Target.ForwardToward(selected.ServedThreat.X, selected.ServedThreat.Y)
-            }),
-            AutomationStage.Battle,
-            recoveringMissingPosition
-                ? $"车列 {selected.TrainIndex} 缺少可验证的当前线段；将其调往覆盖当前威胁收益最高的空闲合法线段（{BuildThreatSourceDetail(threats)}）。"
-                : $"把车列 {selected.TrainIndex} 调往对当前威胁边际覆盖收益最高的空闲合法线段（{BuildThreatSourceDetail(threats)}）。"
-        );
+            "deployVehicleToEnergyPoint",
+            JObject.FromObject(new { vehicleInstanceId, energyPointInstanceId, railInstanceId }),
+            AutomationStage.PreparingDefense,
+            $"轨道动态容量尚余 {ReadInt(rail["freeCapacity"], 0)}；向唯一能量点投放 {name}，占用时由游戏 FIFO 排队。");
     }
 
-    public bool NeedsDefenseExpansion(JObject? trainResult, JObject? vehicleResult)
-        => NeedsDefenseExpansion(trainResult, vehicleResult, null, independentVehicleMode: false);
-
-    public bool NeedsDefenseExpansion(
-        JObject? trainResult,
-        JObject? vehicleResult,
-        JObject? railResult,
-        bool independentVehicleMode)
+    public bool NeedsIndependentDefenseExpansion(JObject? stateResult)
     {
-        JObject trainsState = State(trainResult);
-        JObject vehiclesState = State(vehicleResult);
-        bool hasBagVehicle = (vehiclesState["vehicles"] as JArray)?
-            .OfType<JObject>()
-            .Any(IsBagVehicle) == true;
-        if (independentVehicleMode)
-        {
-            JObject railsState = State(railResult);
-            List<JObject> rails = (railsState["rails"] as JArray)?
-                .OfType<JObject>()
-                .Where(IsUsablePlayerRail)
-                .ToList() ?? new List<JObject>();
-            return hasBagVehicle && rails.Count > 0 && rails.All(rail => !RailHasDriverCapacity(rail));
-        }
-
-        JArray? trains = trainsState["trains"] as JArray;
-        bool hasExistingTrain = trains?.OfType<JObject>().Any() == true;
-        bool hasFreeCapacity = trains?.OfType<JObject>().Any(HasTrainCapacity) == true;
-        return hasExistingTrain && hasBagVehicle && !hasFreeCapacity;
+        JObject state = State(stateResult);
+        bool hasBagVehicle = (state["vehicles"] as JArray)?.OfType<JObject>().Any(IsBagVehicle) == true;
+        JObject[] rails = (state["rails"] as JArray)?.OfType<JObject>()
+            .Where(IsUsablePlayerRail)
+            .Where(item => ReadInt(item["energyPointCount"], 0) == 1)
+            .ToArray() ?? Array.Empty<JObject>();
+        return hasBagVehicle && rails.Length > 0 &&
+               rails.All(item => ReadInt(item["freeCapacity"], 0) <= 0);
     }
 
     public AutomationAction? DecideDefenseExpansion(
-        JObject? trainResult,
-        JObject? vehicleResult,
+        JObject? independentVehicleState,
         JObject? catapultResult,
-        ISet<string>? rejectedPathKeys = null,
-        JObject? railResult = null,
-        bool independentVehicleMode = false)
+        ISet<string>? rejectedPathKeys = null)
     {
-        if (!NeedsDefenseExpansion(trainResult, vehicleResult, railResult, independentVehicleMode))
+        if (!NeedsIndependentDefenseExpansion(independentVehicleState))
         {
             return null;
         }
@@ -393,7 +226,9 @@ public sealed class BattleDecisionEngine
             });
         }
         RailLoopPlan? plannedLoop = RailLayoutStrategyPlanner.PlanPlayerLoop(loopPoints);
-        if (plannedLoop != null && plannedLoop.OrderedPointInstanceIds.Count >= 3)
+        if (plannedLoop != null &&
+            plannedLoop.OrderedPointInstanceIds.Count >= 3 &&
+            IsAcceptableNewDefenseLoop(plannedLoop.Score))
         {
             JArray plannedIds = new(plannedLoop.OrderedPointInstanceIds);
             string plannedKey = BuildDefenseExpansionPathKey(plannedIds);
@@ -439,7 +274,7 @@ public sealed class BattleDecisionEngine
                         commonPoints[first],
                         commonPoints[second],
                         occupiedPoints);
-                    if (score.Area <= 0.000001d)
+                    if (score.Area <= 0.000001d || !IsAcceptableNewDefenseLoop(score.Layout))
                     {
                         continue;
                     }
@@ -464,37 +299,18 @@ public sealed class BattleDecisionEngine
             return null;
         }
 
-        JObject? previewVehicle = (State(vehicleResult)["vehicles"] as JArray)?
-            .OfType<JObject>()
-            .Where(IsBagVehicle)
-            .OrderByDescending(item => ReadInt(item["level"], 0))
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        JObject vehicleIdentity = previewVehicle == null
-            ? new JObject()
-            : BuildIdentity(previewVehicle, preferItemInstanceId: false);
-        if (!vehicleIdentity.HasValues)
-        {
-            return null;
-        }
-
         JObject expansionArguments = new()
         {
-            ["linePointInstanceIds"] = linePointInstanceIds,
-            ["vehicle"] = vehicleIdentity.DeepClone()
+            ["linePointInstanceIds"] = linePointInstanceIds
         };
-        if (vehicleIdentity["instanceId"]?.Type == JTokenType.Integer)
-        {
-            expansionArguments["vehicleInstanceId"] = vehicleIdentity["instanceId"]!.DeepClone();
-        }
 
         return new AutomationAction(
             "drawRailPath",
             expansionArguments,
             AutomationStage.PreparingDefense,
             occupiedPoints.Count > 0
-                ? "现有车列已满且背包仍有战车；按玩家拖线规则创建一条优先补足现有防线相反方向的额外合法闭环。"
-                : "现有车列已满且背包仍有战车；按玩家拖线规则创建一条最短的额外合法闭环。");
+                ? "所有合法轨道均已满载且背包仍有战车；创建一条仅含一个能量点、优先补足相反方向的额外合法闭环。"
+                : "所有合法轨道均已满载且背包仍有战车；创建一条仅含一个能量点的最短额外合法闭环。");
     }
 
     public static string BuildDefenseExpansionPathKey(JToken? linePointInstanceIds) =>
@@ -502,56 +318,12 @@ public sealed class BattleDecisionEngine
             ? string.Join(":", ids.Values<int>())
             : string.Empty;
 
-    public AutomationAction? DecideExpansionVehiclePlacement(JObject? vehicleResult, JObject? drawResult)
-    {
-        JObject vehiclesState = State(vehicleResult);
-        JObject drawState = State(drawResult);
-        JObject? vehicle = (vehiclesState["vehicles"] as JArray)?
-            .OfType<JObject>()
-            .Where(IsBagVehicle)
-            .OrderByDescending(item => ReadInt(item["level"], 0))
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        JObject? line = (drawState.SelectToken("rail.lines") as JArray)?
-            .OfType<JObject>()
-            .FirstOrDefault(item =>
-                item["hasDriver"]?.Value<bool>() != true
-                && ReadInt(item["driverCount"], 0) == 0
-                && ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], 0)) != 0);
-        if (vehicle == null || line == null)
-        {
-            return null;
-        }
-
-        JObject vehicleIdentity = BuildIdentity(vehicle, preferItemInstanceId: false);
-        if (!vehicleIdentity.HasValues)
-        {
-            return null;
-        }
-
-        vehicleIdentity["lineInstanceId"] = ReadInt(
-            line["lineInstanceId"],
-            ReadInt(line["instanceId"], 0));
-        vehicleIdentity["forward"] = true;
-        string name = vehicle["name"]?.Value<string>()
-                      ?? vehicle["vehicleType"]?.Value<string>()
-                      ?? "未知战车";
-        return new AutomationAction(
-            "placeVehicleOnLine",
-            vehicleIdentity,
-            AutomationStage.PreparingDefense,
-            $"新闭环尚无车列；按玩家放车流程把背包战车 {name} 放到新轨道并创建车列。");
-    }
-
     public bool IsLegalDefenseExpansionPreview(JObject? previewResult)
     {
         JObject state = State(previewResult);
         return state["wouldBeLegal"]?.Value<bool>() == true
                && state["sideEffectCheckPassed"]?.Value<bool>() == true
                && state["statePolluted"]?.Value<bool>() != true
-               && state["requiresSpeedSource"]?.Value<bool>() == false
-               && TryReadDouble(state["predictedLoopCycleSeconds"], out double predictedCycle)
-               && predictedCycle > 0d
                && ReadInt(state["beforeRailCount"], -1) == ReadInt(state["afterRailCount"], -2);
     }
 
@@ -721,7 +493,13 @@ public sealed class BattleDecisionEngine
                 for (int second = first + 1; second < commons.Count; second++)
                 {
                     TryReadPoint(commons[second]["grid"], out double cx, out double cy);
-                    if (Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) > 0.000001d)
+                    RailLayoutScore layout = RailLayoutStrategyPlanner.EvaluateEstimated(new[]
+                    {
+                        new RailLayoutPoint(ax, ay),
+                        new RailLayoutPoint(bx, by),
+                        new RailLayoutPoint(cx, cy)
+                    });
+                    if (IsAcceptableNewDefenseLoop(layout))
                     {
                         return string.Empty;
                     }
@@ -731,6 +509,11 @@ public sealed class BattleDecisionEngine
 
         return ExpansionCommonDisposableEnum;
     }
+
+    private static bool IsAcceptableNewDefenseLoop(RailLayoutScore? layout) =>
+        layout?.IsValid == true &&
+        layout.IsSimpleCycle &&
+        layout.EncirclesBase;
 
     public bool NeedsExpansionAttributePlacement(JObject? catapultResult)
     {
@@ -1175,106 +958,6 @@ public sealed class BattleDecisionEngine
             $"确认消耗品 {name} 的有效目标。");
     }
 
-    private static AutomationAction? DecideVehicleReinforcement(
-        JObject trainsState,
-        JObject vehiclesState,
-        JObject railsState,
-        bool independentVehicleMode)
-    {
-        JObject? vehicle = (vehiclesState["vehicles"] as JArray)?
-            .OfType<JObject>()
-            .Where(IsBagVehicle)
-            .OrderByDescending(item => ReadInt(item["level"], 0))
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        if (vehicle == null)
-        {
-            return null;
-        }
-
-        if (independentVehicleMode)
-        {
-            JObject? rail = (railsState["rails"] as JArray)?
-                .OfType<JObject>()
-                .Where(IsUsablePlayerRail)
-                .Where(RailHasDriverCapacity)
-                .OrderByDescending(item => ReadInt(item["driverCount"], 0) > 0)
-                .ThenByDescending(item =>
-                    ReadInt(item["driverMaxCount"], 0) - ReadInt(item["driverCount"], 0))
-                .ThenBy(item => ReadDouble(item["loopCycleSeconds"], double.MaxValue))
-                .ThenBy(item => ReadInt(item["railInternalId"], ReadInt(item["id"], int.MaxValue)))
-                .FirstOrDefault();
-            JObject? line = (rail?["lines"] as JArray)?
-                .OfType<JObject>()
-                .Where(item => ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], 0)) != 0)
-                .OrderBy(item => ReadInt(item["index"], int.MaxValue))
-                .ThenBy(item => ReadInt(item["lineInstanceId"], ReadInt(item["instanceId"], int.MaxValue)))
-                .FirstOrDefault();
-            if (rail == null || line == null)
-            {
-                return null;
-            }
-
-            JObject independentVehicleIdentity = BuildIdentity(vehicle, preferItemInstanceId: false);
-            if (!independentVehicleIdentity.HasValues)
-            {
-                return null;
-            }
-
-            int lineInstanceId = ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0));
-            int driverCount = ReadInt(rail["driverCount"], 0);
-            int driverMaxCount = ReadInt(rail["driverMaxCount"], 0);
-            JObject independentArguments = (JObject)independentVehicleIdentity.DeepClone();
-            independentArguments["lineInstanceId"] = lineInstanceId;
-            independentArguments["forward"] = true;
-            string independentName = vehicle["name"]?.Value<string>()
-                                     ?? vehicle["vehicleType"]?.Value<string>()
-                                     ?? "未知战车";
-            int independentLevel = ReadInt(vehicle["level"], 0);
-            return new AutomationAction(
-                "placeVehicleOnLine",
-                independentArguments,
-                AutomationStage.PreparingDefense,
-                $"把背包战车 {independentName}（等级 {independentLevel}）作为独立车列放入现有轨道；" +
-                $"实时车列容量 {driverCount}/{driverMaxCount}。" );
-        }
-
-        JObject? train = (trainsState["trains"] as JArray)?
-            .OfType<JObject>()
-            .Where(HasTrainCapacity)
-            .OrderByDescending(RemainingTrainCapacity)
-            .ThenBy(item => ReadInt(item["index"], int.MaxValue))
-            .FirstOrDefault();
-        JObject? relative = (train?["vehicles"] as JArray)?
-            .OfType<JObject>()
-            .Where(HasIdentity)
-            .LastOrDefault();
-        if (train == null || relative == null)
-        {
-            return null;
-        }
-
-        JObject vehicleIdentity = BuildIdentity(vehicle, preferItemInstanceId: false);
-        JObject relativeIdentity = BuildIdentity(relative, preferItemInstanceId: false);
-        if (!vehicleIdentity.HasValues || !relativeIdentity.HasValues)
-        {
-            return null;
-        }
-
-        JObject arguments = (JObject)vehicleIdentity.DeepClone();
-        arguments["relative"] = relativeIdentity;
-        string name = vehicle["name"]?.Value<string>()
-                      ?? vehicle["vehicleType"]?.Value<string>()
-                      ?? "未知战车";
-        int level = ReadInt(vehicle["level"], 0);
-        int trainIndex = ReadInt(train["index"], -1);
-        return new AutomationAction(
-            "moveVehicleInTrain",
-            arguments,
-            AutomationStage.PreparingDefense,
-            $"把背包中等级最高的战车 {name}（等级 {level}）编入车列 {trainIndex}。");
-    }
-
     private static bool IsUsablePlayerRail(JObject rail) =>
         rail["isLegalPlayerLoop"]?.Value<bool>() == true &&
         rail["isLoop"]?.Value<bool>() == true &&
@@ -1562,459 +1245,11 @@ public sealed class BattleDecisionEngine
             layout);
     }
 
-    private static bool HasTrainCapacity(JObject train)
-    {
-        int capacity = ReadInt(train["capacity"], -1);
-        int count = ReadInt(train["realVehicleCount"], ReadInt(train["vehicleCount"], 0));
-        return train["isOverCapacity"]?.Value<bool>() != true
-               && capacity > count
-               && (train["vehicles"] as JArray)?.OfType<JObject>().Any(HasIdentity) == true;
-    }
-
-    private static int RemainingTrainCapacity(JObject train) =>
-        ReadInt(train["capacity"], 0)
-        - ReadInt(train["realVehicleCount"], ReadInt(train["vehicleCount"], 0));
-
-    private static IEnumerable<LineCandidate> EnumerateLineCandidates(
-        JArray rails,
-        int? sourceRailId,
-        string currentLineName)
-    {
-        foreach (JObject rail in rails.OfType<JObject>())
-        {
-            if (rail["isLegalPlayerLoop"]?.Value<bool>() != true
-                || rail["isLoop"]?.Value<bool>() != true
-                || rail["isOnField"]?.Value<bool>() == false)
-            {
-                continue;
-            }
-
-            int? targetRailId = ReadNullableInt(rail["railInternalId"] ?? rail["id"]);
-            bool sameRail = sourceRailId.HasValue && targetRailId.HasValue && sourceRailId.Value == targetRailId.Value;
-            int driverCount = ReadInt(rail["driverCount"], 0);
-            int driverMaxCount = ReadInt(rail["driverMaxCount"], 0);
-            if (sameRail ? driverCount <= 0 : driverCount != 0)
-            {
-                continue;
-            }
-
-            if (!sameRail
-                && (rail["isDriverReachToMax"]?.Value<bool>() == true
-                    || driverMaxCount > 0 && driverCount >= driverMaxCount))
-            {
-                continue;
-            }
-
-            foreach (JObject line in (rail["lines"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
-            {
-                int lineInstanceId = ReadInt(line["lineInstanceId"], ReadInt(line["instanceId"], 0));
-                string lineName = line["name"]?.Value<string>() ?? string.Empty;
-                bool isCurrentLine = sameRail &&
-                                     !string.IsNullOrWhiteSpace(currentLineName) &&
-                                     string.Equals(lineName, currentLineName, StringComparison.Ordinal);
-                int lineDriverCount = ReadInt(line["driverCount"], 0);
-                if (lineInstanceId == 0 ||
-                    (isCurrentLine ? lineDriverCount <= 0 : lineDriverCount != 0) ||
-                    (!isCurrentLine && line["hasDriver"]?.Value<bool>() == true) ||
-                    !TryReadPoint(line["from"], out double fromX, out double fromY)
-                    || !TryReadPoint(line["to"], out double toX, out double toY))
-                {
-                    continue;
-                }
-
-                yield return new LineCandidate(
-                    lineInstanceId,
-                    isCurrentLine,
-                    fromX,
-                    fromY,
-                    toX,
-                    toY);
-            }
-        }
-    }
-
-    private static double CoverageUtility(
-        IReadOnlyCollection<ThreatCandidate> threats,
-        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
-        TrainCoveragePosition? replacement)
-    {
-        double utility = 0d;
-        foreach (ThreatCandidate threat in threats)
-        {
-            utility += ThreatCoverageUtility(threat, currentPositions, replacement);
-        }
-
-        return utility;
-    }
-
-    private static double ThreatCoverageUtility(
-        ThreatCandidate threat,
-        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
-        TrainCoveragePosition? replacement)
-    {
-        List<double> contributions = new();
-        foreach (TrainCoveragePosition position in currentPositions)
-        {
-            TrainCoveragePosition effective = replacement != null && replacement.TrainIndex == position.TrainIndex
-                ? replacement
-                : position;
-            if (effective.Line == null)
-            {
-                continue;
-            }
-
-            double distance = Math.Sqrt(effective.Line.DistanceTo(threat.X, threat.Y));
-            contributions.Add(effective.Power / (1d + distance));
-        }
-
-        if (replacement != null && currentPositions.All(position => position.TrainIndex != replacement.TrainIndex) && replacement.Line != null)
-        {
-            double distance = Math.Sqrt(replacement.Line.DistanceTo(threat.X, threat.Y));
-            contributions.Add(replacement.Power / (1d + distance));
-        }
-
-        if (contributions.Count == 0)
-        {
-            return 0d;
-        }
-
-        double strongest = contributions.Max();
-        double supporting = contributions.Sum() - strongest;
-        return threat.Weight * (strongest + supporting * 0.25d);
-    }
-
-    private static ThreatCandidate SelectServedThreat(
-        IReadOnlyCollection<ThreatCandidate> threats,
-        IReadOnlyCollection<TrainCoveragePosition> currentPositions,
-        TrainCoveragePosition replacement)
-    {
-        return threats
-            .Select(threat => new
-            {
-                Threat = threat,
-                Improvement = ThreatCoverageUtility(threat, currentPositions, replacement)
-                              - ThreatCoverageUtility(threat, currentPositions, null),
-                TargetCoverage = replacement.Line == null
-                    ? 0d
-                    : threat.Weight * replacement.Power /
-                      (1d + Math.Sqrt(replacement.Line.DistanceTo(threat.X, threat.Y)))
-            })
-            .OrderByDescending(item => item.Improvement)
-            .ThenByDescending(item => item.TargetCoverage)
-            .ThenBy(item => item.Threat.Index)
-            .Select(item => item.Threat)
-            .First();
-    }
-
-    private static double TrainPowerScore(JObject train)
-    {
-        JObject[] combatVehicles = ((train["vehicles"] as JArray)?.OfType<JObject>()
-                ?? Enumerable.Empty<JObject>())
-            .Where(vehicle => vehicle["isFixedHead"]?.Value<bool>() != true
-                              && vehicle["isTrainHead"]?.Value<bool>() != true)
-            .ToArray();
-        if (combatVehicles.Length > 0)
-        {
-            return combatVehicles.Sum(vehicle =>
-            {
-                int level = Math.Max(ReadInt(vehicle["level"], 1), 1);
-                return (double)(level * level);
-            });
-        }
-
-        return Math.Max(TrainVehicleCount(train) - 1, 1);
-    }
-
-    private static int TrainStableIdentity(JObject train)
-    {
-        int driverInstanceId = ReadInt(train["driverInstanceId"], 0);
-        if (driverInstanceId != 0)
-        {
-            return driverInstanceId;
-        }
-
-        JObject? fixedHead = (train["vehicles"] as JArray)?.OfType<JObject>()
-            .FirstOrDefault(vehicle => vehicle["isFixedHead"]?.Value<bool>() == true
-                                       || vehicle["isTrainHead"]?.Value<bool>() == true);
-        int headInstanceId = ReadInt(fixedHead?["instanceId"], 0);
-        return headInstanceId != 0
-            ? headInstanceId
-            : ReadInt(train["index"], -1);
-    }
-
-    private static double DistancePointToSegmentSquared(
-        double pointX,
-        double pointY,
-        double fromX,
-        double fromY,
-        double toX,
-        double toY)
-    {
-        double segmentX = toX - fromX;
-        double segmentY = toY - fromY;
-        double lengthSquared = segmentX * segmentX + segmentY * segmentY;
-        if (lengthSquared <= 0.000001d)
-        {
-            return DistanceSquared(pointX, pointY, fromX, fromY);
-        }
-
-        double projection = ((pointX - fromX) * segmentX + (pointY - fromY) * segmentY) / lengthSquared;
-        projection = Math.Max(0d, Math.Min(1d, projection));
-        return DistanceSquared(
-            pointX,
-            pointY,
-            fromX + projection * segmentX,
-            fromY + projection * segmentY);
-    }
-
     private static double DistanceSquared(double x1, double y1, double x2, double y2)
     {
         double x = x1 - x2;
         double y = y1 - y2;
         return x * x + y * y;
-    }
-
-    private static bool IsMovableTrain(JObject train) =>
-        ReadInt(train["index"], -1) >= 0
-        && train["forward"]?.Type == JTokenType.Boolean
-        && TrainVehicleCount(train) > 0;
-
-    private static int TrainVehicleCount(JObject train) =>
-        ReadInt(
-            train["realVehicleCount"],
-            ReadInt(train["vehicleCount"], (train["vehicles"] as JArray)?.Count ?? 0));
-
-    private static long ThreatScore(JObject nest)
-    {
-        int level = Math.Max(ReadInt(nest.SelectToken("spawn.level"), 1), 1);
-        int amount = Math.Max(ReadInt(nest.SelectToken("spawn.amount"), 1), 1);
-        return (long)level * amount;
-    }
-
-    private static string BuildThreatSourceDetail(JObject threats)
-    {
-        if (threats["liveThreatsAvailable"]?.Value<bool>() != true)
-        {
-            return "使用巢穴生成先验";
-        }
-
-        int liveCount = ReadInt(threats["liveThreatCount"], 0);
-        JObject? accounting = threats["enemyAccounting"] as JObject;
-        if (accounting?["remainingReliable"]?.Value<bool>() == true)
-        {
-            int futureCount = Math.Max(ReadInt(accounting["estimatedFutureCount"], 0), 0);
-            return $"实时活怪 {liveCount}，尚未生成约 {futureCount}";
-        }
-
-        return $"实时活怪 {liveCount}，剩余数暂不可可靠读取";
-    }
-
-    private static List<ThreatCandidate> BuildThreatCandidates(JObject threats)
-    {
-        if (threats["liveThreatsAvailable"]?.Value<bool>() != true ||
-            threats["liveThreats"] is not JArray liveItems)
-        {
-            return BuildNestThreatCandidates(threats, null);
-        }
-
-        List<ThreatCandidate> liveThreats = BuildLiveThreatCandidates(threats, liveItems);
-        double? futureMass = ReliableFutureThreatMass(threats);
-        List<ThreatCandidate> nestThreats = BuildNestThreatCandidates(threats, futureMass);
-        return ApplyLiveThreatUrgencyReserve(liveThreats, nestThreats);
-    }
-
-    private static List<ThreatCandidate> BuildLiveThreatCandidates(JObject threats, JArray liveItems)
-    {
-        List<ThreatCandidate> candidates = new();
-        HashSet<ulong> runtimeIdentities = new();
-        HashSet<int> instanceIdentities = new();
-        foreach (JObject item in liveItems.OfType<JObject>())
-        {
-            int handleId = ReadInt(item["runtimeHandleId"], 0);
-            int lifetimeVersion = ReadInt(item["lifetimeVersion"], 0);
-            if (handleId > 0 && lifetimeVersion > 0)
-            {
-                ulong identity = ((ulong)(uint)handleId << 32) | (uint)lifetimeVersion;
-                if (!runtimeIdentities.Add(identity)) continue;
-            }
-            else
-            {
-                int instanceId = ReadInt(item["instanceId"], 0);
-                if (instanceId == 0 || !instanceIdentities.Add(instanceId)) continue;
-            }
-
-            if (!TryReadThreatVector(threats, item, out double x, out double y) ||
-                !IsFinite(x) ||
-                !IsFinite(y))
-            {
-                continue;
-            }
-
-            double factor = item["aiRunning"]?.Value<bool>() == false ? 0.5d : 1d;
-            if (item["isBoss"]?.Value<bool>() == true) factor *= 4d;
-            if (TryReadDouble(item["health"], out double health) &&
-                TryReadDouble(item["healthMax"], out double healthMax) &&
-                !double.IsNaN(health) &&
-                !double.IsInfinity(health) &&
-                !double.IsNaN(healthMax) &&
-                !double.IsInfinity(healthMax) &&
-                healthMax > 0d)
-            {
-                factor *= Math.Max(0.25d, Math.Min(1d, health / healthMax));
-            }
-
-            candidates.Add(new ThreatCandidate(
-                handleId > 0 ? handleId : ReadInt(item["instanceId"], int.MaxValue),
-                x * WorldToGridScale,
-                y * WorldToGridScale,
-                Math.Max(factor, 0.01d)));
-        }
-
-        return ScaleThreatCandidates(candidates, candidates.Count);
-    }
-
-    private static List<ThreatCandidate> ApplyLiveThreatUrgencyReserve(
-        IReadOnlyCollection<ThreatCandidate> liveThreats,
-        IReadOnlyCollection<ThreatCandidate> nestThreats)
-    {
-        List<ThreatCandidate> baseline = liveThreats
-            .Concat(nestThreats)
-            .ToList();
-        if (liveThreats.Count == 0 || baseline.Count == 0)
-        {
-            return baseline
-                .OrderByDescending(item => item.Weight)
-                .ThenBy(item => item.Index)
-                .ToList();
-        }
-
-        double totalMass = baseline.Sum(item => item.Weight);
-        double urgencyMass = liveThreats.Sum(item => item.Weight * LiveThreatUrgencyScore(item));
-        if (!IsFinite(totalMass) ||
-            totalMass <= 0d ||
-            !IsFinite(urgencyMass) ||
-            urgencyMass <= 0d)
-        {
-            return baseline
-                .OrderByDescending(item => item.Weight)
-                .ThenBy(item => item.Index)
-                .ToList();
-        }
-
-        double nearestLiveDistance = liveThreats.Min(item =>
-            Math.Sqrt(item.X * item.X + item.Y * item.Y));
-        double activation = 1d / (1d + Math.Pow(
-            nearestLiveDistance / LiveThreatUrgencyActivationRadius,
-            LiveThreatUrgencyExponent));
-        double effectiveReserve = LiveThreatUrgencyReserve * activation;
-
-        // This convex split preserves total threat mass. Every baseline threat keeps at least 40%
-        // of its original weight. The urgency reserve rises continuously only as a live enemy enters
-        // the base's three-grid danger radius, so distant live scouts do not erase a large future wave.
-        double baselineShare = 1d - effectiveReserve;
-        HashSet<ThreatCandidate> liveSet = new(liveThreats);
-        return baseline
-            .Select(item => new ThreatCandidate(
-                item.Index,
-                item.X,
-                item.Y,
-                item.Weight * baselineShare +
-                (liveSet.Contains(item)
-                    ? totalMass * effectiveReserve *
-                      item.Weight * LiveThreatUrgencyScore(item) / urgencyMass
-                    : 0d)))
-            .OrderByDescending(item => item.Weight)
-            .ThenBy(item => item.Index)
-            .ToList();
-    }
-
-    private static double LiveThreatUrgencyScore(ThreatCandidate threat)
-    {
-        double distance = Math.Sqrt(threat.X * threat.X + threat.Y * threat.Y);
-        return 1d / Math.Pow(
-            LiveThreatUrgencyDistanceOffset + distance,
-            LiveThreatUrgencyExponent);
-    }
-
-    private static List<ThreatCandidate> BuildNestThreatCandidates(JObject threats, double? totalMass)
-    {
-        if (totalMass.HasValue && totalMass.Value <= 0d)
-        {
-            return new List<ThreatCandidate>();
-        }
-
-        List<ThreatCandidate> candidates = ((threats["nests"] as JArray)?.OfType<JObject>()
-                ?? Enumerable.Empty<JObject>())
-            .Where(item => item["active"]?.Value<bool>() != false &&
-                           TryReadThreatVector(threats, item, out _, out _))
-            .Select(item =>
-            {
-                TryReadThreatVector(threats, item, out double x, out double y);
-                return new ThreatCandidate(
-                    ReadInt(item["index"], int.MaxValue),
-                    x * WorldToGridScale,
-                    y * WorldToGridScale,
-                    Math.Max(ThreatScore(item), 1L));
-            })
-            .Where(item => item.X * item.X + item.Y * item.Y > 0.000001d)
-            .ToList();
-        return totalMass.HasValue
-            ? ScaleThreatCandidates(candidates, totalMass.Value)
-            : candidates
-                .OrderByDescending(item => item.Weight)
-                .ThenBy(item => item.Index)
-                .ToList();
-    }
-
-    private static double? ReliableFutureThreatMass(JObject threats)
-    {
-        JObject? accounting = threats["enemyAccounting"] as JObject;
-        if (accounting?["remainingReliable"]?.Value<bool>() != true)
-        {
-            return null;
-        }
-
-        int estimated = ReadInt(accounting["estimatedFutureCount"], -1);
-        if (estimated >= 0 && estimated != int.MaxValue)
-        {
-            return estimated;
-        }
-
-        int remaining = ReadInt(accounting["globalRemaining"], -1);
-        int accounted = ReadInt(threats["accountedLiveCount"], -1);
-        if (remaining < 0 || remaining == int.MaxValue || accounted < 0)
-        {
-            return null;
-        }
-
-        return Math.Max(remaining - accounted, 0);
-    }
-
-    private static List<ThreatCandidate> ScaleThreatCandidates(
-        IReadOnlyCollection<ThreatCandidate> candidates,
-        double totalMass)
-    {
-        if (candidates.Count == 0 || totalMass <= 0d)
-        {
-            return new List<ThreatCandidate>();
-        }
-
-        double currentMass = candidates.Sum(item => item.Weight);
-        if (currentMass <= 0d || double.IsNaN(currentMass) || double.IsInfinity(currentMass))
-        {
-            return new List<ThreatCandidate>();
-        }
-
-        double scale = totalMass / currentMass;
-        return candidates
-            .Select(item => new ThreatCandidate(
-                item.Index,
-                item.X,
-                item.Y,
-                item.Weight * scale))
-            .OrderByDescending(item => item.Weight)
-            .ThenBy(item => item.Index)
-            .ToList();
     }
 
     private static bool BuildGridConfirmation(JObject arguments, JObject? optionsResult)
@@ -2278,99 +1513,4 @@ public sealed class BattleDecisionEngine
         public JObject Grid { get; }
     }
 
-    private sealed class LineCandidate
-    {
-        public LineCandidate(
-            int lineInstanceId,
-            bool isCurrentLine,
-            double fromX,
-            double fromY,
-            double toX,
-            double toY)
-        {
-            LineInstanceId = lineInstanceId;
-            IsCurrentLine = isCurrentLine;
-            FromX = fromX;
-            FromY = fromY;
-            ToX = toX;
-            ToY = toY;
-        }
-
-        public int LineInstanceId { get; }
-        public bool IsCurrentLine { get; }
-        public double FromX { get; }
-        public double FromY { get; }
-        public double ToX { get; }
-        public double ToY { get; }
-
-        public double DistanceTo(double x, double y)
-        {
-            double midpointX = (FromX + ToX) / 2d;
-            double midpointY = (FromY + ToY) / 2d;
-            double lineLengthSquared = DistanceSquared(FromX, FromY, ToX, ToY);
-            return DistanceSquared(x, y, midpointX, midpointY) + lineLengthSquared * 0.25d;
-        }
-
-        public bool ForwardToward(double x, double y) =>
-            DistanceSquared(FromX, FromY, x, y) <= DistanceSquared(ToX, ToY, x, y);
-    }
-
-    private sealed class ThreatCandidate
-    {
-        public ThreatCandidate(int index, double x, double y, double weight)
-        {
-            Index = index;
-            X = x;
-            Y = y;
-            Weight = weight;
-        }
-
-        public int Index { get; }
-        public double X { get; }
-        public double Y { get; }
-        public double Weight { get; }
-    }
-
-    private sealed class TrainCoveragePosition
-    {
-        public TrainCoveragePosition(int trainIndex, double power, LineCandidate? line)
-        {
-            TrainIndex = trainIndex;
-            Power = power;
-            Line = line;
-        }
-
-        public int TrainIndex { get; }
-        public double Power { get; }
-        public LineCandidate? Line { get; }
-    }
-
-    private sealed class TrainMovementCandidate
-    {
-        public TrainMovementCandidate(
-            int trainIndex,
-            int trainIdentity,
-            int vehicleCount,
-            double trainPower,
-            LineCandidate target,
-            double improvement,
-            ThreatCandidate servedThreat)
-        {
-            TrainIndex = trainIndex;
-            TrainIdentity = trainIdentity;
-            VehicleCount = vehicleCount;
-            TrainPower = trainPower;
-            Target = target;
-            Improvement = improvement;
-            ServedThreat = servedThreat;
-        }
-
-        public int TrainIndex { get; }
-        public int TrainIdentity { get; }
-        public int VehicleCount { get; }
-        public double TrainPower { get; }
-        public LineCandidate Target { get; }
-        public double Improvement { get; }
-        public ThreatCandidate ServedThreat { get; }
-    }
 }

@@ -254,7 +254,8 @@ public sealed class DecisionEngine
                 index,
                 panelInstanceId = panelState["panelInstanceId"]?.Value<int>() ?? 0,
                 instanceId = candidate["instanceId"]?.Value<int>() ?? 0,
-                optionIdentity = WaveFunctionOptionSettlementGuard.BuildOptionIdentity(candidate) ?? string.Empty
+                optionIdentity = WaveFunctionOptionSettlementGuard.BuildOptionIdentity(candidate) ?? string.Empty,
+                directUpgrade = IsDirectUpgradeOption(candidate)
             }),
             AutomationStage.ManagingEvent,
             $"选择{panelName}中可用的选项 {index}。");
@@ -262,6 +263,8 @@ public sealed class DecisionEngine
 
     private static int RepairOptionPriority(JObject option)
     {
+        if (IsDirectUpgradeOption(option)) return 2000;
+
         bool opensSecondaryPanel = HasBehaviourType(option, "OpenUIPanelBehaviour")
                                    || HasBehaviourType(option, "DisposableInvokeBehaviour");
         bool closesRepairPanel = HasBehaviourType(option, "WaveFunctionBehaviour");
@@ -279,6 +282,24 @@ public sealed class DecisionEngine
         }
 
         return opensSecondaryPanel ? -1000 : 0;
+    }
+
+    private static bool IsDirectUpgradeOption(JObject option)
+    {
+        IEnumerable<string> identities = new[]
+            {
+                option["currentItemType"]?.Value<string>(),
+                option["extraDataType"]?.Value<string>(),
+                option["optionName"]?.Value<string>(),
+                option["displayText"]?.Value<string>()
+            }
+            .Concat((option["behaviourTypes"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>())
+            .Concat((option["behaviourTypeIds"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>())
+            .Concat((option["behaviourNames"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))!;
+        return identities.Any(value =>
+            value.IndexOf("DirectUpgrade", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            value.IndexOf("直接升级", StringComparison.Ordinal) >= 0);
     }
 
     private static int EventOptionPriority(JObject option)
@@ -491,7 +512,7 @@ public sealed class DecisionEngine
             bool catapultPointReward = IsCatapultPointReward(option);
             score += priority switch
             {
-                AutomationDecisionPriority.ThreeStarVehicles when catapultPointReward => 400,
+                AutomationDecisionPriority.VehicleRewards when catapultPointReward => 400,
                 AutomationDecisionPriority.CatapultPoints when catapultPointReward => RailExpansionRewardBonus + 1400,
                 null when legacyAttributeExpansion => RailExpansionRewardBonus,
                 _ => 0
@@ -505,7 +526,7 @@ public sealed class DecisionEngine
 
         int vehicleLevel = RewardVehicleLevel(option);
         score += vehicleLevel * 100;
-        if (priority == AutomationDecisionPriority.ThreeStarVehicles)
+        if (priority == AutomationDecisionPriority.VehicleRewards)
         {
             score += 600;
             if (vehicleLevel >= 3)
@@ -514,26 +535,7 @@ public sealed class DecisionEngine
             }
         }
 
-        if (vehicles != null)
-        {
-            int mergePriority = RewardMergePriority(option, vehicles);
-            score += mergePriority switch
-            {
-                2 => 900,
-                1 => 250,
-                _ => 0
-            };
-            if (priority == AutomationDecisionPriority.ThreeStarVehicles)
-            {
-                score += mergePriority switch
-                {
-                    2 => 1800,
-                    1 => 500,
-                    _ => 0
-                };
-            }
-            score += RewardMatchesFetter(option, mainFetter) * 120;
-        }
+        if (vehicles != null) score += RewardMatchesFetter(option, mainFetter) * 120;
 
         return score;
     }
@@ -565,22 +567,6 @@ public sealed class DecisionEngine
                || string.Equals(candidate, "AddNewPoint", StringComparison.OrdinalIgnoreCase)
                || string.Equals(candidate, "EnergyPoint", StringComparison.OrdinalIgnoreCase)
                || string.Equals(candidate, "CreateFreeEnergyExpansion", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static int RewardMergePriority(JObject option, JArray vehicles)
-    {
-        if (RewardKindPriority(option) != 4) return 0;
-
-        string vehicleType = option["vehicleType"]?.Value<string>() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(vehicleType)) return 0;
-
-        int matchingCount = vehicles.OfType<JObject>()
-            .Where(vehicle => vehicle["isVirtual"]?.Value<bool>() != true && vehicle["isFixedHead"]?.Value<bool>() != true)
-            .Count(vehicle => string.Equals(
-                vehicle["vehicleType"]?.Value<string>() ?? vehicle["type"]?.Value<string>(),
-                vehicleType,
-                StringComparison.OrdinalIgnoreCase));
-        return matchingCount >= 2 ? 2 : matchingCount == 1 ? 1 : 0;
     }
 
     private static int RewardVehicleLevel(JObject option)
@@ -622,7 +608,9 @@ public sealed class DecisionEngine
                 Name = fetter["fetterEnum"]?.Value<string>() ?? string.Empty,
                 Count = fetter["count"]!.Value<int>()
             })
-            .Where(fetter => !string.IsNullOrWhiteSpace(fetter.Name) && !string.Equals(fetter.Name, "None", StringComparison.OrdinalIgnoreCase))
+            .Where(fetter => !string.IsNullOrWhiteSpace(fetter.Name) &&
+                             !string.Equals(fetter.Name, "None", StringComparison.OrdinalIgnoreCase) &&
+                             !fetter.Name.EndsWith("_Train", StringComparison.OrdinalIgnoreCase))
             .GroupBy(fetter => fetter.Name, StringComparer.OrdinalIgnoreCase)
             .Select(group => new { Name = group.Key, Count = group.Sum(fetter => fetter.Count) })
             .OrderByDescending(fetter => fetter.Count)
@@ -687,21 +675,21 @@ public sealed class DecisionEngine
 
         int vehicleWeight = priority switch
         {
-            AutomationDecisionPriority.ThreeStarVehicles => 1100,
+            AutomationDecisionPriority.VehicleRewards => 1100,
             AutomationDecisionPriority.CatapultPoints => 350,
             AutomationDecisionPriority.Relics => 300,
             _ => 700
         };
         int catapultWeight = priority switch
         {
-            AutomationDecisionPriority.ThreeStarVehicles => 250,
+            AutomationDecisionPriority.VehicleRewards => 250,
             AutomationDecisionPriority.CatapultPoints => 1000,
             AutomationDecisionPriority.Relics => 250,
             _ => 350
         };
         int disposableWeight = priority switch
         {
-            AutomationDecisionPriority.ThreeStarVehicles => 180,
+            AutomationDecisionPriority.VehicleRewards => 180,
             AutomationDecisionPriority.CatapultPoints => 650,
             AutomationDecisionPriority.Relics => 180,
             _ => 250
@@ -749,7 +737,7 @@ public sealed class DecisionEngine
             return 1800;
         }
 
-        if (priority == AutomationDecisionPriority.ThreeStarVehicles &&
+        if (priority == AutomationDecisionPriority.VehicleRewards &&
             string.Equals(rewardEnum, "vehicle", StringComparison.OrdinalIgnoreCase))
         {
             return 1100;

@@ -196,6 +196,40 @@ public sealed class RuntimeResultInspectorTests
     }
 
     [Fact]
+    public void IndependentOpeningReadyWithoutCatapult_RequiresOnlyCatapultMissingAndCompleteSnapshot()
+    {
+        JObject result = IndependentOpeningPending("CatapultBase");
+
+        Assert.True(RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(result));
+
+        ((JArray)result.SelectToken("data.state.missingCoreObjects")!).Add("GameController");
+        Assert.False(RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(result));
+    }
+
+    [Theory]
+    [InlineData("GameController")]
+    [InlineData("MainStation")]
+    [InlineData("VehicleManager")]
+    public void IndependentOpeningReadyWithoutCatapult_RejectsAnyOtherMissingCoreObject(string missingObject)
+    {
+        Assert.False(RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(
+            IndependentOpeningPending(missingObject)));
+    }
+
+    [Fact]
+    public void IndependentOpeningReadyWithoutCatapult_RejectsMissingMainStationOrWaveState()
+    {
+        JObject result = IndependentOpeningPending("CatapultBase");
+        result.SelectToken("data.state.snapshot.mainStation")!.Replace(JValue.CreateNull());
+
+        Assert.False(RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(result));
+
+        result = IndependentOpeningPending("CatapultBase");
+        result.SelectToken("data.state.snapshot.waveState")!.Replace(JValue.CreateNull());
+        Assert.False(RuntimeResultInspector.IsIndependentOpeningReadyWithoutCatapult(result));
+    }
+
+    [Fact]
     public void Classify_WritePendingWithNestedCurrentPollutionAsUnsafe()
     {
         JObject result = JObject.FromObject(new
@@ -217,6 +251,32 @@ public sealed class RuntimeResultInspectorTests
 
         Assert.Equal(RuntimeResultDisposition.Unsafe, RuntimeResultInspector.Classify(result));
     }
+
+    private static JObject IndependentOpeningPending(params string[] missingCoreObjects) =>
+        JObject.FromObject(new
+        {
+            success = false,
+            data = new
+            {
+                pending = true,
+                state = new
+                {
+                    playMode = true,
+                    scene = "NewGameScene",
+                    pending = true,
+                    needsPolling = true,
+                    missingCoreObjects,
+                    snapshot = new
+                    {
+                        playMode = true,
+                        scene = "NewGameScene",
+                        waveState = new { states = Array.Empty<object>() },
+                        mainStation = new { instanceId = 100 },
+                        counts = new { stations = 0, rails = 0, vehicles = 3 }
+                    }
+                }
+            }
+        });
 
     [Fact]
     public void Classify_WriteIgnoresPollutionAndCommittedPlacementInsideBeforeSnapshot()

@@ -8,6 +8,27 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class ManagerSettingsStoreTests
 {
     [Fact]
+    public void Load_LegacyNumericPriorityZeroMeansPreferVehicleRewards()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            File.WriteAllText(settingsPath, "{\"DecisionPriority\":0}");
+
+            ManagerSettings settings = new ManagerSettingsStore(settingsPath).Load(out string warning);
+
+            Assert.Empty(warning);
+            Assert.Equal(AutomationDecisionPriority.VehicleRewards, settings.DecisionPriority);
+            Assert.Equal(0, (int)settings.DecisionPriority);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Load_LegacySpeedStateDoesNotEnableAutomaticSpeedOverride()
     {
         string root = CreateTemporaryDirectory();
@@ -188,7 +209,7 @@ public sealed class ManagerSettingsStoreTests
             ManagerSettings settings = new()
             {
                 SkipStory = true,
-                DecisionPriority = AutomationDecisionPriority.ThreeStarVehicles
+                DecisionPriority = AutomationDecisionPriority.VehicleRewards
             };
 
             store.Save(settings);
@@ -196,7 +217,7 @@ public sealed class ManagerSettingsStoreTests
 
             Assert.Empty(warning);
             Assert.True(reloaded.SkipStory);
-            Assert.Equal(AutomationDecisionPriority.ThreeStarVehicles, reloaded.DecisionPriority);
+            Assert.Equal(AutomationDecisionPriority.VehicleRewards, reloaded.DecisionPriority);
         }
         finally
         {

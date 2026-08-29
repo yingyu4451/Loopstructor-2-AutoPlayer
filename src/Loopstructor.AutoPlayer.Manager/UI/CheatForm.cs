@@ -1623,6 +1623,8 @@ internal sealed partial class CheatForm : Window
     private void PopulateVehicleCatalog(JArray? items)
     {
         List<CatalogPickerItem> catalogItems = CreateCatalogItems(items)
+            .Where(item => item.Payload is not JObject payload ||
+                           payload["level"]?.Value<int?>() is 1 or 3)
             .OrderBy(item => item.TypeOrder)
             .ThenBy(item => item.FamilyOrder)
             .ThenBy(item => item.ItemOrder)
@@ -1634,7 +1636,8 @@ internal sealed partial class CheatForm : Window
 
     private void PopulateEnchantmentSelector(JArray? items)
     {
-        _enchantmentSelector.SetItems(CreateCatalogItems(items));
+        _enchantmentSelector.SetItems(CreateCatalogItems(items)
+            .Where(item => !item.EnumName.EndsWith("_Train", StringComparison.OrdinalIgnoreCase)));
         ApplyAvailability();
     }
 

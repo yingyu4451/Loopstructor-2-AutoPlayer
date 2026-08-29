@@ -36,6 +36,34 @@ public static class RuntimeResultInspector
         result?.SelectToken("data.state.pending")?.Value<bool>() == true ||
         result?.SelectToken("data.state.needsPolling")?.Value<bool>() == true;
 
+    public static bool IsIndependentOpeningReadyWithoutCatapult(JObject? result)
+    {
+        if (!IsPending(result) || result?.SelectToken("data.state") is not JObject pendingState)
+        {
+            return false;
+        }
+
+        JArray? missing = pendingState["missingCoreObjects"] as JArray;
+        if (missing == null || missing.Count != 1 ||
+            !string.Equals(missing[0]?.Value<string>(), "CatapultBase", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (pendingState["playMode"]?.Value<bool>() != true ||
+            !string.Equals(pendingState["scene"]?.Value<string>(), "NewGameScene", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        JObject? snapshot = pendingState["snapshot"] as JObject;
+        return snapshot?["playMode"]?.Value<bool>() == true &&
+               string.Equals(snapshot["scene"]?.Value<string>(), "NewGameScene", StringComparison.Ordinal) &&
+               snapshot["mainStation"] is JObject &&
+               snapshot["waveState"] is JObject &&
+               snapshot["counts"] is JObject;
+    }
+
     public static bool IsUnsafe(JObject? result) =>
         HasTrueFlag(result, "statePolluted", "needsReset", "outcomeUnknown") ||
         HasCommittedDefaultDefenseMutation(result) && !IsRecoverableDefaultDefenseCheckpoint(result);
