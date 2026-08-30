@@ -26,6 +26,8 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
     private PropertyInfo? _mapPosManagerInstance;
     private PropertyInfo? _catapultRingPosition;
     private PropertyInfo? _energyCatapultRingPosition;
+    private PropertyInfo? _ordinaryMinimumSpacing;
+    private PropertyInfo? _energyMinimumSpacing;
     private MethodInfo? _tryValidateGrid;
     private int _nextCandidateIndex;
     private int _totalProbed;
@@ -63,15 +65,28 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
                 return false;
             }
 
-            HashSet<OpeningDefenseGrid> candidates = new();
-            AddCandidateDictionary(candidates, _catapultRingPosition!.GetValue(manager, null));
-            AddCandidateDictionary(candidates, _energyCatapultRingPosition!.GetValue(manager, null));
+            HashSet<OpeningDefenseGrid> ordinaryCandidates = new();
+            HashSet<OpeningDefenseGrid> energyCandidates = new();
+            AddCandidateDictionary(ordinaryCandidates, _catapultRingPosition!.GetValue(manager, null));
+            AddCandidateDictionary(energyCandidates, _energyCatapultRingPosition!.GetValue(manager, null));
+            HashSet<OpeningDefenseGrid> candidates = placeAttribute
+                ? energyCandidates
+                : ordinaryCandidates;
+            StationSpacingRules spacingRules = new(
+                Convert.ToDouble(_ordinaryMinimumSpacing!.GetValue(manager, null)),
+                Convert.ToDouble(_energyMinimumSpacing!.GetValue(manager, null)));
+            if (!spacingRules.IsKnown)
+            {
+                error = "MapPosManager 返回了无效的弹射点最小间距。";
+                return false;
+            }
             _rankedCandidates.AddRange(
                 DefenseStationGridRanker
                     .RankPlacement(
                         _disposableEnum,
                         candidates.Select(grid => new AutoPlayerGrid(grid.X, grid.Y)),
                         catapultResult,
+                        spacingRules,
                         placementIsAttribute: placeAttribute)
                     .Select(grid => new OpeningDefenseGrid(grid.X, grid.Y)));
             if (_rankedCandidates.Count == 0)
@@ -161,6 +176,8 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
         if (_mapPosManagerInstance != null &&
             _catapultRingPosition != null &&
             _energyCatapultRingPosition != null &&
+            _ordinaryMinimumSpacing != null &&
+            _energyMinimumSpacing != null &&
             _tryValidateGrid != null)
         {
             error = string.Empty;
@@ -175,6 +192,12 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
             BindingFlags.Public | BindingFlags.Instance);
         _energyCatapultRingPosition = mapPosManager?.GetProperty(
             "EnergyCatapultRingPosition",
+            BindingFlags.Public | BindingFlags.Instance);
+        _ordinaryMinimumSpacing = mapPosManager?.GetProperty(
+            "minDisAwayStation",
+            BindingFlags.Public | BindingFlags.Instance);
+        _energyMinimumSpacing = mapPosManager?.GetProperty(
+            "minEnergyDisAwayStation",
             BindingFlags.Public | BindingFlags.Instance);
         _tryValidateGrid = gridInteractionUtil?
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -197,6 +220,8 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
         if (_mapPosManagerInstance == null) missing.Add("MapPosManager.Instance");
         if (_catapultRingPosition == null) missing.Add("MapPosManager.CatapultRingPosition");
         if (_energyCatapultRingPosition == null) missing.Add("MapPosManager.EnergyCatapultRingPosition");
+        if (_ordinaryMinimumSpacing == null) missing.Add("MapPosManager.minDisAwayStation");
+        if (_energyMinimumSpacing == null) missing.Add("MapPosManager.minEnergyDisAwayStation");
         if (_tryValidateGrid == null) missing.Add("GuiGameMcpGridInteractionUtil.TryValidateDisposableGridOption");
 
         _contractError = missing.Count == 0

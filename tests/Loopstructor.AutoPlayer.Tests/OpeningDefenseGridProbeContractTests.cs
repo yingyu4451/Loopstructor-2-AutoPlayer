@@ -19,6 +19,8 @@ public sealed class OpeningDefenseGridProbeContractTests
         Assert.Contains("MapPosManager", LoadedStrings(resolve));
         Assert.Contains("CatapultRingPosition", LoadedStrings(resolve));
         Assert.Contains("EnergyCatapultRingPosition", LoadedStrings(resolve));
+        Assert.Contains("minDisAwayStation", LoadedStrings(resolve));
+        Assert.Contains("minEnergyDisAwayStation", LoadedStrings(resolve));
         Assert.Contains("TryValidateDisposableGridOption", AllMethods(probe).SelectMany(LoadedStrings));
         Assert.Contains(Calls(initialize), call =>
             call.DeclaringType.FullName == "Loopstructor.AutoPlayer.Core.DefenseStationGridRanker" &&

@@ -1558,9 +1558,21 @@ public static class DefenseStationGridRanker
                         FirstPointAngularPenalty = commons.Count == 0
                             ? attributes.Min(attribute => FirstCommonAngularPenalty(attribute, grid))
                             : 0d,
+                        RadiusDelta = commons.Count == 0
+                            ? attributes.Min(attribute => Math.Abs(
+                                Radius(grid) - Math.Sqrt(attribute.X * attribute.X + attribute.Y * attribute.Y)))
+                            : 0d,
+                        RadiusRatio = commons.Count == 0
+                            ? attributes.Max(attribute => RadiusRatio(
+                                Radius(grid),
+                                Math.Sqrt(attribute.X * attribute.X + attribute.Y * attribute.Y)))
+                            : 1d,
                         Distance = anchors.Min(anchor =>
                             DistanceSquared(grid.X, grid.Y, anchor.X, anchor.Y))
                     })
+                    .Where(item =>
+                        item.RadiusRatio <= 2.5d + 0.000001d &&
+                        (commons.Count == 0 || RailLayoutStrategyPlanner.IsBalancedDefenseRing(item.Layout)))
                     .OrderByDescending(item =>
                         item.Layout?.IsValid == true &&
                         item.Layout.IsSimpleCycle &&
@@ -1568,6 +1580,7 @@ public static class DefenseStationGridRanker
                     .ThenBy(
                         item => item.Layout,
                         Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareCoverage))
+                    .ThenBy(item => item.RadiusDelta)
                     .ThenBy(item => item.FirstPointAngularPenalty)
                     .ThenBy(item => item.Distance)
                     .ThenBy(item => item.Grid.X)
@@ -1586,6 +1599,30 @@ public static class DefenseStationGridRanker
                 .Where(grid => grid.HasValue)
                 .Select(grid => grid!.Value)
                 .ToList();
+        }
+
+        // The first opening attribute station fixes the radius band available to every later
+        // station. Choosing the nearest legal cell is unsafe because every confirmed placement
+        // removes its spacing neighbourhood from MapPosManager's live candidate pools. Reserve
+        // one full station-spacing band outside the innermost legal radius before any write.
+        if (targetIsAttribute && anchors.Count == 0)
+        {
+            double targetRadius = OpeningRingTargetRadius(source, spacingRules);
+            return source
+                .Select(grid => new
+                {
+                    Grid = grid,
+                    RadiusDelta = Math.Abs(Radius(grid) - targetRadius),
+                    Radius = Radius(grid),
+                    Angle = StablePolarAngle(grid)
+                })
+                .OrderBy(item => item.RadiusDelta)
+                .ThenBy(item => item.Radius)
+                .ThenBy(item => item.Angle)
+                .ThenBy(item => item.Grid.X)
+                .ThenBy(item => item.Grid.Y)
+                .Select(item => item.Grid)
+                .ToArray();
         }
 
         return source
@@ -1658,6 +1695,35 @@ public static class DefenseStationGridRanker
         double separation = Math.Abs(attributeAngle - candidateAngle);
         if (separation > Math.PI) separation = Math.PI * 2d - separation;
         return Math.Abs(separation - Math.PI * 2d / 3d);
+    }
+
+    private static double OpeningRingTargetRadius(
+        IReadOnlyCollection<AutoPlayerGrid> candidates,
+        StationSpacingRules spacingRules)
+    {
+        if (candidates.Count == 0) return 0d;
+        double innerLegalRadius = candidates.Min(Radius);
+        double reservedSpacing = spacingRules.IsKnown
+            ? Math.Max(spacingRules.OrdinaryMinimum, spacingRules.EnergyMinimum)
+            : 2d;
+        return innerLegalRadius + reservedSpacing;
+    }
+
+    private static double Radius(AutoPlayerGrid grid) =>
+        Math.Sqrt((double)grid.X * grid.X + (double)grid.Y * grid.Y);
+
+    private static double RadiusRatio(double left, double right)
+    {
+        double minimum = Math.Min(left, right);
+        return minimum <= 0.000001d
+            ? double.PositiveInfinity
+            : Math.Max(left, right) / minimum;
+    }
+
+    private static double StablePolarAngle(AutoPlayerGrid grid)
+    {
+        double angle = Math.Atan2(grid.Y, grid.X);
+        return angle < 0d ? angle + Math.PI * 2d : angle;
     }
 
     public static IReadOnlyList<AutoPlayerGrid> RankMove(

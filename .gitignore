@@ -3,6 +3,7 @@
 .dotnet/
 .dotnet-staging-*/
 .tools/
+.jspace/
 artifacts/
 bin/
 obj/

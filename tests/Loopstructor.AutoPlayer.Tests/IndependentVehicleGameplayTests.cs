@@ -298,6 +298,69 @@ public sealed class IndependentVehicleGameplayTests
     }
 
     [Fact]
+    public void NewLoopAttributePlacement_ReservesOneLiveSpacingBandBeforeFirstWrite()
+    {
+        JObject emptyField = new()
+        {
+            ["catapults"] = new JArray()
+        };
+        AutoPlayerGrid[] candidates =
+        {
+            new(-2, -2),
+            new(5, 0),
+            new(0, 5),
+            new(9, 0)
+        };
+
+        AutoPlayerGrid selected = DefenseStationGridRanker.RankPlacement(
+            "FreePoint_Attribute",
+            candidates,
+            emptyField,
+            new StationSpacingRules(2.1d, 2.1d),
+            placementIsAttribute: true).First();
+
+        Assert.NotEqual(new AutoPlayerGrid(-2, -2), selected);
+        double radius = Math.Sqrt((double)selected.X * selected.X + (double)selected.Y * selected.Y);
+        Assert.InRange(radius, 4.99d, 5.01d);
+    }
+
+    [Fact]
+    public void NewLoopCommonPlacement_RejectsRemotePointThatWouldBreakFinalRadiusBand()
+    {
+        JObject attributeOnly = new()
+        {
+            ["catapults"] = new JArray(ExpansionPoint(1, true, -2, -2))
+        };
+
+        IReadOnlyList<AutoPlayerGrid> ranked = DefenseStationGridRanker.RankPlacement(
+            "FreePoint",
+            new[] { new AutoPlayerGrid(15, -4), new AutoPlayerGrid(2, 3) },
+            attributeOnly,
+            new StationSpacingRules(2.1d, 2.1d),
+            placementIsAttribute: false);
+
+        Assert.Equal(new AutoPlayerGrid(2, 3), Assert.Single(ranked));
+    }
+
+    [Fact]
+    public void NewLoopCommonPlacement_MatchesOpeningRadiusBeforeExactAngularTieBreak()
+    {
+        JObject attributeOnly = new()
+        {
+            ["catapults"] = new JArray(ExpansionPoint(1, true, 0, 5))
+        };
+
+        AutoPlayerGrid selected = DefenseStationGridRanker.RankPlacement(
+            "FreePoint",
+            new[] { new AutoPlayerGrid(9, -5), new AutoPlayerGrid(4, -3) },
+            attributeOnly,
+            new StationSpacingRules(2.1d, 2.1d),
+            placementIsAttribute: false).First();
+
+        Assert.Equal(new AutoPlayerGrid(4, -3), selected);
+    }
+
+    [Fact]
     public void Rebuild_PreservesFifoAndAcceptsCapacityShrinkReturnToBag()
     {
         RailRebuildTransactionPlanner planner = new();
