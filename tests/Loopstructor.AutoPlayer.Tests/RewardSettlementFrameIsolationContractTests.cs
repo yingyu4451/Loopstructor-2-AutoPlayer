@@ -150,6 +150,48 @@ public sealed class RewardSettlementFrameIsolationContractTests
     }
 
     [Fact]
+    public void StationMaintenance_RunsOnlyAfterRewardSettlementAndBlockerHandling()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition controller = RequireType(assembly, ControllerType);
+        MethodDefinition tick = RequireMethod(controller, "TickInGame");
+        Instruction[] instructions = tick.Body.Instructions.ToArray();
+
+        int queryReward = FindLoadedString(instructions, "queryReward");
+        int completeObject = FindCall(
+            instructions,
+            ControllerType,
+            "CompleteRewardObjectSettlement",
+            queryReward + 1);
+        int completeSelection = FindCall(
+            instructions,
+            ControllerType,
+            "CompleteRewardSelectionSettlement",
+            completeObject + 1);
+        int requiredMaintenance = FindCall(
+            instructions,
+            ControllerType,
+            "TryRunRequiredRailTopologyMaintenance",
+            completeSelection + 1);
+        int normalMaintenance = FindCall(
+            instructions,
+            ControllerType,
+            "TryMaintainDefense",
+            requiredMaintenance + 1);
+
+        Assert.True(queryReward >= 0 && queryReward < completeObject);
+        Assert.True(completeObject < completeSelection);
+        Assert.True(completeSelection < requiredMaintenance);
+        Assert.True(requiredMaintenance < normalMaintenance);
+        Assert.Equal(1, instructions.Count(instruction =>
+            IsCall(instruction, ControllerType, "TryMaintainDefense")));
+
+        MethodDefinition schedule = RequireMethod(controller, "ScheduleDefenseMaintenanceStep");
+        Assert.Contains(schedule.Body.Instructions, instruction =>
+            IsCall(instruction, ControllerType, "MarkProgress"));
+    }
+
+    [Fact]
     public void RewardAppearanceGraceCompletesBeforeAFullRecordingObservationDelayStarts()
     {
         using AssemblyDefinition assembly = ReadPlugin();

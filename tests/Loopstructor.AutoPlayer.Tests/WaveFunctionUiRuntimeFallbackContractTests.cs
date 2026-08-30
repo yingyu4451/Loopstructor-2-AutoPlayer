@@ -39,6 +39,11 @@ public sealed class WaveFunctionUiRuntimeFallbackContractTests
                      "eventKey",
                      "eventTag",
                      "eventTagValue",
+                     "shouldShowAppearanceAnimation",
+                     "appearanceAnimationReadable",
+                     "appearanceAnimationComplete",
+                     "appearanceAnimationName",
+                     "appearanceAnimationDurationSeconds",
                      "options"
                  })
         {
@@ -71,6 +76,52 @@ public sealed class WaveFunctionUiRuntimeFallbackContractTests
         Assert.DoesNotContain(calls, call => call.DeclaringType.FullName == "UnityEngine.Resources");
         Assert.DoesNotContain(strings, value => value.Contains("FindObjectsOfTypeAll", StringComparison.Ordinal));
         Assert.DoesNotContain(strings, value => value.Contains("GuiGameMcpObjectResolver", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AppearanceState_UsesTheLiveSpineTrackAndGatesSelectionBeforeObservationStarts()
+    {
+        using AssemblyDefinition assembly = ReadPlugin();
+        TypeDefinition fallback = RequireType(assembly, FallbackType);
+        MethodDefinition appearance = RequireMethod(fallback, "BuildAppearanceAnimationState");
+        MethodReference[] appearanceCalls = Calls(appearance).ToArray();
+
+        Assert.Contains(appearanceCalls, call =>
+            call.DeclaringType.FullName == "UnityEngine.Component" &&
+            call.Name == "GetComponentsInChildren");
+        Assert.Contains("Appear", LoadedStrings(appearance));
+        Assert.Contains("readable", LoadedStrings(appearance));
+        Assert.Contains("complete", LoadedStrings(appearance));
+
+        TypeDefinition controller = RequireType(
+            assembly,
+            "Loopstructor.AutoPlayer.Plugin.AutoPlayController");
+        MethodDefinition opening = RequireMethod(controller, "TryHandleOpeningWaveFunctionUi");
+        MethodDefinition wait = RequireMethod(controller, "TryWaitForWaveFunctionAppearance");
+        Instruction[] openingInstructions = opening.Body.Instructions.ToArray();
+        int animationGate = FindCall(
+            openingInstructions,
+            controller.FullName,
+            "TryWaitForWaveFunctionAppearance");
+        int optionObservation = FindCall(
+            openingInstructions,
+            controller.FullName,
+            "TryWaitForEventOptions");
+
+        Assert.True(animationGate >= 0 && animationGate < optionObservation);
+        foreach (string field in new[]
+                 {
+                     "appearanceAnimationReadable",
+                     "appearanceAnimationComplete",
+                     "appearanceAnimationName",
+                     "appearanceAnimationDurationSeconds"
+                 })
+        {
+            Assert.Contains(field, LoadedStrings(wait));
+        }
+        Assert.Contains(Calls(wait), call =>
+            call.DeclaringType.FullName == controller.FullName &&
+            call.Name == "ClearSelectionHighlight");
     }
 
     [Fact]

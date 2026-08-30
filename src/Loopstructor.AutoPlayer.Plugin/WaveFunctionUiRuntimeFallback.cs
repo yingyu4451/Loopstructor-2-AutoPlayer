@@ -14,6 +14,8 @@ internal static class WaveFunctionUiRuntimeFallback
     private const string WaveFunctionUiTypeName = "MetroTD.UISystem.WaveFunctionUI";
     private const string WaveFunctionItemTypeName =
         "MetroTD.UISystem.WaveFunctionUI_Item_Behaviour";
+    private const string SpineAnimationControllerTypeName =
+        "ActFramework_ByHZR.SpineUtil.SpineAnimationController";
     private const string ResultSource = "pluginReflection:WaveFunctionUI";
 
     private static ReflectionContract? _contract;
@@ -218,6 +220,17 @@ internal static class WaveFunctionUiRuntimeFallback
         object? currentData = contract.CurrentDataField.GetValue(panel);
         object? eventTag = currentData == null ? null : contract.EventTagField.GetValue(currentData);
         bool optionsGenerated = contract.OptionsGeneratedField.GetValue(panel) is bool generated && generated;
+        JObject appearanceAnimation;
+        try
+        {
+            appearanceAnimation = BuildAppearanceAnimationState(contract, panel);
+        }
+        catch
+        {
+            // Animation telemetry is an additional fail-closed gate. A missing or changing Spine
+            // binding must not make the otherwise valid event option snapshot unreadable.
+            appearanceAnimation = UnreadableAppearanceAnimation();
+        }
         return new JObject
         {
             ["panel"] = EventPanelName,
@@ -231,10 +244,96 @@ internal static class WaveFunctionUiRuntimeFallback
                 : contract.EventKeyField.GetValue(currentData)?.ToString() ?? string.Empty,
             ["eventTag"] = EnumName(eventTag),
             ["eventTagValue"] = EnumValue(eventTag),
+            ["shouldShowAppearanceAnimation"] = appearanceAnimation["shouldShow"],
+            ["appearanceAnimationReadable"] = appearanceAnimation["readable"],
+            ["appearanceAnimationComplete"] = appearanceAnimation["complete"],
+            ["appearanceAnimationName"] = appearanceAnimation["name"],
+            ["appearanceAnimationDurationSeconds"] = appearanceAnimation["durationSeconds"],
             ["options"] = options,
             ["source"] = ResultSource
         };
     }
+
+    private static JObject BuildAppearanceAnimationState(ReflectionContract contract, Component panel)
+    {
+        bool shouldShow = contract.ShouldShowEventSpineField?.GetValue(panel) is not bool configured || configured;
+        if (!shouldShow)
+        {
+            return new JObject
+            {
+                ["shouldShow"] = false,
+                ["readable"] = true,
+                ["complete"] = true,
+                ["name"] = string.Empty,
+                ["durationSeconds"] = 0f
+            };
+        }
+
+        if (contract.SpineAnimationControllerType == null ||
+            contract.GetCurrentAnimationNameMethod == null ||
+            contract.AnimationIsCompleteMethod == null)
+        {
+            return UnreadableAppearanceAnimation();
+        }
+
+        Component? controller = panel
+            .GetComponentsInChildren(contract.SpineAnimationControllerType, true)
+            .FirstOrDefault(IsActiveSceneComponent);
+        if (controller == null)
+        {
+            return UnreadableAppearanceAnimation();
+        }
+
+        string animationName =
+            contract.GetCurrentAnimationNameMethod.Invoke(controller, new object[] { 0 })?.ToString()
+            ?? string.Empty;
+        float durationSeconds = 0f;
+        if (contract.GetAnimationTimeMethod?.Invoke(controller, new object[] { "Appear" }) is object duration)
+        {
+            try
+            {
+                durationSeconds = Convert.ToSingle(duration);
+            }
+            catch
+            {
+                durationSeconds = 0f;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(animationName))
+        {
+            return new JObject
+            {
+                ["shouldShow"] = true,
+                ["readable"] = false,
+                ["complete"] = false,
+                ["name"] = string.Empty,
+                ["durationSeconds"] = durationSeconds
+            };
+        }
+
+        bool complete = !string.Equals(animationName, "Appear", StringComparison.Ordinal) ||
+                        contract.AnimationIsCompleteMethod.Invoke(
+                            controller,
+                            new object[] { 0, "Appear" }) is bool isComplete && isComplete;
+        return new JObject
+        {
+            ["shouldShow"] = true,
+            ["readable"] = true,
+            ["complete"] = complete,
+            ["name"] = animationName,
+            ["durationSeconds"] = durationSeconds
+        };
+    }
+
+    private static JObject UnreadableAppearanceAnimation() => new()
+    {
+        ["shouldShow"] = true,
+        ["readable"] = false,
+        ["complete"] = false,
+        ["name"] = string.Empty,
+        ["durationSeconds"] = 0f
+    };
 
     private static JObject BuildClosedPanelState(Component panel) => new()
     {
@@ -243,6 +342,11 @@ internal static class WaveFunctionUiRuntimeFallback
         ["panelInstanceId"] = panel.GetInstanceID(),
         ["snapshotComplete"] = true,
         ["optionsGenerated"] = false,
+        ["shouldShowAppearanceAnimation"] = false,
+        ["appearanceAnimationReadable"] = true,
+        ["appearanceAnimationComplete"] = true,
+        ["appearanceAnimationName"] = string.Empty,
+        ["appearanceAnimationDurationSeconds"] = 0f,
         ["count"] = 0,
         ["options"] = new JArray(),
         ["source"] = ResultSource
@@ -437,6 +541,26 @@ internal static class WaveFunctionUiRuntimeFallback
         FieldInfo? contentField = panelType.GetField("content", InstanceMembers);
         FieldInfo? currentDataField = panelType.GetField("m_currentData", InstanceMembers);
         FieldInfo? optionsGeneratedField = panelType.GetField("m_optionsGenerated", InstanceMembers);
+        FieldInfo? shouldShowEventSpineField = panelType.GetField("m_shouldShowEventSpine", InstanceMembers);
+        Type? spineAnimationControllerType = FindType(SpineAnimationControllerTypeName);
+        MethodInfo? getCurrentAnimationName = spineAnimationControllerType?.GetMethod(
+            "GetCurrentAnimationName",
+            InstanceMembers,
+            null,
+            new[] { typeof(int) },
+            null);
+        MethodInfo? animationIsComplete = spineAnimationControllerType?.GetMethod(
+            "AnimationIsComplete",
+            InstanceMembers,
+            null,
+            new[] { typeof(int), typeof(string) },
+            null);
+        MethodInfo? getAnimationTime = spineAnimationControllerType?.GetMethod(
+            "GetAnimationTime",
+            InstanceMembers,
+            null,
+            new[] { typeof(string) },
+            null);
         FieldInfo? buttonField = itemType.GetField("btn", InstanceMembers);
         FieldInfo? contentTextField = itemType.GetField("contentText", InstanceMembers);
         FieldInfo? currentItemField = itemType.GetField("currentItem", InstanceMembers);
@@ -483,6 +607,11 @@ internal static class WaveFunctionUiRuntimeFallback
             contentField,
             currentDataField,
             optionsGeneratedField,
+            shouldShowEventSpineField,
+            spineAnimationControllerType,
+            getCurrentAnimationName,
+            animationIsComplete,
+            getAnimationTime,
             buttonField,
             buttonActive,
             contentTextField,
@@ -585,6 +714,11 @@ internal static class WaveFunctionUiRuntimeFallback
             FieldInfo contentField,
             FieldInfo currentDataField,
             FieldInfo optionsGeneratedField,
+            FieldInfo? shouldShowEventSpineField,
+            Type? spineAnimationControllerType,
+            MethodInfo? getCurrentAnimationNameMethod,
+            MethodInfo? animationIsCompleteMethod,
+            MethodInfo? getAnimationTimeMethod,
             FieldInfo buttonField,
             PropertyInfo buttonActiveProperty,
             FieldInfo contentTextField,
@@ -608,6 +742,11 @@ internal static class WaveFunctionUiRuntimeFallback
             ContentField = contentField;
             CurrentDataField = currentDataField;
             OptionsGeneratedField = optionsGeneratedField;
+            ShouldShowEventSpineField = shouldShowEventSpineField;
+            SpineAnimationControllerType = spineAnimationControllerType;
+            GetCurrentAnimationNameMethod = getCurrentAnimationNameMethod;
+            AnimationIsCompleteMethod = animationIsCompleteMethod;
+            GetAnimationTimeMethod = getAnimationTimeMethod;
             ButtonField = buttonField;
             ButtonActiveProperty = buttonActiveProperty;
             ContentTextField = contentTextField;
@@ -632,6 +771,11 @@ internal static class WaveFunctionUiRuntimeFallback
         public FieldInfo ContentField { get; }
         public FieldInfo CurrentDataField { get; }
         public FieldInfo OptionsGeneratedField { get; }
+        public FieldInfo? ShouldShowEventSpineField { get; }
+        public Type? SpineAnimationControllerType { get; }
+        public MethodInfo? GetCurrentAnimationNameMethod { get; }
+        public MethodInfo? AnimationIsCompleteMethod { get; }
+        public MethodInfo? GetAnimationTimeMethod { get; }
         public FieldInfo ButtonField { get; }
         public PropertyInfo ButtonActiveProperty { get; }
         public FieldInfo ContentTextField { get; }

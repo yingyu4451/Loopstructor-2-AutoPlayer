@@ -209,6 +209,10 @@ internal sealed class AutoPlayController
     private string _normalEventFingerprint = string.Empty;
     private int _normalEventProbeFailures;
     private bool _openingWaveFunctionObserved;
+    private int _openingWaveFunctionPanelInstanceId;
+    private float _openingWaveFunctionAnimationObservedAt = -1f;
+    private float _openingWaveFunctionAnimationFallbackReadyAt = -1f;
+    private bool _openingWaveFunctionAnimationFallbackReported;
     private AutomationAction? _deferredOpeningWaveFunctionAction;
     private bool _directUpgradeAutomationActive;
     private AutomationAction? _directUpgradePendingAction;
@@ -287,6 +291,8 @@ internal sealed class AutoPlayController
     private bool _defenseMaintenanceRequested;
     private bool _defenseMaintenanceReady;
     private DefenseMaintenanceStep _defenseMaintenanceStep;
+    private DefenseMaintenanceStep? _lastProgressingDefenseMaintenanceStep;
+    private string _lastProgressingDefenseMaintenanceDetail = string.Empty;
     private JObject? _defenseIndependentVehicleState;
     private AutomationAction? _defensePendingAction;
     private AutomationAction? _defenseExpansionAction;
@@ -1218,11 +1224,6 @@ internal sealed class AutoPlayController
         if (TryHandleObservedWave()) return;
         if (TryHandlePendingMapSelection()) return;
         if (TryObservePostMapTopology()) return;
-        if (TryRunRequiredRailTopologyMaintenance()) return;
-        if (_defensePrepared &&
-            _defenseMaintenanceRequested &&
-            _defenseMaintenanceReady &&
-            TryMaintainDefense()) return;
 
         if (_bridge.TryGetWavePulse(out bool pulseInWave, out bool pulseGameOver, out int pulseRemaining) &&
             (pulseInWave || pulseGameOver))
@@ -1284,15 +1285,8 @@ internal sealed class AutoPlayController
         }
 
         bool blocked = blockers.Count > 0;
-        if (!blocked && _defensePrepared && _defenseMaintenanceRequested)
-        {
-            _defenseMaintenanceReady = true;
-            _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
-            SetStage(AutomationStage.PreparingDefense, "防线当前可编辑，准备检查背包战车、运行数与 FIFO 等待容量。");
-            return;
-        }
-
-        if (HasBlocker(blockers, "reward"))
+        bool rewardBlocked = HasBlocker(blockers, "reward");
+        if (rewardBlocked)
         {
             if (!TryQueryState(
                     "queryReward",
@@ -1331,10 +1325,20 @@ internal sealed class AutoPlayController
             return;
         }
 
+        bool rewardSettlementWasPending =
+            _rewardObjectSettlementGuard.IsArmed || _rewardSelectionSettlementGuard.IsArmed;
         CompleteRewardObjectSettlement("奖励阶段已经退出。");
         _rewardObjectCollectionLedger.Clear();
         CompleteRewardSelectionSettlement("\u5956\u52b1\u754c\u9762\u5df2\u7ecf\u9000\u51fa\u3002");
         ResetRewardOptionObservation();
+        if (rewardSettlementWasPending)
+        {
+            ScheduleContinuationFrame();
+            SetStage(
+                AutomationStage.PreparingDefense,
+                "奖励结算已完整退出；下一帧重新读取阻断状态后再检测背包弹射点并维护闭环。");
+            return;
+        }
 
         string? eventPanel = HasBlocker(blockers, "EventUI")
             ? "EventUI"
@@ -1392,6 +1396,20 @@ internal sealed class AutoPlayController
         {
             SetStage(AutomationStage.Recovery, BuildBlockerDetail(blockers));
             return;
+        }
+
+        // Station placement and rail rebuilding are only safe after a complete wave snapshot has
+        // proved that reward/event/preview transitions are gone. Running this at the top of the
+        // tick allowed a newly acquired station to be placed while reward settlement was active.
+        if (_requiredRailTopologyMaintenance && TryRunRequiredRailTopologyMaintenance())
+        {
+            return;
+        }
+
+        if (_defensePrepared && _defenseMaintenanceRequested)
+        {
+            _defenseMaintenanceReady = true;
+            if (TryMaintainDefense()) return;
         }
 
         bool canStartWave = state["canStartWave"]?.Value<bool>() == true;
@@ -2533,6 +2551,7 @@ internal sealed class AutoPlayController
             bool clicked = Execute(deferred);
             if (clicked && _runState == AutoPlayerRunState.Running)
             {
+                ResetWaveFunctionAppearanceObservation();
                 RequestDefenseMaintenance();
                 _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
             }
@@ -2551,6 +2570,7 @@ internal sealed class AutoPlayController
             if (_openingWaveFunctionObserved && !reconcilingOpeningChoice)
             {
                 _openingWaveFunctionObserved = false;
+                ResetWaveFunctionAppearanceObservation();
                 _normalEventProbeRequired = true;
                 ResetEventOptionObservation();
                 AddTimeline("event", "开局轨神事件对象已经释放，正在重新读取对局核心对象。");
@@ -2592,6 +2612,7 @@ internal sealed class AutoPlayController
             if (_openingWaveFunctionObserved)
             {
                 _openingWaveFunctionObserved = false;
+                ResetWaveFunctionAppearanceObservation();
                 _normalEventProbeRequired = true;
                 ResetEventOptionObservation();
                 AddTimeline("event", "开局轨神事件面板已关闭，正在探测可能连续出现的普通事件并重新读取对局核心对象。");
@@ -2609,8 +2630,13 @@ internal sealed class AutoPlayController
         {
             AddTimeline(
                 "observation",
-                "已识别旧版开局轨神事件；将在选项完整生成后高亮目标并保留 1 秒观察时间。");
+                "已识别旧版开局轨神事件；等待原生 Appear 动画结束后再高亮目标并保留 1 秒观察时间。");
             MarkProgress();
+        }
+
+        if (TryWaitForWaveFunctionAppearance(eventResult))
+        {
+            return true;
         }
 
         if (eventPanel["snapshotComplete"]?.Value<bool>() != true)
@@ -2951,6 +2977,7 @@ internal sealed class AutoPlayController
             Execute(action);
             if (string.Equals(action.Command, "chooseWaveFunctionOption", StringComparison.OrdinalIgnoreCase))
             {
+                ResetWaveFunctionAppearanceObservation();
                 ResetEventOptionObservation();
             }
             return true;
@@ -2996,6 +3023,13 @@ internal sealed class AutoPlayController
             }
 
             if (HandleWaveFunctionOptionSettlementFromOptions(eventResult))
+            {
+                return true;
+            }
+
+            if (string.Equals(_pendingEventPanel, "EventUI", StringComparison.OrdinalIgnoreCase) &&
+                WaveFunctionUiRuntimeFallback.TryQueryPanelState(out JObject waveFunctionState) &&
+                TryWaitForWaveFunctionAppearance(waveFunctionState))
             {
                 return true;
             }
@@ -6301,6 +6335,13 @@ internal sealed class AutoPlayController
     private void ScheduleDefenseMaintenanceStep(string detail)
     {
         _nextTickAt = Time.realtimeSinceStartup + BattleTacticFrameDelaySeconds;
+        if (_lastProgressingDefenseMaintenanceStep != _defenseMaintenanceStep ||
+            !string.Equals(_lastProgressingDefenseMaintenanceDetail, detail, StringComparison.Ordinal))
+        {
+            _lastProgressingDefenseMaintenanceStep = _defenseMaintenanceStep;
+            _lastProgressingDefenseMaintenanceDetail = detail;
+            MarkProgress();
+        }
         SetStage(AutomationStage.PreparingDefense, detail);
     }
 
@@ -7027,6 +7068,8 @@ internal sealed class AutoPlayController
         _defenseMaintenanceStep = preservePendingDisposableMutation
             ? DefenseMaintenanceStep.WaitForExpansionAttributeSettlement
             : DefenseMaintenanceStep.QueryIndependentState;
+        _lastProgressingDefenseMaintenanceStep = null;
+        _lastProgressingDefenseMaintenanceDetail = string.Empty;
         _defenseIndependentVehicleState = null;
         _defenseCatapults = null;
         _defensePendingAction = null;
@@ -7220,6 +7263,8 @@ internal sealed class AutoPlayController
         _defenseUnplaceableStationInventoryEnums.Clear();
         _defenseMaintenanceRequested = true;
         _defenseMaintenanceReady = false;
+        _lastProgressingDefenseMaintenanceStep = null;
+        _lastProgressingDefenseMaintenanceDetail = string.Empty;
         ResetDefenseMaintenanceState();
     }
 
@@ -9736,7 +9781,75 @@ internal sealed class AutoPlayController
     private void ResetOpeningWaveFunctionObservation()
     {
         _openingWaveFunctionObserved = false;
+        ResetWaveFunctionAppearanceObservation();
         _deferredOpeningWaveFunctionAction = null;
+    }
+
+    private void ResetWaveFunctionAppearanceObservation()
+    {
+        _openingWaveFunctionPanelInstanceId = 0;
+        _openingWaveFunctionAnimationObservedAt = -1f;
+        _openingWaveFunctionAnimationFallbackReadyAt = -1f;
+        _openingWaveFunctionAnimationFallbackReported = false;
+    }
+
+    private bool TryWaitForWaveFunctionAppearance(JObject eventResult)
+    {
+        JObject panel = eventResult.SelectToken("data.state.eventPanel") as JObject ?? new JObject();
+        if (panel["panelOpen"]?.Value<bool>() != true ||
+            panel["shouldShowAppearanceAnimation"]?.Value<bool>() == false)
+        {
+            return false;
+        }
+
+        int panelInstanceId = panel["panelInstanceId"]?.Value<int?>() ?? 0;
+        float now = Time.realtimeSinceStartup;
+        if (panelInstanceId != _openingWaveFunctionPanelInstanceId)
+        {
+            _openingWaveFunctionPanelInstanceId = panelInstanceId;
+            _openingWaveFunctionAnimationObservedAt = now;
+            float duration = Math.Max(
+                EventOptionGenerationDelaySeconds,
+                panel["appearanceAnimationDurationSeconds"]?.Value<float?>() ?? 0f);
+            _openingWaveFunctionAnimationFallbackReadyAt = _openingWaveFunctionAnimationObservedAt + duration;
+            _openingWaveFunctionAnimationFallbackReported = false;
+            _eventOptionSelectionReadyAt = -1f;
+            _eventOptionsFingerprint = string.Empty;
+            ClearSelectionHighlight("event");
+            MarkProgress();
+        }
+
+        bool readable = panel["appearanceAnimationReadable"]?.Value<bool>() == true;
+        bool complete = panel["appearanceAnimationComplete"]?.Value<bool>() == true;
+        if (complete)
+        {
+            return false;
+        }
+
+        if (!readable && now >= _openingWaveFunctionAnimationFallbackReadyAt)
+        {
+            if (!_openingWaveFunctionAnimationFallbackReported)
+            {
+                _openingWaveFunctionAnimationFallbackReported = true;
+                AddWarning(
+                    "当前游戏未暴露轨神 Spine 轨道完成状态；已按游戏配置的真实动画时长等待后继续。");
+            }
+            return false;
+        }
+
+        ClearSelectionHighlight("event");
+        _eventOptionSelectionReadyAt = -1f;
+        _eventOptionsFingerprint = string.Empty;
+        _nextTickAt = now + BattleTacticFrameDelaySeconds;
+        string animationName = panel["appearanceAnimationName"]?.Value<string>() ?? string.Empty;
+        SetStage(
+            AutomationStage.ManagingEvent,
+            readable
+                ? "轨神事件正在播放原生 " +
+                  (string.IsNullOrWhiteSpace(animationName) ? "Appear" : animationName) +
+                  " 动画；动画完成前不会高亮或选择。"
+                : "正在等待轨神事件原生动画完成；动画完成前不会高亮或选择。");
+        return true;
     }
 
     private void ResetNormalEventActionObservation()
