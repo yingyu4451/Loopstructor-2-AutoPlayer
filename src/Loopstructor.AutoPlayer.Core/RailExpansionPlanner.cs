@@ -1601,23 +1601,37 @@ public static class DefenseStationGridRanker
                 .ToList();
         }
 
-        // The first opening attribute station fixes the radius band available to every later
-        // station. Choosing the nearest legal cell is unsafe because every confirmed placement
-        // removes its spacing neighbourhood from MapPosManager's live candidate pools. Reserve
-        // one full station-spacing band outside the innermost legal radius before any write.
-        if (targetIsAttribute && anchors.Count == 0)
+        if (targetIsAttribute)
         {
-            double targetRadius = OpeningRingTargetRadius(source, spacingRules);
-            return source
+            List<AttributePlacementRank> ranked = source
                 .Select(grid => new
                 {
                     Grid = grid,
-                    RadiusDelta = Math.Abs(Radius(grid) - targetRadius),
+                    Layout = ScoreProspectiveAttributeLoop(anchors, grid),
+                    SpacingSurplus = spacingRules.IsKnown
+                        ? NearestLegalSpacingSurplus(grid, true, points, spacingRules)
+                        : 0d,
                     Radius = Radius(grid),
                     Angle = StablePolarAngle(grid)
                 })
-                .OrderBy(item => item.RadiusDelta)
-                .ThenBy(item => item.Radius)
+                .Where(item => item.SpacingSurplus >= -0.000001d)
+                .Select(item => new AttributePlacementRank(
+                    item.Grid,
+                    item.Layout,
+                    CoverageTier(item.Layout),
+                    item.SpacingSurplus,
+                    item.Radius,
+                    item.Angle))
+                .ToList();
+            int bestCoverageTier = ranked.Select(item => item.CoverageTier).DefaultIfEmpty(int.MaxValue).Min();
+            return ranked
+                // Legality is validated again against the real GridChooseInteraction. At the
+                // ranking layer, require the strongest available coverage tier first, then pick
+                // the closest feasible origin radius before comparing small spacing/cycle ties.
+                .Where(item => item.CoverageTier == bestCoverageTier)
+                .OrderBy(item => item.Radius)
+                .ThenBy(item => item.SpacingSurplus)
+                .ThenBy(item => item.Layout?.LoopLength ?? double.PositiveInfinity)
                 .ThenBy(item => item.Angle)
                 .ThenBy(item => item.Grid.X)
                 .ThenBy(item => item.Grid.Y)
@@ -1686,6 +1700,69 @@ public static class DefenseStationGridRanker
         return RailLayoutStrategyPlanner.PlanPlayerLoop(points)?.Score;
     }
 
+    private static RailLayoutScore? ScoreProspectiveAttributeLoop(
+        IReadOnlyList<(double X, double Y)> commons,
+        AutoPlayerGrid attribute)
+    {
+        if (commons.Count < 2) return null;
+        List<RailLoopPointCandidate> points = new()
+        {
+            new RailLoopPointCandidate
+            {
+                InstanceId = 1,
+                IsAttribute = true,
+                MustInclude = true,
+                Grid = new RailLayoutPoint(attribute.X, attribute.Y)
+            }
+        };
+        int identity = 2;
+        foreach ((double x, double y) in commons)
+        {
+            points.Add(new RailLoopPointCandidate
+            {
+                InstanceId = identity++,
+                MustInclude = true,
+                Grid = new RailLayoutPoint(x, y)
+            });
+        }
+        return RailLayoutStrategyPlanner.PlanPlayerLoop(points)?.Score;
+    }
+
+    private static int CoverageTier(RailLayoutScore? layout)
+    {
+        if (layout?.IsValid != true || !layout.IsSimpleCycle) return 6;
+        if (!layout.EncirclesBase) return 5;
+        if (!layout.CoversAllQuadrants) return 5 - Math.Min(3, layout.CoveredQuadrants);
+        if (!RailLayoutStrategyPlanner.IsBalancedDefenseRing(layout)) return 1;
+        return 0;
+    }
+
+    private readonly struct AttributePlacementRank
+    {
+        public AttributePlacementRank(
+            AutoPlayerGrid grid,
+            RailLayoutScore? layout,
+            int coverageTier,
+            double spacingSurplus,
+            double radius,
+            double angle)
+        {
+            Grid = grid;
+            Layout = layout;
+            CoverageTier = coverageTier;
+            SpacingSurplus = spacingSurplus;
+            Radius = radius;
+            Angle = angle;
+        }
+
+        public AutoPlayerGrid Grid { get; }
+        public RailLayoutScore? Layout { get; }
+        public int CoverageTier { get; }
+        public double SpacingSurplus { get; }
+        public double Radius { get; }
+        public double Angle { get; }
+    }
+
     private static double FirstCommonAngularPenalty(
         (double X, double Y) attribute,
         AutoPlayerGrid candidate)
@@ -1695,18 +1772,6 @@ public static class DefenseStationGridRanker
         double separation = Math.Abs(attributeAngle - candidateAngle);
         if (separation > Math.PI) separation = Math.PI * 2d - separation;
         return Math.Abs(separation - Math.PI * 2d / 3d);
-    }
-
-    private static double OpeningRingTargetRadius(
-        IReadOnlyCollection<AutoPlayerGrid> candidates,
-        StationSpacingRules spacingRules)
-    {
-        if (candidates.Count == 0) return 0d;
-        double innerLegalRadius = candidates.Min(Radius);
-        double reservedSpacing = spacingRules.IsKnown
-            ? Math.Max(spacingRules.OrdinaryMinimum, spacingRules.EnergyMinimum)
-            : 2d;
-        return innerLegalRadius + reservedSpacing;
     }
 
     private static double Radius(AutoPlayerGrid grid) =>

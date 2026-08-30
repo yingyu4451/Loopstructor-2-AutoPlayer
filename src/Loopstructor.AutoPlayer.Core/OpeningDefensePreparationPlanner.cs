@@ -248,7 +248,9 @@ public sealed class OpeningDefensePreparationPlanner
     private OpeningDefenseGrid? _attributeGrid;
     private string _placementDisposableEnum = string.Empty;
     private bool _placementIsAttribute;
+    private bool _commonInventoryExhausted;
     private bool _specialInventoryExhausted;
+    private readonly HashSet<string> _unplaceableSpecialDisposables = new(StringComparer.Ordinal);
     private JObject? _placementDisposableIdentity;
     private JObject? _catapultResult;
     private JObject? _vehicleResult;
@@ -305,7 +307,9 @@ public sealed class OpeningDefensePreparationPlanner
         _attributeGrid = null;
         _placementDisposableEnum = string.Empty;
         _placementIsAttribute = false;
+        _commonInventoryExhausted = false;
         _specialInventoryExhausted = false;
+        _unplaceableSpecialDisposables.Clear();
         _placementDisposableIdentity = null;
         _catapultResult = null;
         _vehicleResult = null;
@@ -670,7 +674,29 @@ public sealed class OpeningDefensePreparationPlanner
                 return Wait($"已分批检查 {probeResult.TotalProbed} 个候选格；下一帧继续。");
 
             case OpeningDefenseGridProbeStatus.Exhausted:
-                return Failure($"增量候选网格已耗尽（检查 {probeResult.TotalProbed} 个），不会回退整图宏。");
+                if (string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal))
+                {
+                    _commonInventoryExhausted = true;
+                    _selectedGrid = null;
+                    _placementDisposableIdentity = null;
+                    _phase = OpeningDefensePreparationPhase.QueryCatapults;
+                    return Wait(
+                        $"普通弹射点仍在背包，但游戏当前真实放置规则已穷尽 {probeResult.TotalProbed} 个候选格；" +
+                        "已记录为本轮不可放置，不会盲点禁区。");
+                }
+
+                if (!string.Equals(_placementDisposableEnum, AttributeDisposableEnum, StringComparison.Ordinal))
+                {
+                    _unplaceableSpecialDisposables.Add(_placementDisposableEnum);
+                    _selectedGrid = null;
+                    _placementDisposableIdentity = null;
+                    _phase = OpeningDefensePreparationPhase.QuerySpecialStationDisposable;
+                    return Wait(
+                        $"特殊弹射点 {_placementDisposableEnum} 在游戏当前真实放置规则下没有合法格；" +
+                        "已跳过该种道具并继续检查其余库存。");
+                }
+
+                return Failure($"动力始发站候选格已耗尽（检查 {probeResult.TotalProbed} 个），无法创建开局闭环。");
 
             default:
                 return Failure(
@@ -709,26 +735,35 @@ public sealed class OpeningDefensePreparationPlanner
         bool hasAttribute = usable.Any(point => point["isAttribute"]?.Value<bool>() == true);
         if (!hasAttribute)
         {
+            // The live energy candidate pool already incorporates the current base and station
+            // forbidden regions. Rank its closest feasible coverage tier; do not invent an extra
+            // radius band that pushes the origin away from the base.
             PreparePlacementDisposableQuery(AttributeDisposableEnum, placementIsAttribute: true);
+            return;
+        }
+
+        // Inventory is part of the opening-defense gate. Two common points are merely the
+        // minimum needed to draw a loop; they are not proof that the backpack has been drained.
+        // Re-query after each placement until the real inventory stack reaches zero.
+        if (!_commonInventoryExhausted)
+        {
+            PreparePlacementDisposableQuery(CommonDisposableEnum);
+            return;
+        }
+
+        if (!_specialInventoryExhausted)
+        {
+            _phase = OpeningDefensePreparationPhase.QuerySpecialStationDisposable;
             return;
         }
 
         if (commonAnchors.Count < 2)
         {
-            if (!string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal) ||
-                _placementDisposableIdentity == null)
-            {
-                _placementDisposableIdentity = null;
-            }
-            _placementDisposableEnum = CommonDisposableEnum;
-            _placementIsAttribute = false;
-            _phase = OpeningDefensePreparationPhase.QueryPlacementDisposable;
+            Fail("普通和可移动特殊弹射点库存已检查完毕，但场上仍不足 2 个可连中继站，无法创建开局闭环。");
             return;
         }
 
-        _phase = _specialInventoryExhausted
-            ? OpeningDefensePreparationPhase.QueryIndependentVehicles
-            : OpeningDefensePreparationPhase.QuerySpecialStationDisposable;
+        _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
     }
 
     private void ObservePlacementDisposable(JObject? result, bool accepted)
@@ -748,16 +783,18 @@ public sealed class OpeningDefensePreparationPlanner
         }
 
         JObject state = State(result);
-        JObject? item = (state["items"] as JArray)?.OfType<JObject>()
+        List<JObject> matchingInventory = (state["items"] as JArray)?.OfType<JObject>()
             .Where(candidate =>
                 string.Equals(
                     candidate["disposableEnum"]?.Value<string>(),
                     _placementDisposableEnum,
                     StringComparison.Ordinal))
+            .Where(candidate => ReadInt(candidate["count"], 0) > 0)
+            .ToList() ?? new List<JObject>();
+        JObject? item = matchingInventory
             .Where(candidate =>
                 candidate["active"]?.Value<bool>() != false &&
                 candidate["buttonActive"]?.Value<bool>() != false &&
-                ReadInt(candidate["count"], 0) > 0 &&
                 string.Equals(
                     candidate["interactionType"]?.Value<string>(),
                     "GridChooseInteraction",
@@ -766,6 +803,22 @@ public sealed class OpeningDefensePreparationPlanner
             .FirstOrDefault();
         if (item == null)
         {
+            if (matchingInventory.Count > 0)
+            {
+                RetryPreWriteRead(
+                    ref _catapultReadAttempts,
+                    $"背包中的 {_placementDisposableEnum} 仍有库存，但游戏当前尚未开放格子放置按钮。");
+                return;
+            }
+
+            if (string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal))
+            {
+                _commonInventoryExhausted = true;
+                _placementDisposableIdentity = null;
+                _phase = OpeningDefensePreparationPhase.QueryCatapults;
+                return;
+            }
+
             int placed = TryReadCatapults(_catapultResult, out List<JObject> catapults)
                 ? catapults.Count(point =>
                     IsAvailablePoint(point) &&
@@ -809,11 +862,28 @@ public sealed class OpeningDefensePreparationPlanner
             // on the field, consume movable relay stations into that ring; a special origin is
             // reserved for the separate-loop expansion transaction instead of being stranded.
             .Where(item => !item.IsAttribute)
+            .Where(item => !_unplaceableSpecialDisposables.Contains(item.DisposableEnum))
             .FirstOrDefault();
         if (special == null)
         {
+            bool unavailableInventoryExists = (State(result)["items"] as JArray)?.OfType<JObject>()
+                .Where(item => ReadInt(item["count"], 0) > 0)
+                .Where(BattleDecisionEngine.IsMovableStationDisposable)
+                .Any(item =>
+                    !string.Equals(item.SelectToken("effectFacts.stationKind")?.Value<string>(),
+                        "AttributeCatapult", StringComparison.Ordinal) &&
+                    !_unplaceableSpecialDisposables.Contains(
+                        item["disposableEnum"]?.Value<string>() ?? string.Empty)) == true;
+            if (unavailableInventoryExists)
+            {
+                RetryPreWriteRead(
+                    ref _catapultReadAttempts,
+                    "背包仍有可移动特殊弹射点，但游戏当前尚未开放放置按钮。");
+                return;
+            }
+
             _specialInventoryExhausted = true;
-            _phase = OpeningDefensePreparationPhase.QueryIndependentVehicles;
+            _phase = OpeningDefensePreparationPhase.QueryCatapults;
             return;
         }
 
@@ -907,15 +977,8 @@ public sealed class OpeningDefensePreparationPlanner
             }
             if (string.Equals(_placementDisposableEnum, CommonDisposableEnum, StringComparison.Ordinal))
             {
-                List<JObject> usable = catapults.Where(IsAvailablePoint).ToList();
-                int commonCount = usable.Count(point => point["isAttribute"]?.Value<bool>() != true);
-                if (commonCount < 2)
-                {
-                    _catapultResult = result?.DeepClone() as JObject;
-                    PreparePlacementDisposableQuery(CommonDisposableEnum);
-                    return;
-                }
-
+                // Query the same inventory again: a stack represents multiple independently
+                // placeable stations, and every successful confirmation consumes only one.
                 _phase = OpeningDefensePreparationPhase.QueryCatapults;
                 return;
             }
@@ -1334,7 +1397,10 @@ public sealed class OpeningDefensePreparationPlanner
                     {
                         InstanceId = instanceId,
                         IsAttribute = point["isAttribute"]?.Value<bool>() == true,
-                        MustInclude = IsSpecialPoint(point),
+                        // Every station deployed by the opening transaction belongs to its final
+                        // ring. Do not silently leave ordinary inventory points unconnected merely
+                        // because a shorter three-point loop has a higher estimated N/T.
+                        MustInclude = true,
                         Grid = new RailLayoutPoint(grid.X, grid.Y)
                     };
             })

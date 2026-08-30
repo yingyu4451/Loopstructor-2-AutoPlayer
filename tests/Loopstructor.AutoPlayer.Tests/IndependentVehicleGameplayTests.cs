@@ -298,7 +298,7 @@ public sealed class IndependentVehicleGameplayTests
     }
 
     [Fact]
-    public void NewLoopAttributePlacement_ReservesOneLiveSpacingBandBeforeFirstWrite()
+    public void NewLoopAttributePlacement_UsesClosestLiveLegalRadius()
     {
         JObject emptyField = new()
         {
@@ -319,9 +319,27 @@ public sealed class IndependentVehicleGameplayTests
             new StationSpacingRules(2.1d, 2.1d),
             placementIsAttribute: true).First();
 
-        Assert.NotEqual(new AutoPlayerGrid(-2, -2), selected);
-        double radius = Math.Sqrt((double)selected.X * selected.X + (double)selected.Y * selected.Y);
-        Assert.InRange(radius, 4.99d, 5.01d);
+        Assert.Equal(new AutoPlayerGrid(-2, -2), selected);
+    }
+
+    [Fact]
+    public void ExistingCommonRing_ChoosesClosestAttributeWithinBestCoverageTier()
+    {
+        JObject commonRing = new()
+        {
+            ["catapults"] = new JArray(
+                ExpansionPoint(10, false, -4, -2),
+                ExpansionPoint(11, false, 4, -2))
+        };
+
+        AutoPlayerGrid selected = DefenseStationGridRanker.RankPlacement(
+            "FreePoint_Attribute",
+            new[] { new AutoPlayerGrid(0, 4), new AutoPlayerGrid(0, 8) },
+            commonRing,
+            new StationSpacingRules(2.1d, 2.1d),
+            placementIsAttribute: true).First();
+
+        Assert.Equal(new AutoPlayerGrid(0, 4), selected);
     }
 
     [Fact]

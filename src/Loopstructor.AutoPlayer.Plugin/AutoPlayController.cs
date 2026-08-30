@@ -32,6 +32,7 @@ internal sealed class AutoPlayController
     {
         QueryIndependentState,
         QueryCatapults,
+        QueryPreWaveStationInventory,
         QueryRailExpansionCandidates,
         ProbeJointRailLayout,
         PreviewRailInsertionCandidate,
@@ -303,6 +304,9 @@ internal sealed class AutoPlayController
     private bool _openingPendingDisposableQueryCatapults;
     private JObject? _openingPendingDisposableObservation;
     private JObject? _defenseCatapults;
+    private bool _defenseStationInventoryChecked;
+    private bool _defenseDrainingStationInventory;
+    private readonly HashSet<string> _defenseUnplaceableStationInventoryEnums = new(StringComparer.Ordinal);
     private AutomationAction? _defenseAttributeUseAction;
     private AutomationAction? _defenseAttributeConfirmAction;
     private JObject? _defenseAttributeGrid;
@@ -3804,6 +3808,18 @@ internal sealed class AutoPlayController
                 }
 
                 _defenseCatapults = catapults;
+                if (!_defenseBattleSpecialMoveOnly &&
+                    !_defenseStationInventoryChecked &&
+                    _bridge.HasCommand("queryDisposable") &&
+                    _bridge.HasCommand("confirmDisposableGrid") &&
+                    _bridge.HasCommand("cancelDisposable"))
+                {
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryPreWaveStationInventory;
+                    ScheduleDefenseMaintenanceStep(
+                        "开波前正在核对左下角全部普通与可移动特殊弹射点库存。");
+                    return true;
+                }
+
                 _defenseExpansionAction = _defenseNeedsNewLoopExpansion
                     ? _battleDecisionEngine.DecideDefenseExpansion(
                         _defenseIndependentVehicleState,
@@ -4042,6 +4058,66 @@ internal sealed class AutoPlayController
                 _defenseMaintenanceStep = DefenseMaintenanceStep.PreviewRailInsertionCandidate;
                 ScheduleDefenseMaintenanceStep(
                     $"准备逐帧预览 {_defenseRailInsertionCandidates.Count} 个扩轨候选。");
+                return true;
+
+            case DefenseMaintenanceStep.QueryPreWaveStationInventory:
+                if (!TryInvokeOptionalReadOnly("queryDisposable", null, out JObject stationInventory))
+                {
+                    FinishDefenseMaintenance(
+                        "开波前无法读取弹射点库存；为避免漏放，本轮不会直接越过库存门禁。",
+                        warning: true);
+                    return true;
+                }
+
+                _defenseAttributeUseAction =
+                    !_defenseUnplaceableStationInventoryEnums.Contains("FreePoint")
+                        ? _battleDecisionEngine.DecideExpansionDisposableUse(stationInventory, "FreePoint")
+                        : null;
+                _defenseAttributeUseAction ??= _battleDecisionEngine.DecideMovableStationDisposableUse(
+                    stationInventory,
+                    requireAttribute: false,
+                    requireCommon: true,
+                    excludedDisposableEnums: _defenseUnplaceableStationInventoryEnums);
+                if (_defenseAttributeUseAction == null)
+                {
+                    _defenseStationInventoryChecked = true;
+                    _defenseDrainingStationInventory = false;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
+                    ScheduleDefenseMaintenanceStep(
+                        "已确认左下角没有剩余可放置的普通或可移动特殊中继站；继续检查闭环。");
+                    return true;
+                }
+
+                _defensePlacementDisposableEnum =
+                    _defenseAttributeUseAction.Arguments["disposableEnum"]?.Value<string>() ?? string.Empty;
+                _defensePlacementCountBefore = _battleDecisionEngine.CountAvailableExpansionStations(
+                    _defenseCatapults,
+                    _defensePlacementDisposableEnum);
+                _defenseAttributeCountBeforePlacement = _defensePlacementCountBefore;
+                _defenseDrainingStationInventory = true;
+                if (!_defenseStationGridProbe.TryInitializePlacement(
+                        _defensePlacementDisposableEnum,
+                        _defenseCatapults,
+                        out string inventoryProbeError,
+                        _defenseAttributeUseAction.Arguments["stationKind"]?.Value<string>() switch
+                        {
+                            "AttributeCatapult" => true,
+                            "CommonCatapult" => false,
+                            _ => false
+                        }))
+                {
+                    _defenseUnplaceableStationInventoryEnums.Add(_defensePlacementDisposableEnum);
+                    _defenseDrainingStationInventory = false;
+                    _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
+                    ScheduleDefenseMaintenanceStep(
+                        $"背包弹射点 {_defensePlacementDisposableEnum} 当前没有可验证合法格；" +
+                        "已保留库存并继续检查其他种类。" + inventoryProbeError);
+                    return true;
+                }
+
+                _defenseMaintenanceStep = DefenseMaintenanceStep.ProbeExpansionAttributeGrid;
+                ScheduleDefenseMaintenanceStep(
+                    $"正在用游戏实时合法格逐帧选择 {_defensePlacementDisposableEnum} 的最近可行位置。");
                 return true;
 
             case DefenseMaintenanceStep.ProbeJointRailLayout:
@@ -5559,6 +5635,17 @@ internal sealed class AutoPlayController
                 if (expansionGridProbe.Status != IncrementalGridProbeStatus.Found ||
                     !expansionGridProbe.Grid.HasValue)
                 {
+                    if (_defenseDrainingStationInventory)
+                    {
+                        _defenseUnplaceableStationInventoryEnums.Add(_defensePlacementDisposableEnum);
+                        _defenseDrainingStationInventory = false;
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
+                        ScheduleDefenseMaintenanceStep(
+                            $"背包弹射点 {_defensePlacementDisposableEnum} 已检查全部实时候选格但当前无合法落点；" +
+                            "保留该道具并继续检查其他种类。" + expansionGridProbe.Detail);
+                        return true;
+                    }
+
                     FinishDefenseMaintenance(
                         "动力弹射点增量探测未找到安全落点，已结束本轮扩建：" +
                         expansionGridProbe.Detail,
@@ -5810,6 +5897,15 @@ internal sealed class AutoPlayController
                         _defenseAttributeUseAction?.Arguments["stationKind"]?.Value<string>());
                     ClearDefenseAttributePlacementState();
                     _defenseCatapults = placedAttributeCatapults;
+                    if (_defenseDrainingStationInventory)
+                    {
+                        _defenseDrainingStationInventory = false;
+                        _defenseStationInventoryChecked = false;
+                        _defenseMaintenanceStep = DefenseMaintenanceStep.QueryCatapults;
+                        ScheduleDefenseMaintenanceStep(
+                            "已验证一个背包弹射点落场；将重新读取同一堆叠，直到库存耗尽或游戏明确没有合法格。");
+                        return true;
+                    }
                     _defenseMaintenanceStep = placedRuntimeSpecial && _defenseBattleSpecialMoveOnly
                         ? DefenseMaintenanceStep.QueryRailExpansionCandidates
                         : DefenseMaintenanceStep.QueryCatapults;
@@ -7119,6 +7215,9 @@ internal sealed class AutoPlayController
     private void RequestDefenseMaintenance()
     {
         ResetDefenseRailMaintenanceSession();
+        _defenseStationInventoryChecked = false;
+        _defenseDrainingStationInventory = false;
+        _defenseUnplaceableStationInventoryEnums.Clear();
         _defenseMaintenanceRequested = true;
         _defenseMaintenanceReady = false;
         ResetDefenseMaintenanceState();

@@ -35,6 +35,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed。`test.ps1` 把 TRX 写入 `artifacts\TestResults`。
 
+## 0.6.48 开波前弹射点库存与最近始发站
+
+`0.6.48` 修复把“场上已有两个普通点”误当成“背包弹射点已经部署完毕”的问题。开局准备会逐个放置 `FreePoint` 与运行时发现的可移动特殊中继站，每次写入后重新查询库存；当某种库存仍存在但游戏当前确实没有合法格时，保留道具并记录该结论，不会盲点禁区，也不会阻塞其他种类。开局最终闭环必须接入本次部署的全部站点。
+
+动力始发站候选仍直接读取当前游戏 `MapPosManager.EnergyCatapultRingPosition`，并通过真实 `GridChooseInteraction` 条件逐格复核可放/不可放。排序删除了额外向外预留一圈的人工半径，在最佳全向覆盖层中优先离基地最近的真实合法格，再比较最小间距余量与回路长度。本版本以 `v0.6.47` 作为相邻增量更新基线。
+
 ## 0.6.47 更新前安全关闭游戏
 
 `0.6.47` 在用户确认安装更新后按当前已验证的 Skyspine 可执行文件路径检查游戏进程。若游戏仍在运行，Manager 会显示与现有机械铭牌、黄铜边框和状态色一致的确认窗，列出对应 PID 并询问是否“关闭游戏并更新”。确认后仅请求游戏正常退出并最多等待 20 秒；确认退出后才启动 Updater。用户取消、游戏拒绝正常关闭或等待超时时，本次安装停止且 Manager 保持可用，不会调用强制结束进程。本版本以 `v0.6.46` 作为相邻增量更新基线。
@@ -116,27 +122,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.47
+.\scripts\package.ps1 -Version 0.6.48
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.47 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.48 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.47-win-x64.zip
-Loopstructor.AutoPlayer-0.6.47-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.46-to-0.6.47-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.46-to-0.6.47-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.48-win-x64.zip
+Loopstructor.AutoPlayer-0.6.48-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.47-to-0.6.48-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.47-to-0.6.48-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.47-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.48-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -166,15 +172,15 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.47",
+  "version": "0.6.48",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.47-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.48-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
   "size": 65155164,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.46",
-      "assetName": "Loopstructor.AutoPlayer-0.6.46-to-0.6.47-win-x64.delta.zip",
+      "fromVersion": "0.6.47",
+      "assetName": "Loopstructor.AutoPlayer-0.6.47-to-0.6.48-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
       "size": 2498589
     }
@@ -247,8 +253,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.47
-git push origin v0.6.47
+git tag v0.6.48
+git push origin v0.6.48
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

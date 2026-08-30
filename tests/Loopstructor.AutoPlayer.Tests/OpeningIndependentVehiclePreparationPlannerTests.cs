@@ -20,9 +20,33 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
                 Point(103, false, 4, -2))
         }, accepted: true);
 
+        OpeningDefensePreparationDecision commonInventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, commonInventory.Phase);
+        planner.Observe(commonInventory.Action!, DisposableInventory(), accepted: true);
+
+        OpeningDefensePreparationDecision refreshForSpecials = planner.Decide();
+        Assert.Equal("queryCatapults", refreshForSpecials.Action?.Command);
+        planner.Observe(refreshForSpecials.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4),
+                Point(102, false, -4, -2),
+                Point(103, false, 4, -2))
+        }, accepted: true);
+
         OpeningDefensePreparationDecision specials = planner.Decide();
         Assert.Equal(OpeningDefensePreparationPhase.QuerySpecialStationDisposable, specials.Phase);
         planner.Observe(specials.Action!, DisposableInventory(), accepted: true);
+
+        OpeningDefensePreparationDecision refreshAfterSpecials = planner.Decide();
+        Assert.Equal("queryCatapults", refreshAfterSpecials.Action?.Command);
+        planner.Observe(refreshAfterSpecials.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4),
+                Point(102, false, -4, -2),
+                Point(103, false, 4, -2))
+        }, accepted: true);
 
         OpeningDefensePreparationDecision vehicleDecision = planner.Decide();
         Assert.Equal("queryIndependentVehicleState", vehicleDecision.Action?.Command);
@@ -65,7 +89,7 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
     }
 
     [Fact]
-    public void EmptyField_PlacesAttributeThenContinuesWithBackpackCommonPoints()
+    public void EmptyField_PlacesAttributeThenExhaustsBackpackCommonPoints()
     {
         RecordingGridProbe probe = new();
         OpeningDefensePreparationPlanner planner = new(probe);
@@ -143,6 +167,66 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
     }
 
     [Fact]
+    public void ReadyMinimumLoop_StillPlacesEveryBackpackCommonPointBeforeSpecials()
+    {
+        RecordingGridProbe probe = new();
+        OpeningDefensePreparationPlanner planner = new(probe);
+
+        OpeningDefensePreparationDecision catapults = planner.Decide();
+        planner.Observe(catapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4, "FreePoint_Attribute"),
+                Point(102, false, 4, -2, "FreePoint"),
+                Point(103, false, -4, -2, "FreePoint"))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision firstInventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, firstInventory.Phase);
+        planner.Observe(firstInventory.Action!, DisposableInventory("FreePoint", count: 2, instanceId: 702), accepted: true);
+        Assert.Equal(OpeningDefensePreparationPhase.ProbeStationGrid, planner.Phase);
+
+        // Finish the first placement and prove that the planner asks for the same stack again,
+        // instead of treating the original two field points as sufficient.
+        planner.Decide();
+        OpeningDefensePreparationDecision selected = planner.Decide();
+        planner.Observe(selected.Action!, IdleInteractionGuard(), accepted: true);
+        OpeningDefensePreparationDecision confirm = planner.Decide();
+        planner.Observe(confirm.Action!, new JObject
+        {
+            ["success"] = true,
+            ["data"] = new JObject { ["state"] = new JObject { ["isInPreview"] = false } }
+        }, accepted: true);
+        planner.MarkPlacementPreviewReleased();
+        OpeningDefensePreparationDecision verify = planner.Decide();
+        planner.Observe(verify.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4, "FreePoint_Attribute"),
+                Point(102, false, 4, -2, "FreePoint"),
+                Point(103, false, -4, -2, "FreePoint"),
+                Point(104, false, 4, -2, "FreePoint"))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision refresh = planner.Decide();
+        planner.Observe(refresh.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4, "FreePoint_Attribute"),
+                Point(102, false, 4, -2, "FreePoint"),
+                Point(103, false, -4, -2, "FreePoint"),
+                Point(104, false, 4, -2, "FreePoint"))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision secondInventory = planner.Decide();
+        Assert.Equal(OpeningDefensePreparationPhase.QueryPlacementDisposable, secondInventory.Phase);
+        Assert.Equal("queryDisposable", secondInventory.Action?.Command);
+        planner.Observe(secondInventory.Action!, DisposableInventory("FreePoint", count: 1, instanceId: 702), accepted: true);
+        Assert.Equal("FreePoint", probe.LastDisposableEnum);
+        Assert.Equal(2, probe.InitializationCount);
+    }
+
+    [Fact]
     public void ExistingCommonPoints_RefreshesAttributeInventoryBeforeProbingAttributePlacement()
     {
         RecordingGridProbe probe = new();
@@ -177,6 +261,17 @@ public sealed class OpeningIndependentVehiclePreparationPlannerTests
         OpeningDefensePreparationPlanner planner = new(probe);
         OpeningDefensePreparationDecision catapults = planner.Decide();
         planner.Observe(catapults.Action!, new JObject
+        {
+            ["catapults"] = new JArray(
+                Point(101, true, 0, 4, "FreePoint_Attribute"),
+                Point(102, false, 4, -2, "FreePoint"),
+                Point(103, false, -4, -2, "FreePoint"))
+        }, accepted: true);
+
+        OpeningDefensePreparationDecision commonInventory = planner.Decide();
+        planner.Observe(commonInventory.Action!, DisposableInventory(), accepted: true);
+        OpeningDefensePreparationDecision refresh = planner.Decide();
+        planner.Observe(refresh.Action!, new JObject
         {
             ["catapults"] = new JArray(
                 Point(101, true, 0, 4, "FreePoint_Attribute"),

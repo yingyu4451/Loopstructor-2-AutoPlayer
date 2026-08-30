@@ -847,12 +847,14 @@ public sealed class BattleDecisionEngine
     public AutomationAction? DecideMovableStationDisposableUse(
         JObject? disposableResult,
         bool requireAttribute,
-        bool requireCommon = false)
+        bool requireCommon = false,
+        ISet<string>? excludedDisposableEnums = null)
     {
         IEnumerable<RuntimeSpecialStationDisposable> candidates =
             DiscoverMovableStationDisposables(disposableResult)
-            .Where(item => !requireAttribute || item.IsAttribute)
-            .Where(item => !requireCommon || !item.IsAttribute);
+                .Where(item => !requireAttribute || item.IsAttribute)
+                .Where(item => !requireCommon || !item.IsAttribute)
+                .Where(item => excludedDisposableEnums?.Contains(item.DisposableEnum) != true);
         // An existing loop normally needs a movable relay before it needs a second origin. Keep
         // the runtime effect-priority order inside the same station kind, but never hard-code an enum.
         if (!requireAttribute && !requireCommon)

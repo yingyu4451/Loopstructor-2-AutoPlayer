@@ -91,8 +91,12 @@ internal sealed class IncrementalAttributePlacementGridProbe : IOpeningDefenseGr
                     .Select(grid => new OpeningDefenseGrid(grid.X, grid.Y)));
             if (_rankedCandidates.Count == 0)
             {
-                error = "MapPosManager 没有返回可用的弹射点候选格。";
-                return false;
+                // An empty live pool is a conclusive placement result, not a broken reflection
+                // contract. Let ProbeNext report Exhausted so optional inventory can be skipped
+                // safely while an indispensable origin station still blocks the run.
+                _initialized = true;
+                error = string.Empty;
+                return true;
             }
 
             _initialized = true;
