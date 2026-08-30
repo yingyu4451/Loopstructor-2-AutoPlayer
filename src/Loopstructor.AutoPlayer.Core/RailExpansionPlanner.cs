@@ -135,10 +135,15 @@ public sealed class RailExpansionPlanner
             }
 
             int railInstanceId = ReadInt(rail["instanceId"], 0);
-            int railInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"], 0));
+            int railInternalId = ReadInt(
+                rail["railInternalId"],
+                ReadInt(rail["id"], int.MinValue));
             int stationCount = ReadInt(rail["stationCount"], ReadInt(rail["pointCount"], 0));
             List<AutoPlayerGrid> orderedStationGrids = ReadRailGeometryGrids(rail);
-            if (railInstanceId == 0 || railInternalId == 0 || stationCount < 3)
+            // RailManager starts its stable IDs at zero. Rejecting zero here silently removed the
+            // first/primary rail from every insertion candidate and pushed surplus stations onto
+            // the later outer rail.
+            if (railInstanceId == 0 || railInternalId < 0 || stationCount < 3)
             {
                 continue;
             }
@@ -240,8 +245,8 @@ public sealed class RailExpansionPlanner
         return candidates
             .GroupBy(candidate => candidate.Identity, StringComparer.Ordinal)
             .Select(group => group.Single())
-            .OrderByDescending(candidate =>
-                candidate.VehicleThroughputScore)
+            .OrderBy(candidate => candidate.RailInternalId)
+            .ThenByDescending(candidate => candidate.VehicleThroughputScore)
             .ThenBy(candidate => candidate.RailInstanceId)
             .ThenBy(candidate => candidate.LineInstanceId)
             .ThenBy(candidate => candidate.StationLinePointInstanceId)
@@ -334,7 +339,9 @@ public sealed class RailExpansionPlanner
             result.Add(new RailStationMoveCandidate
             {
                 RailInstanceId = ReadInt(rail["instanceId"], 0),
-                RailInternalId = ReadInt(rail["railInternalId"], ReadInt(rail["id"], 0)),
+                RailInternalId = ReadInt(
+                    rail["railInternalId"],
+                    ReadInt(rail["id"], int.MinValue)),
                 StationCount = ReadInt(rail["stationCount"], ReadInt(rail["pointCount"], 0)),
                 CurrentLoopCycleSeconds = cycle,
                 RailLength = railLength,
@@ -360,13 +367,14 @@ public sealed class RailExpansionPlanner
 
         return result
             .Where(candidate => candidate.RailInstanceId != 0 &&
-                                candidate.RailInternalId != 0 &&
+                                candidate.RailInternalId >= 0 &&
                                 candidate.StationCatapultInstanceId != 0 &&
                                  candidate.StationGameObjectInstanceId != 0 &&
                                  candidate.StationLinePointInstanceId != 0 &&
                                 !string.IsNullOrWhiteSpace(candidate.StationPath) &&
                                 !string.IsNullOrWhiteSpace(candidate.StationFingerprint))
-            .OrderByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
+            .OrderBy(candidate => candidate.RailInternalId)
+            .ThenByDescending(candidate => candidate.StationCount / candidate.CurrentLoopCycleSeconds)
             .ThenBy(candidate => candidate.RailInstanceId)
             .ThenBy(candidate => candidate.StationPointId)
             .ToArray();
@@ -814,6 +822,7 @@ public sealed class RailExpansionPlanner
             state["sideEffectCheckPassed"]?.Value<bool>() != true ||
             state["statePolluted"]?.Value<bool>() == true ||
             ReadInt(state["beforeRailCount"], -1) != ReadInt(state["afterRailCount"], -2) ||
+            state["affectedRailId"]?.Type != JTokenType.Integer ||
             ReadInt(state["affectedRailId"], 0) != candidate.RailInternalId)
         {
             return false;
@@ -861,7 +870,8 @@ public sealed class RailExpansionPlanner
                             RailLayoutStrategyPlanner.IsStrictDefenseImprovement(
                                 score.BaselineLayout,
                                 score.PredictedLayout))
-            .OrderBy(
+            .OrderBy(score => score.Candidate.RailInternalId)
+            .ThenBy(
                 score => score.PredictedLayout,
                 Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareCoverage))
             .ThenByDescending(score => score.PredictedEffectiveAttackRate)
@@ -891,7 +901,8 @@ public sealed class RailExpansionPlanner
             .Where(score => score != null &&
                             score.BaselineLayout != null &&
                             score.PredictedLayout != null)
-            .OrderBy(
+            .OrderBy(score => score.Candidate.RailInternalId)
+            .ThenBy(
                 score => score.PredictedLayout,
                 Comparer<RailLayoutScore?>.Create(RailLayoutStrategyPlanner.CompareCoverage))
             .ThenByDescending(score => score.PredictedEffectiveAttackRate)
@@ -913,7 +924,8 @@ public sealed class RailExpansionPlanner
                                 score.Candidate.StationDisposableEnum,
                                 "FreePoint",
                                 StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(score => score.RelativeGain)
+            .OrderBy(score => score.Candidate.RailInternalId)
+            .ThenByDescending(score => score.RelativeGain)
             .ThenBy(score => score.Candidate.RailInstanceId)
             .ThenBy(score => score.Candidate.LineInstanceId)
             .FirstOrDefault();

@@ -1,4 +1,5 @@
 using Loopstructor.AutoPlayer.Core;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -245,6 +246,85 @@ public sealed class RailThroughputLayoutPlannerTests
     }
 
     [Fact]
+    public void SelectBest_PrefersPrimaryRailBeforeOuterRail()
+    {
+        RailLayoutPoint[] baselineRing =
+            { Point(0, 3), Point(3, 0), Point(0, -3), Point(-3, 0) };
+        RailLayoutPoint[] expandedRing =
+            { Point(0, 3), Point(3, 0), Point(2, -2), Point(0, -3), Point(-3, 0) };
+        RailInsertionPreviewScore primary = EffectiveScore(
+            railInstanceId: 701,
+            baseline: RailLayoutStrategyPlanner.Evaluate(baselineRing, 4, 5d),
+            predicted: RailLayoutStrategyPlanner.Evaluate(expandedRing, 5, 5.5d),
+            trainPower: 1d);
+        primary.Candidate.RailInternalId = 0;
+        RailInsertionPreviewScore outer = EffectiveScore(
+            railInstanceId: 702,
+            baseline: RailLayoutStrategyPlanner.Evaluate(baselineRing, 4, 5d),
+            predicted: RailLayoutStrategyPlanner.Evaluate(expandedRing, 5, 5.5d),
+            trainPower: 10d);
+        outer.Candidate.RailInternalId = 1;
+
+        Assert.True(outer.PredictedEffectiveAttackRate > primary.PredictedEffectiveAttackRate);
+        Assert.Same(primary, new RailExpansionPlanner().SelectBest(new[] { outer, primary }));
+    }
+
+    [Fact]
+    public void BuildCandidates_IncludesRailManagerPrimaryIdZero()
+    {
+        JObject rails = new()
+        {
+            ["rails"] = new JArray(new JObject
+            {
+                ["instanceId"] = 701,
+                ["railInternalId"] = 0,
+                ["isLegalPlayerLoop"] = true,
+                ["isLoop"] = true,
+                ["isOnField"] = true,
+                ["railLength"] = 16d,
+                ["loopCycleSeconds"] = 8d,
+                ["stationCount"] = 4,
+                ["orderedStations"] = new JArray(
+                    Grid(0, 4), Grid(4, 0), Grid(0, -4), Grid(-4, 0)),
+                ["lines"] = new JArray(new JObject
+                {
+                    ["lineInstanceId"] = 900,
+                    ["from"] = new JObject { ["x"] = 0, ["y"] = 4 },
+                    ["to"] = new JObject { ["x"] = 4, ["y"] = 0 }
+                })
+            })
+        };
+        JObject catapults = new()
+        {
+            ["catapults"] = new JArray(new JObject
+            {
+                ["active"] = true,
+                ["canUseForNewRail"] = true,
+                ["canPickLine"] = true,
+                ["railMembershipCount"] = 0,
+                ["linePointInstanceId"] = 901,
+                ["catapultInstanceId"] = 902,
+                ["grid"] = new JObject { ["x"] = 3, ["y"] = 3 }
+            })
+        };
+        JObject vehicles = new()
+        {
+            ["vehicles"] = new JArray(new JObject
+            {
+                ["instanceId"] = 1001,
+                ["railId"] = 0,
+                ["running"] = true,
+                ["baseCombatPower"] = 10d,
+                ["speed"] = 1d
+            })
+        };
+
+        RailInsertionCandidate candidate = Assert.Single(
+            new RailExpansionPlanner().BuildCandidates(rails, catapults, vehicles));
+        Assert.Equal(0, candidate.RailInternalId);
+    }
+
+    [Fact]
     public void PlanPlayerLoop_LiveShapeBuildsCompactFourDirectionRingAndDropsRemoteOutlier()
     {
         RailLoopPointCandidate[] points =
@@ -279,6 +359,11 @@ public sealed class RailThroughputLayoutPlannerTests
     }
 
     private static RailLayoutPoint Point(double x, double y) => new(x, y);
+
+    private static JObject Grid(int x, int y) => new()
+    {
+        ["grid"] = new JObject { ["x"] = x, ["y"] = y }
+    };
 
     private static RailLayoutPoint Polar(double radius, double degrees)
     {

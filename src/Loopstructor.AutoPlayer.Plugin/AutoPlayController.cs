@@ -3997,6 +3997,16 @@ internal sealed class AutoPlayController
                             expansionRailState,
                             _defenseCatapults,
                             spacingRules);
+                    if (!baselineTopology.AllValid)
+                    {
+                        HashSet<int> invalidRailInstanceIds = baselineTopology.Rails
+                            .Where(item => !item.IsDefenseValid)
+                            .Select(item => item.RailInstanceId)
+                            .ToHashSet();
+                        movableCandidates = movableCandidates
+                            .Where(item => invalidRailInstanceIds.Contains(item.RailInstanceId))
+                            .ToArray();
+                    }
                     if (movableCandidates.Count > 0)
                     {
                         if (_defenseJointLayoutProbe.TryInitialize(
@@ -4262,7 +4272,8 @@ internal sealed class AutoPlayController
             case DefenseMaintenanceStep.SelectBattleSpecialRebuild:
                 (RailRebuildSnapshot Snapshot, double Cycle)? selectedBattleRebuild =
                     _defenseRailRebuildScores
-                        .OrderBy(item => item.Cycle)
+                        .OrderBy(item => item.Snapshot.RailInternalId)
+                        .ThenBy(item => item.Cycle)
                         .ThenByDescending(item => item.Snapshot.OrderedLinePointInstanceIds.Count / item.Cycle)
                         .ThenBy(item => string.Join(",", item.Snapshot.OrderedLinePointInstanceIds))
                         .Select(item => ((RailRebuildSnapshot Snapshot, double Cycle)?)item)

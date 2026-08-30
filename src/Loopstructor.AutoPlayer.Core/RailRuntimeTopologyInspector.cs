@@ -12,6 +12,8 @@ public sealed class RailRuntimeValidation
     public RailLoopValidationResult Loop { get; set; } = new();
     public RailLayoutScore Layout { get; set; } = new();
     public string Fingerprint { get; set; } = string.Empty;
+    public bool IsDefenseValid =>
+        Loop.IsValid && RailLayoutStrategyPlanner.IsBalancedDefenseRing(Layout);
 }
 
 public sealed class RailRuntimeTopologyInspection
@@ -34,13 +36,16 @@ public static class RailRuntimeTopologyInspector
             .OrderBy(rail => ReadInt(rail["instanceId"]))
             .ToArray() ?? Array.Empty<JObject>();
         RailRuntimeValidation[] validations = rails.Select(InspectRail).ToArray();
-        bool valid = validations.Length > 0 && validations.All(item => item.Loop.IsValid);
+        bool valid = validations.Length > 0 && validations.All(item => item.IsDefenseValid);
         string detail = validations.Length == 0
             ? "当前没有可验证的轨道。"
             : valid
                 ? $"已验证 {validations.Length} 条轨道均为包围基地的单一简单闭环。"
-                : string.Join(" ", validations.Where(item => !item.Loop.IsValid)
-                    .Select(item => $"轨道 {item.RailInstanceId}：{string.Join("；", item.Loop.Errors)}"));
+                : string.Join(" ", validations.Where(item => !item.IsDefenseValid)
+                    .Select(item => item.Loop.IsValid
+                        ? $"轨道 {item.RailInstanceId}：闭环形状失衡（最大角缺口 " +
+                          $"{item.Layout.MaxAngularGapDegrees:0.###}°，半径比 {item.Layout.RadiusRatio:0.###}）。"
+                        : $"轨道 {item.RailInstanceId}：{string.Join("；", item.Loop.Errors)}"));
         return new RailRuntimeTopologyInspection
         {
             HasRails = validations.Length > 0,

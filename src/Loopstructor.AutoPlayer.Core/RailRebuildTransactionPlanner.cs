@@ -279,11 +279,18 @@ public sealed class RailRebuildTransactionPlanner
                            ReadInt(item["linePointInstanceId"]) != 0)
             .OrderBy(item => ReadInt(item["linePointInstanceId"]))
             .ToArray() ?? Array.Empty<JObject>();
+        int primaryRailInternalId = Rails(railResult)
+            .Select(item => ReadInt(
+                item["railInternalId"],
+                ReadInt(item["id"], int.MaxValue)))
+            .DefaultIfEmpty(int.MaxValue)
+            .Min();
 
         List<(RailRebuildSnapshot Snapshot, double Length)> repairs = new();
-        foreach (JObject rail in Rails(railResult).OrderBy(item => ReadInt(item["instanceId"])))
+        foreach (JObject rail in Rails(railResult)
+                     .OrderBy(item => ReadInt(item["railInternalId"], ReadInt(item["id"], int.MaxValue))))
         {
-            if (RailRuntimeTopologyInspector.InspectRail(rail).Loop.IsValid) continue;
+            if (RailRuntimeTopologyInspector.InspectRail(rail).IsDefenseValid) continue;
             RailRebuildSnapshot? snapshot = Capture(
                 railResult,
                 ReadInt(rail["instanceId"]),
@@ -296,7 +303,16 @@ public sealed class RailRebuildTransactionPlanner
 
             JObject[] existing = ((rail["orderedStations"] as JArray) ?? (rail["points"] as JArray))?
                 .OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
-            JObject[] combined = existing.Concat(unassignedCommons)
+            int railInternalId = ReadInt(
+                rail["railInternalId"],
+                ReadInt(rail["id"], int.MaxValue));
+            // Shape repair must not transfer surplus stations to a later outer rail. Only the
+            // earliest surviving RailManager ID may absorb currently unassigned common stations;
+            // outer rails are repaired from their own station set and movable-station planning.
+            IEnumerable<JObject> compatibleUnassigned = railInternalId == primaryRailInternalId
+                ? unassignedCommons
+                : Array.Empty<JObject>();
+            JObject[] combined = existing.Concat(compatibleUnassigned)
                 .Where(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])) != 0)
                 .GroupBy(item => ReadInt(item["linePointInstanceId"], ReadInt(item["instanceId"])))
                 .Select(group => group.First())
@@ -348,11 +364,22 @@ public sealed class RailRebuildTransactionPlanner
                         Point = new RailLayoutPoint(x, y)
                     };
                 }));
-            if (!validation.IsValid)
+            RailLayoutScore repairedLayout = RailLayoutStrategyPlanner.EvaluateEstimated(
+                ordered.Select(instanceId =>
+                {
+                    JObject station = stationByInstanceId[instanceId];
+                    TryReadGrid(station["grid"], out double x, out double y);
+                    return new RailLayoutPoint(x, y);
+                }));
+            if (!validation.IsValid ||
+                !RailLayoutStrategyPlanner.IsBalancedDefenseRing(repairedLayout))
             {
                 diagnostics.Add(
-                    $"轨道 {snapshot.RailInstanceId} 的完整排序仍未形成包围基地的简单闭环：" +
-                    string.Join("；", validation.Errors));
+                    $"轨道 {snapshot.RailInstanceId} 的完整排序仍未形成均衡简单闭环：" +
+                    (validation.IsValid
+                        ? $"最大角缺口 {repairedLayout.MaxAngularGapDegrees:0.###}°，" +
+                          $"半径比 {repairedLayout.RadiusRatio:0.###}。"
+                        : string.Join("；", validation.Errors)));
                 continue;
             }
 
@@ -373,7 +400,8 @@ public sealed class RailRebuildTransactionPlanner
             repairs.Add((snapshot, length));
         }
 
-        RailRebuildSnapshot? selected = repairs.OrderBy(item => item.Length)
+        RailRebuildSnapshot? selected = repairs.OrderBy(item => item.Snapshot.RailInternalId)
+            .ThenBy(item => item.Length)
             .ThenBy(item => item.Snapshot.RailInstanceId)
             .Select(item => item.Snapshot)
             .FirstOrDefault();
@@ -470,7 +498,8 @@ public sealed class RailRebuildTransactionPlanner
                 }
             }
         }
-        return result.OrderBy(item => item.EstimatedDetour)
+        return result.OrderBy(item => item.RailInternalId)
+            .ThenBy(item => item.EstimatedDetour)
             .ThenBy(item => item.RailInstanceId)
             .ThenBy(item => string.Join(",", item.OrderedLinePointInstanceIds))
             .ToArray();

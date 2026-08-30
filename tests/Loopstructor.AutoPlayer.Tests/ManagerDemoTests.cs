@@ -611,7 +611,7 @@ public sealed class ManagerDemoTests
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
 
         string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-        string directory = Path.Combine(repositoryRoot, "artifacts", "ui", "v0.6.49");
+        string directory = Path.Combine(repositoryRoot, "artifacts", "ui", "v0.6.50");
         Directory.CreateDirectory(directory);
         using FileStream stream = new(Path.Combine(directory, $"manager-{width}x{height}.png"), FileMode.Create);
         encoder.Save(stream);

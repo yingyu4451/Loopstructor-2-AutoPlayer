@@ -208,38 +208,11 @@ public sealed class BattleDecisionEngine
             return null;
         }
 
+        // A second rail only receives the minimum three stations needed for a legal loop.
+        // Surplus common/special stations remain unassigned so the insertion planner can feed
+        // the earliest (primary) rail first instead of letting a newly created outer rail absorb
+        // the complete station inventory.
         List<ExpansionPathCandidate> paths = new();
-        List<RailLoopPointCandidate> loopPoints = new();
-        foreach (JObject point in attributes.Concat(commonPoints))
-        {
-            int instanceId = ReadInt(point["linePointInstanceId"], 0);
-            if (instanceId == 0 || !TryReadPoint(point["grid"], out double x, out double y))
-            {
-                continue;
-            }
-
-            loopPoints.Add(new RailLoopPointCandidate
-            {
-                InstanceId = instanceId,
-                IsAttribute = point["isAttribute"]?.Value<bool>() == true,
-                Grid = new RailLayoutPoint(x, y)
-            });
-        }
-        RailLoopPlan? plannedLoop = RailLayoutStrategyPlanner.PlanPlayerLoop(loopPoints);
-        if (plannedLoop != null &&
-            plannedLoop.OrderedPointInstanceIds.Count >= 3 &&
-            IsAcceptableNewDefenseLoop(plannedLoop.Score))
-        {
-            JArray plannedIds = new(plannedLoop.OrderedPointInstanceIds);
-            string plannedKey = BuildDefenseExpansionPathKey(plannedIds);
-            if (rejectedPathKeys?.Contains(plannedKey) != true)
-            {
-                paths.Add(new ExpansionPathCandidate(
-                    ScoreExpansionPlan(plannedLoop, occupiedPoints),
-                    plannedKey,
-                    plannedIds));
-            }
-        }
 
         foreach (JObject attribute in attributes)
         {
@@ -412,6 +385,16 @@ public sealed class BattleDecisionEngine
             return RailVerificationFailure("唯一新增轨道不是场上的合法玩家闭环。");
         }
 
+        RailRuntimeValidation runtimeTopology = RailRuntimeTopologyInspector.InspectRail(addedRail);
+        if (!runtimeTopology.Loop.IsValid ||
+            !RailLayoutStrategyPlanner.IsBalancedDefenseRing(runtimeTopology.Layout))
+        {
+            return RailVerificationFailure(
+                "唯一新增轨道虽然被游戏标记为闭环，但不是包围基地的均衡防御环：" +
+                $"最大角缺口 {runtimeTopology.Layout.MaxAngularGapDegrees:0.###}°，" +
+                $"半径比 {runtimeTopology.Layout.RadiusRatio:0.###}。");
+        }
+
         JObject? drawRail = State(drawResult)["rail"] as JObject;
         if (drawRail != null)
         {
@@ -511,9 +494,7 @@ public sealed class BattleDecisionEngine
     }
 
     private static bool IsAcceptableNewDefenseLoop(RailLayoutScore? layout) =>
-        layout?.IsValid == true &&
-        layout.IsSimpleCycle &&
-        layout.EncirclesBase;
+        RailLayoutStrategyPlanner.IsBalancedDefenseRing(layout);
 
     public bool NeedsExpansionAttributePlacement(JObject? catapultResult)
     {

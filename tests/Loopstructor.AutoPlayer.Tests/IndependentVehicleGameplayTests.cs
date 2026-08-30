@@ -81,6 +81,49 @@ public sealed class IndependentVehicleGameplayTests
     }
 
     [Fact]
+    public void NewLoopExpansion_RejectsLiveNeedleOuterRing()
+    {
+        BattleDecisionEngine engine = new();
+        JObject full = IndependentState(
+            RailCapacity(70, 0, 700, 1, new[] { 10 }, Array.Empty<int>()),
+            Vehicle(20, 0, inBag: true));
+        JObject needle = new()
+        {
+            ["catapults"] = new JArray(
+                ExpansionPoint(201, isAttribute: true, -2, -2),
+                ExpansionPoint(202, isAttribute: false, -4, -3),
+                ExpansionPoint(203, isAttribute: false, 5, 4))
+        };
+
+        Assert.Null(engine.DecideDefenseExpansion(full, needle));
+        Assert.Equal("FreePoint", engine.RequiredExpansionDisposable(needle));
+    }
+
+    [Fact]
+    public void NewLoopExpansion_UsesOnlyMinimumStationsAndLeavesSurplusForPrimaryRail()
+    {
+        BattleDecisionEngine engine = new();
+        JObject full = IndependentState(
+            RailCapacity(70, 0, 700, 1, new[] { 10 }, Array.Empty<int>()),
+            Vehicle(20, 0, inBag: true));
+        JObject available = new()
+        {
+            ["catapults"] = new JArray(
+                ExpansionPoint(201, isAttribute: true, 0, 4),
+                ExpansionPoint(202, isAttribute: false, 4, -3),
+                ExpansionPoint(203, isAttribute: false, -4, -3),
+                ExpansionPoint(204, isAttribute: false, 0, -5))
+        };
+
+        AutomationAction action = Assert.IsType<AutomationAction>(
+            engine.DecideDefenseExpansion(full, available));
+        JArray selected = Assert.IsType<JArray>(action.Arguments["linePointInstanceIds"]);
+
+        Assert.Equal(3, selected.Count);
+        Assert.Equal(3, selected.Values<int>().Distinct().Count());
+    }
+
+    [Fact]
     public void RailExpansion_AggregatesEachVehiclesOwnSpeedAndBaseOutput()
     {
         JObject rails = new()
@@ -177,6 +220,14 @@ public sealed class IndependentVehicleGameplayTests
         Assert.True(new RailExpansionPlanner().TryScorePreview(candidate, preview, out RailInsertionPreviewScore score));
         Assert.Equal(candidate.VehicleThroughputScore, score.BaselineEffectiveAttackRate, 6);
         Assert.Equal(candidate.PredictedVehicleThroughputScore, score.PredictedEffectiveAttackRate, 6);
+
+        JObject missingAffectedRail = (JObject)preview.DeepClone();
+        ((JObject)missingAffectedRail.SelectToken("data.state")!).Remove("affectedRailId");
+        candidate.RailInternalId = 0;
+        Assert.False(new RailExpansionPlanner().TryScorePreview(
+            candidate,
+            missingAffectedRail,
+            out _));
     }
 
     [Fact]

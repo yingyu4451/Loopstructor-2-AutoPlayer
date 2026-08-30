@@ -1,4 +1,5 @@
 using Loopstructor.AutoPlayer.Core;
+using Newtonsoft.Json.Linq;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -152,6 +153,29 @@ public sealed class RailLoopValidatorTests
         Assert.True(RailLayoutStrategyPlanner.IsBalancedDefenseRing(score));
     }
 
+    [Fact]
+    public void RuntimeInspector_RejectsTopologicalLoopWithIrregularOuterShape()
+    {
+        JObject rail = new()
+        {
+            ["instanceId"] = 701,
+            ["orderedStations"] = new JArray(
+                RuntimeStation(1, true, -2, -2),
+                RuntimeStation(2, false, -4, -3),
+                RuntimeStation(3, false, 5, 4)),
+            ["lines"] = new JArray(
+                RuntimeLine(-2, -2, -4, -3),
+                RuntimeLine(-4, -3, 5, 4),
+                RuntimeLine(5, 4, -2, -2))
+        };
+
+        RailRuntimeValidation validation = RailRuntimeTopologyInspector.InspectRail(rail);
+
+        Assert.True(validation.Loop.IsValid);
+        Assert.False(validation.IsDefenseValid);
+        Assert.False(RailLayoutStrategyPlanner.IsBalancedDefenseRing(validation.Layout));
+    }
+
     private static RailLoopNode Node(int id, bool attribute, double x, double y) => new()
     {
         Id = id,
@@ -160,4 +184,18 @@ public sealed class RailLoopValidatorTests
     };
 
     private static RailLoopEdge Edge(int from, int to) => new() { FromId = from, ToId = to };
+
+    private static JObject RuntimeStation(int id, bool attribute, int x, int y) => new()
+    {
+        ["pointId"] = id,
+        ["linePointInstanceId"] = id,
+        ["isAttribute"] = attribute,
+        ["grid"] = new JObject { ["x"] = x, ["y"] = y }
+    };
+
+    private static JObject RuntimeLine(int fromX, int fromY, int toX, int toY) => new()
+    {
+        ["from"] = new JObject { ["x"] = fromX, ["y"] = fromY },
+        ["to"] = new JObject { ["x"] = toX, ["y"] = toY }
+    };
 }
