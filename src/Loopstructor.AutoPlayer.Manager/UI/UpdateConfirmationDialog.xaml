@@ -56,7 +56,7 @@
                                 <StackPanel><TextBlock Style="{StaticResource CaptionStyle}" Text="目标版本" /><TextBlock x:Name="LatestVersionText" FontFamily="{StaticResource DataFont}" FontSize="16" Foreground="{StaticResource TextBrush}" /></StackPanel>
                             </Border>
                         </Grid>
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" LineHeight="20" Text="Updater 将等待游戏与 Manager 退出，校验下载内容后再替换工具文件；安装失败时会保留原版本。" TextWrapping="Wrap" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" LineHeight="20" Text="如果 Skyspine 仍在运行，Manager 会先询问是否正常关闭；确认游戏退出后才启动 Updater，校验下载内容并替换工具文件。" TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
             </Border>

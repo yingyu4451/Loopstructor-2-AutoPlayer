@@ -43,6 +43,7 @@ internal sealed partial class MainForm : Window
     private readonly ObservableCollection<TimelineDisplayItem> _timeline = new();
     private readonly ObservableCollection<AutomationModeOption> _modeOptions = new();
     private readonly ObservableCollection<AutomationCharacterOption> _characterOptions = new();
+    private readonly GameUpdateShutdownCoordinator _gameUpdateShutdown = new();
 
     private ManagerSettings _settings;
     private BepInExInstaller _installer;
@@ -1736,17 +1737,112 @@ internal sealed partial class MainForm : Window
             };
             UiScaleService.Register(confirmation, _settings);
             if (confirmation.ShowDialog() != true) return;
-            (bool success, string message) = _updates.StartApply(_settings, _session?.ProcessId);
+            if (!await ConfirmAndCloseGameForUpdateAsync()) return;
+
+            (bool success, string message) = _updates.StartApply(_settings);
             AppendLog(success ? "INFO" : "ERROR", message, success ? BlueBrush : DangerBrush);
             if (success)
             {
                 Close();
+            }
+            else
+            {
+                _updateButton.IsEnabled = true;
+                _updateState.Text = $"可更新 {_latestUpdateVersion}";
             }
 
             return;
         }
 
         await CheckForUpdatesAsync(userInitiated: true);
+    }
+
+    private async Task<bool> ConfirmAndCloseGameForUpdateAsync()
+    {
+        if (_game == null || string.IsNullOrWhiteSpace(_game.ExecutablePath)) return true;
+
+        IReadOnlyList<IUpdateGameProcess> discovered = GameUpdateShutdownCoordinator.FindRunning(_game.ExecutablePath);
+        try
+        {
+            IUpdateGameProcess[] running = discovered.Where(IsRunningForUpdate).ToArray();
+            if (running.Length == 0) return true;
+
+            GameCloseForUpdateDialog confirmation = new(running.Select(process => process.Id).ToArray())
+            {
+                Owner = this
+            };
+            UiScaleService.Register(confirmation, _settings);
+            if (confirmation.ShowDialog() != true)
+            {
+                AppendLog("INFO", "用户选择暂不关闭游戏，本次更新未启动。", TextBrush);
+                return false;
+            }
+
+            bool resumePolling = _pollTimer.IsEnabled;
+            _pollTimer.Stop();
+            _updateButton.IsEnabled = false;
+            _updateState.Text = "正在关闭游戏...";
+            AppendLog(
+                "INFO",
+                $"正在请求 Skyspine 正常退出（PID {string.Join("、", running.Select(process => process.Id))}）；退出完成后才会启动 Updater。",
+                GoldBrush);
+
+            GameUpdateShutdownResult result;
+            try
+            {
+                result = await _gameUpdateShutdown.RequestCloseAndWaitAsync(
+                    running,
+                    TimeSpan.FromSeconds(20),
+                    _lifetime.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+
+            if (!result.Success)
+            {
+                _updateButton.IsEnabled = true;
+                _updateState.Text = $"可更新 {_latestUpdateVersion}";
+                AppendLog("ERROR", result.Message, DangerBrush);
+                if (resumePolling && !_lifetime.IsCancellationRequested) _pollTimer.Start();
+                return false;
+            }
+
+            _sessionTrusted = false;
+            _hello = null;
+            _status = null;
+            if (_session != null)
+            {
+                _session.ProcessId = null;
+                _session.ProcessStartTimeUtc = null;
+                _session.ProcessInstanceId = string.Empty;
+            }
+
+            _lastStatusSignature = string.Empty;
+            _cheatForm?.UpdateSession(false, null, null);
+            SetConnectionState("游戏已关闭", GoldBrush);
+            SetOperationAvailability();
+            _updateState.Text = "正在启动更新...";
+            AppendLog("INFO", result.Message, BlueBrush);
+            return true;
+        }
+        finally
+        {
+            foreach (IUpdateGameProcess process in discovered) process.Dispose();
+        }
+    }
+
+    private static bool IsRunningForUpdate(IUpdateGameProcess process)
+    {
+        try
+        {
+            return !process.HasExited;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private async Task CheckForUpdatesAsync(bool userInitiated)

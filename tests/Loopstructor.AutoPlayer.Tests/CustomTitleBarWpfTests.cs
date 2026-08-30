@@ -173,6 +173,47 @@ public sealed class CustomTitleBarWpfTests
         });
     }
 
+    [Fact]
+    public void GameCloseForUpdateConfirmation_UsesMechanicalStyleAndSafeActions()
+    {
+        RunSta(() =>
+        {
+            GameCloseForUpdateDialog dialog = new(new[] { 18420, 18422 })
+            {
+                ShowInTaskbar = false
+            };
+            try
+            {
+                dialog.Show();
+                PumpDispatcher();
+
+                Assert.Equal(WindowStyle.None, dialog.WindowStyle);
+                Assert.False(dialog.AllowsTransparency);
+                Assert.Equal(ResizeMode.NoResize, dialog.ResizeMode);
+                WindowChrome chrome = Assert.IsType<WindowChrome>(WindowChrome.GetWindowChrome(dialog));
+                Assert.Equal(72d, chrome.CaptionHeight);
+                MechanicalShell shell = Assert.IsType<MechanicalShell>(dialog.Content);
+                Assert.Equal("SAFE UPDATE", shell.BrandText);
+                Assert.Equal("关闭游戏后更新", shell.Title);
+                Assert.NotNull(shell.LogoSource);
+
+                TextBlock process = Assert.IsType<TextBlock>(dialog.FindName("ProcessText"));
+                Assert.Contains("2 个进程", process.Text, StringComparison.Ordinal);
+                Assert.Contains("18420、18422", process.Text, StringComparison.Ordinal);
+                Button apply = Assert.IsType<Button>(dialog.FindName("CloseAndUpdateButton"));
+                Button cancel = Assert.IsType<Button>(dialog.FindName("CancelButton"));
+                Assert.Equal("关闭游戏并更新", apply.Content);
+                Assert.Equal("关闭游戏并更新", AutomationProperties.GetName(apply));
+                Assert.True(apply.IsDefault);
+                Assert.True(cancel.IsCancel);
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+    }
+
     private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject
     {
         for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
