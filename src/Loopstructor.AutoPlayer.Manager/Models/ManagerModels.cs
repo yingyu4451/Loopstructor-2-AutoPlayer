@@ -121,6 +121,8 @@ public sealed class ManagerSettings
     public UiScaleMode UiScaleMode { get; set; } = UiScaleMode.System;
     public int CustomUiScalePercent { get; set; } = 100;
     public int CharacterCfgIndex { get; set; } = -1;
+    public bool AutomaticSaveBackupEnabled { get; set; } = true;
+    public int MaximumSaveBackups { get; set; } = 20;
     public string ActiveRoute { get; set; } = "game";
     public bool SidebarCollapsed { get; set; }
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
@@ -140,6 +142,7 @@ public sealed class ManagerSettings
 
         if (!Enum.IsDefined(UiScaleMode)) UiScaleMode = UiScaleMode.System;
         CustomUiScalePercent = Math.Clamp(CustomUiScalePercent, 75, 200);
+        MaximumSaveBackups = Math.Clamp(MaximumSaveBackups, 1, 100);
         ActiveRoute = NormalizeRoute(ActiveRoute);
     }
 

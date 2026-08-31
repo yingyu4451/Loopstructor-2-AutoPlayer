@@ -21,6 +21,7 @@ const api = {
   closeGameForUpdate: () => ipcRenderer.invoke('update:closeGame'),
   applyUpdate: () => ipcRenderer.invoke('update:apply'),
   openEvidence: () => ipcRenderer.invoke('diagnostics:openEvidence'),
+  openSaveBackups: () => ipcRenderer.invoke('backups:open'),
   clearLogs: () => ipcRenderer.invoke('logs:clear'),
   minimize: () => ipcRenderer.invoke('window:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),

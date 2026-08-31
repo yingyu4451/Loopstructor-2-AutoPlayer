@@ -67,8 +67,16 @@ export const useAppStore = defineStore('app', {
     },
     async saveSettings(settings: ManagerSettings, announce = true) {
       const ui = useUiStore()
-      const saved = await ui.run(() => window.loopstructorDesktop.saveSettings(settings), announce ? '设置已保存。' : undefined)
-      if (saved && this.snapshot) this.snapshot.settings = saved
+      const payload = {
+        ...settings,
+        activeRoute: this.currentRoute,
+        sidebarCollapsed: this.snapshot?.settings.sidebarCollapsed ?? settings.sidebarCollapsed,
+      }
+      const saved = await ui.run(() => window.loopstructorDesktop.saveSettings(payload), announce ? '设置已保存。' : undefined)
+      if (saved && this.snapshot) {
+        this.snapshot.settings = { ...saved, activeRoute: this.currentRoute }
+      }
+      return saved
     },
     async selectGame() {
       const ui = useUiStore()
@@ -91,6 +99,32 @@ export const useAppStore = defineStore('app', {
     async refreshConnection() {
       const snapshot = await useUiStore().run(() => window.loopstructorDesktop.refreshConnection())
       if (snapshot) this.applySnapshot(snapshot)
+    },
+    async installUpdate() {
+      const ui = useUiStore()
+      const update = this.snapshot?.update
+      if (!update?.updateAvailable) return undefined
+      const processState = await ui.run(() => window.loopstructorDesktop.inspectUpdateProcesses())
+      if (!processState) return undefined
+      if (processState.gameRunning) {
+        const close = await ui.confirm({
+          title: '关闭游戏并更新',
+          message: `检测到 Skyspine 仍在运行（PID ${processState.processIds.join('、')}）。是否请求游戏正常关闭后继续更新？`,
+          confirmText: '关闭并更新',
+          danger: true,
+        })
+        if (!close) return undefined
+        const result = await ui.run(() => window.loopstructorDesktop.closeGameForUpdate())
+        if (!result?.success) return undefined
+      } else {
+        const proceed = await ui.confirm({
+          title: '安装更新',
+          message: `将从 v${update.currentVersion} 更新到 v${update.latestVersion}。Updater 会在本窗口关闭后完成替换。`,
+          confirmText: '开始更新',
+        })
+        if (!proceed) return undefined
+      }
+      return await ui.run(() => window.loopstructorDesktop.applyUpdate())
     },
     async command(command: string, args: unknown = {}, announce = true): Promise<ControlResponse | undefined> {
       const ui = useUiStore()

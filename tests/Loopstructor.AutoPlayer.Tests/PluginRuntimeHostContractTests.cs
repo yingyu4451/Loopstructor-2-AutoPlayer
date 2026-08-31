@@ -1055,6 +1055,9 @@ public sealed class PluginRuntimeHostContractTests
         MethodDefinition tick = RequireMethod(bridge, "TickEnemyOverlays");
         MethodDefinition refresh = RequireMethod(bridge, "RefreshEnemyOverlayCache");
         MethodDefinition snapshotBuffs = RequireMethod(bridge, "SnapshotEnemyBuffIcons");
+        MethodDefinition resolveStacks = RequireMethod(bridge, "ResolveEnemyBuffStackCount");
+        MethodDefinition resolveDetails = RequireMethod(bridge, "ResolveEnemyBuffDetail");
+        MethodDefinition resolveBuffOffset = RequireMethod(bridge, "ResolveEnemyBuffWorldYOffset");
         MethodDefinition duration = RequireMethod(bridge, "ResolveEnemyBuffDuration");
         MethodDefinition resolveIcon = RequireMethod(bridge, "TryResolveEnemyBuffIcon");
         MethodDefinition draw = RequireMethod(bridge, "DrawEnemyOverlays");
@@ -1066,6 +1069,11 @@ public sealed class PluginRuntimeHostContractTests
         Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "IsEnd");
         Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "Key");
         Assert.Contains(LoadedStrings(snapshotBuffs), value => value == "LifeRule");
+        Assert.Contains(LoadedStrings(resolveStacks), value => value == "StackCount");
+        Assert.Contains(LoadedStrings(resolveStacks), value => value == "CurrentStack");
+        Assert.Contains(LoadedStrings(resolveDetails), value => value == "SlowRate");
+        Assert.Contains(LoadedStrings(resolveDetails), value => value == "MoveSpeedRate");
+        Assert.Contains(Calls(resolveBuffOffset), IsCall("UnityEngine.Renderer", "get_bounds"));
         Assert.Contains(LoadedStrings(duration), value => value == "RemainingDuration");
         Assert.Contains(LoadedStrings(duration), value => value == "Timer");
         Assert.Contains(LoadedStrings(duration), value => value == "duration");
@@ -1084,6 +1092,7 @@ public sealed class PluginRuntimeHostContractTests
             IsCall("UnityEngine.GUI", "DrawTextureWithTexCoords"));
         Assert.Contains(Calls(drawIcons), IsCall("UnityEngine.GUI", "DrawTexture"));
         Assert.Contains(LoadedStrings(drawIcons), value => value == "?");
+        Assert.Contains(LoadedStrings(drawIcons), value => value == "×");
         Assert.DoesNotContain(
             Calls(drawIcons),
             call => (call.DeclaringType.FullName is "UnityEngine.RenderTexture" or "UnityEngine.Texture2D")

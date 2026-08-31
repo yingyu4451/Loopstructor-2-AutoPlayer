@@ -103,6 +103,47 @@ internal static class SaveIsolationPatch
         }
     }
 
+    public static bool TryResolveRuntimeSaveFolder(out string saveRoot)
+    {
+        saveRoot = string.Empty;
+        try
+        {
+            Type? type = AccessTools.TypeByName("ActFramework_ByHZR.Save.SaveManager");
+            MethodInfo? getter = type == null ? null : AccessTools.PropertyGetter(type, "Instance");
+            MethodInfo? getPath = type == null ? null : AccessTools.Method(type, "GetSaveFolderPath", Type.EmptyTypes);
+            object? instance = getter?.Invoke(null, null);
+            string? path = instance == null ? null : getPath?.Invoke(instance, null) as string;
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            string fullPath = Path.GetFullPath(path);
+            if (!Path.IsPathRooted(fullPath) || !Directory.Exists(fullPath)) return false;
+            saveRoot = fullPath;
+            return true;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+        catch (NullReferenceException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (Exception)
+        {
+            // SaveManager may be between scene lifetimes. A passive path probe must never
+            // make the plugin noisy or interrupt the game loop.
+            return false;
+        }
+    }
+
     private static bool Prefix(ref string __result)
     {
         __result = s_profileRoot.Replace('\\', '/');

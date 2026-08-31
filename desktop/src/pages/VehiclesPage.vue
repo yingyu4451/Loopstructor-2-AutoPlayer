@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Search, Plus, Trash2, TrainFront } from '../icons'
+import { Search, Plus, Trash2, ImageOff } from '../icons'
 import { useAppStore } from '../stores/app'
 import type { CatalogItem } from '../types'
 import CatalogCard from '../components/CatalogCard.vue'
@@ -14,7 +14,7 @@ const selectedVehicle = ref<CatalogItem>()
 const count = ref(1)
 const enchantments = ref<Record<string, number>>({})
 
-const vehicles = computed(() => store.catalogItems('vehicles'))
+const vehicles = computed(() => store.catalogItems('vehicles').filter((item) => item.level === 1 || item.level === 3))
 const types = computed(() => {
   const found = new Map<string, { key: string; label: string; order: number }>()
   for (const item of vehicles.value) {
@@ -53,6 +53,14 @@ const selectedEnchantments = computed(() => store.catalogItems('enchantments').f
 function translateType(type: string) {
   return ({ Shell: '炮弹', Link: '链接', Missile: '导弹', Penetrate: '穿透' } as Record<string, string>)[type] || type
 }
+function vehicleImage(item: CatalogItem) {
+  if (item.iconDataUrl) return item.iconDataUrl
+  if (!item.iconBase64) return ''
+  return item.iconBase64.startsWith('data:') ? item.iconBase64 : `data:image/png;base64,${item.iconBase64}`
+}
+function shapeLabel(level?: number) {
+  return level === 1 ? '初始形态' : level === 3 ? '升级形态' : '未知形态'
+}
 function adjustEnchantment(button: 'left' | 'right', item: CatalogItem) {
   const current = enchantments.value[item.id] ?? 0
   const next = button === 'left' ? Math.min(2147483647, current + 1) : Math.max(0, current - 1)
@@ -81,7 +89,10 @@ async function grantVehicle() {
       <div class="vehicle-family-grid">
         <article v-for="family in families" :key="family.key" class="vehicle-family" :class="{ selected: family.items.some(item => item.id === selectedVehicle?.id) }">
           <div class="family-identity">
-            <TrainFront :size="24" />
+            <span class="vehicle-game-icon">
+              <img v-if="vehicleImage(family.items[0])" :src="vehicleImage(family.items[0])" alt="" />
+              <ImageOff v-else :size="22" />
+            </span>
             <div><strong>{{ family.items[0].name || family.items[0].fallbackName || family.key }}</strong><small>{{ family.key }}</small></div>
           </div>
           <div class="level-buttons">
@@ -90,7 +101,7 @@ async function grantVehicle() {
               :key="item.id"
               :class="{ active: selectedVehicle?.id === item.id }"
               @click="selectedVehicle = item"
-            >L{{ item.level ?? '?' }}</button>
+            >{{ shapeLabel(item.level) }}</button>
           </div>
         </article>
       </div>

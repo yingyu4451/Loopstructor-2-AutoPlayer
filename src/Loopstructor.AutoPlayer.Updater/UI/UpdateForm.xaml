@@ -14,8 +14,8 @@
         AllowsTransparency="False"
         ResizeMode="CanResize"
         Icon="/Loopstructor.AutoPlayer.Updater;component/Assets/Branding/manager-logo-256.png"
-        Background="#3A2517"
-        Foreground="#F1DFC0"
+        Background="#72502E"
+        Foreground="#E8DFD2"
         FontFamily="Microsoft YaHei UI"
         FontSize="13"
         UseLayoutRounding="True"
@@ -33,19 +33,19 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <SolidColorBrush x:Key="CoalBrush" Color="#0A0907" />
-        <SolidColorBrush x:Key="ScreenBrush" Color="#11100C" />
-        <SolidColorBrush x:Key="RaisedBrush" Color="#21180F" />
-        <SolidColorBrush x:Key="CopperBrush" Color="#8D5A2C" />
-        <SolidColorBrush x:Key="DarkCopperBrush" Color="#4F311C" />
-        <SolidColorBrush x:Key="BrassBrush" Color="#C18A46" />
-        <SolidColorBrush x:Key="GoldBrush" Color="#F0B33A" />
+        <SolidColorBrush x:Key="CoalBrush" Color="#12110E" />
+        <SolidColorBrush x:Key="ScreenBrush" Color="#12110E" />
+        <SolidColorBrush x:Key="RaisedBrush" Color="#211B15" />
+        <SolidColorBrush x:Key="CopperBrush" Color="#72502E" />
+        <SolidColorBrush x:Key="DarkCopperBrush" Color="#49341F" />
+        <SolidColorBrush x:Key="BrassBrush" Color="#C99542" />
+        <SolidColorBrush x:Key="GoldBrush" Color="#D8A13E" />
         <SolidColorBrush x:Key="GreenBrush" Color="#79D53B" />
-        <SolidColorBrush x:Key="InkBrush" Color="#F1DFC0" />
-        <SolidColorBrush x:Key="MutedBrush" Color="#A58E6E" />
-        <SolidColorBrush x:Key="DisabledControlBrush" Color="#1F1A15" />
-        <SolidColorBrush x:Key="DisabledBorderBrush" Color="#42372B" />
-        <SolidColorBrush x:Key="DisabledTextBrush" Color="#756A5A" />
+        <SolidColorBrush x:Key="InkBrush" Color="#E8DFD2" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#A99A87" />
+        <SolidColorBrush x:Key="DisabledControlBrush" Color="#24211D" />
+        <SolidColorBrush x:Key="DisabledBorderBrush" Color="#463E34" />
+        <SolidColorBrush x:Key="DisabledTextBrush" Color="#6F675D" />
 
         <LinearGradientBrush x:Key="FrameBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Offset="0" Color="#9B6737" />

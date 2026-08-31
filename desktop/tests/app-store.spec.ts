@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.52',
+    version: '0.6.53',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -73,6 +73,21 @@ describe('desktop application store', () => {
     await store.setRoute('battle')
 
     expect(store.route).toBe('battle')
+  })
+
+  it('preserves the renderer route when saving a stale settings draft', async () => {
+    const saveSettings = vi.fn(async (settings) => settings)
+    window.loopstructorDesktop = { saveSettings } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+    await store.setRoute('settings')
+
+    const staleDraft = { ...store.settings!, activeRoute: 'game' as const }
+    await store.saveSettings(staleDraft, false)
+
+    expect(store.route).toBe('settings')
+    expect(saveSettings.mock.calls.at(-1)?.[0].activeRoute).toBe('settings')
+    expect(store.settings?.activeRoute).toBe('settings')
   })
 
   it('exposes the restored automation controls through the preload API', async () => {

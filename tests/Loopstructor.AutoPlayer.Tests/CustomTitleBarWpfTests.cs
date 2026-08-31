@@ -127,7 +127,20 @@ public sealed class CustomTitleBarWpfTests
                 action.ApplyTemplate();
                 Border face = Assert.IsType<Border>(action.Template.FindName("ButtonFace", action));
                 SolidColorBrush disabledBackground = Assert.IsType<SolidColorBrush>(face.Background);
-                Assert.Equal(Color.FromRgb(31, 26, 21), disabledBackground.Color);
+                Assert.Equal(Color.FromRgb(36, 33, 29), disabledBackground.Color);
+
+                Assert.Equal(
+                    Color.FromRgb(18, 17, 14),
+                    Assert.IsType<SolidColorBrush>(form.FindResource("CoalBrush")).Color);
+                Assert.Equal(
+                    Color.FromRgb(114, 80, 46),
+                    Assert.IsType<SolidColorBrush>(form.FindResource("CopperBrush")).Color);
+                Assert.Equal(
+                    Color.FromRgb(201, 149, 66),
+                    Assert.IsType<SolidColorBrush>(form.FindResource("BrassBrush")).Color);
+                Assert.Equal(
+                    Color.FromRgb(121, 213, 59),
+                    Assert.IsType<SolidColorBrush>(form.FindResource("GreenBrush")).Color);
             }
             finally
             {

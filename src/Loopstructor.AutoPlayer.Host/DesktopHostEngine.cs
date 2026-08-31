@@ -34,6 +34,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
     private readonly BepInExInstaller _installer;
     private readonly GameLauncher _gameLauncher;
     private readonly UpdateCoordinator _updates;
+    private readonly SaveBackupService _saveBackups;
     private readonly CancellationTokenSource _pollLifetime;
     private ManagerSettings _settings;
     private GameInstallValidation? _game;
@@ -63,6 +64,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _installer = new BepInExInstaller(_distribution, _configWriter);
         _gameLauncher = new GameLauncher(new ActivationSessionFactory(), _configWriter);
         _updates = new UpdateCoordinator(_distribution);
+        _saveBackups = new SaveBackupService(Path.Combine(dataRoot, "save-backups"));
+        _saveBackups.EnsureBackupRoot(_settings.GameRoot);
         if (!string.IsNullOrWhiteSpace(warning)) AddLog("warn", warning);
     }
 
@@ -119,6 +122,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
                 "update.closeGame" => await CloseGameForUpdateAsync(),
                 "update.apply" => StartUpdate(parameters?.Value<int?>("desktopProcessId") ?? 0),
                 "diagnostics.openEvidence" => OpenEvidenceDirectory(),
+                "backups.open" => OpenSaveBackupDirectory(),
                 "logs.clear" => ClearLogs(),
                 _ => throw new InvalidOperationException("Host 不允许调用未知方法：" + method)
             };
@@ -148,6 +152,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         incoming.NormalizeUpdateSource();
         _settings = incoming;
         _settingsStore.Save(_settings);
+        await ObserveSaveBackupsAsync(null);
         await EmitSnapshotAsync();
         return Serialize(_settings);
     }
@@ -478,6 +483,34 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         return Serialize(new { path });
     }
 
+    private JToken OpenSaveBackupDirectory()
+    {
+        string path = _saveBackups.EnsureBackupRoot(_settings.GameRoot);
+        Process.Start(new ProcessStartInfo("explorer.exe")
+        {
+            ArgumentList = { path },
+            UseShellExecute = false
+        });
+        return Serialize(new { path });
+    }
+
+    private async Task ObserveSaveBackupsAsync(AutoPlayerStatus? status)
+    {
+        try
+        {
+            string? message = await _saveBackups.ObserveAsync(
+                status,
+                _settings,
+                _game?.GameRoot ?? _settings.GameRoot,
+                _lifetime);
+            if (!string.IsNullOrWhiteSpace(message)) AddLog("backup", message, emit: false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            AddLog("warn", "自动备份暂时无法完成：" + exception.Message, emit: false);
+        }
+    }
+
     private JToken ClearLogs()
     {
         _logs.Clear();
@@ -587,6 +620,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
             _pollConnectedLastTime = true;
         }
         if (response.Status != null) _status = response.Status;
+        await ObserveSaveBackupsAsync(_status);
         await EnsureDefaultCheatEnabledAsync();
         await EmitSnapshotAsync();
     }
@@ -762,6 +796,9 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         },
         hello = _hello,
         status = _status,
+        saveBackups = _saveBackups.Snapshot(
+            _settings.AutomaticSaveBackupEnabled,
+            _settings.MaximumSaveBackups),
         update = _updateStatus,
         logs = _logs
     };

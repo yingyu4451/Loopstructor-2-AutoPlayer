@@ -63,6 +63,7 @@ public sealed class ProtocolTests
             CheatAvailable = true,
             RunIntegrity = "cheat-modified",
             EnemyBuffsVisible = true,
+            ActiveSaveRoot = @"C:\Saves\Player1",
             BaseGodModeEnabled = true,
             MapSkipEnabled = true
         };
@@ -73,6 +74,7 @@ public sealed class ProtocolTests
         Assert.True(roundTrip.CheatSessionAuthorized);
         Assert.True(roundTrip.CheatAvailable);
         Assert.True(roundTrip.EnemyBuffsVisible);
+        Assert.Equal(@"C:\Saves\Player1", roundTrip.ActiveSaveRoot);
         Assert.True(roundTrip.BaseGodModeEnabled);
         Assert.True(roundTrip.MapSkipEnabled);
         Assert.Equal("cheat-modified", roundTrip.RunIntegrity);

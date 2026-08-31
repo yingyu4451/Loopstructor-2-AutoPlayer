@@ -2,7 +2,7 @@
 
 ## 设计目标
 
-AutoPlayer 把“桌面呈现”“控制编排”和“游戏内执行”分开：Electron + Vue Desktop 负责统一可见界面，.NET 8 Host 掌握安装、进程连接、自动游玩、更新和本机 IPC；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。`0.6.52` 重新开放带未完成提示的自动游玩入口；页面路由由 renderer 持有，不受 Host 状态轮询覆盖。
+AutoPlayer 把“桌面呈现”“控制编排”和“游戏内执行”分开：Electron + Vue Desktop 负责统一可见界面，.NET 8 Host 掌握安装、进程连接、玩家存档备份、自动游玩、更新和本机 IPC；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。`0.6.53` 由插件低频上报当前存档路径和章节关卡，实际复制完全在 Host 后台完成，不占用 Unity 主线程。
 
 工具不携带游戏 DLL，也不修改 `Assembly-CSharp.dll`。插件通过反射发现打包游戏中已有的 `GuiGameAutomation.Runtime` 类型，因此游戏更新后可以先完成指纹和契约检查，再决定是否运行。
 
@@ -18,6 +18,7 @@ flowchart LR
     P -->|"默认作弊会话 + Unity 主线程队列"| H["CheatController / CheatRuntimeBridge"]
     H --> S
     P --> Q["玩家原存档或隔离 QA Profile / Artifacts"]
+    M --> B["稳定快照 / save-backups"]
     U["Updater"] -->|"校验 Release 清单与 SHA-256"| M
 ```
 
@@ -27,7 +28,7 @@ flowchart LR
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
 | `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS | 单实例统一窗口、路由、响应式布局、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
-| `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、自动游玩、作弊命令、设置、日志和更新交接 |
+| `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows WPF 自包含 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
@@ -42,10 +43,10 @@ flowchart LR
 5. 隔离 QA 模式使用另一条路径：每次启动生成新 pipe 和 token，通过子进程环境变量或最长 10 分钟的单次票据传递 QA profile、artifact 与预期程序集哈希；票据读取后立即删除。
 6. BepInEx 加载插件后，`ActivationContext` 验证协议、游戏根目录、pipe、token、工具拥有的数据目录和预期程序集哈希，再启动一个隐藏且独立于 BepInEx 管理对象的运行时根对象。BepInEx 启动组件随后被游戏清理也不会关闭控制通道；独立宿主若在场景切换中消失，静态会话通过场景和渲染前回调在主线程重建它。玩家注册还必须匹配固定文件位置与根目录哈希；单次票据还必须验证有效期。
 7. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。失败时不安装操作补丁，也不接受控制。
-8. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Host 拒绝握手。玩家原存档和平台行为保持游戏默认语义。
+8. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Host 拒绝握手。玩家原存档和平台行为保持游戏默认语义。插件只在 Unity 主线程低频读取 `SaveManager.GetSaveFolderPath` 与地图进度；Host 在进度变化后等待写盘稳定、复制前后核对文件指纹，并将快照保存到工具数据根的 `save-backups`，不会在游戏线程执行文件复制。
 9. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
 10. 插件在 `hello` 中回传自身真实 PID、随机进程实例标识、激活模式、指纹、运行时契约和隔离状态。Host 只在该 PID 仍存活、启动时间未变化、可执行文件路径等于所选游戏且模式门禁相符时接受握手；后续每条请求都必须继续匹配 PID 与进程实例标识。
-11. 连接成功后插件保持 Standby。`0.6.52` 的自动游玩页通过白名单 RPC 读取可玩模式和角色并发送运行控制；作弊能力在可信会话建立后默认自动开启，不再需要前端手动开关。
+11. 连接成功后插件保持 Standby。`0.6.53` 即使自动游玩未启动也会低频读取当前章节、关卡与玩家存档根，以支持 Host 自动备份；自动游玩页通过白名单 RPC 读取可玩模式和角色并发送运行控制。作弊能力在可信会话建立后默认自动开启，不再需要前端手动开关。
 
 支持的环境变量由共享协议定义：
 
@@ -205,7 +206,7 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.52-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/

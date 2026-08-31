@@ -14,6 +14,8 @@ export interface ManagerSettings {
   uiScaleMode: 'system' | 'custom'
   customUiScalePercent: number
   characterCfgIndex: number
+  automaticSaveBackupEnabled?: boolean
+  maximumSaveBackups?: number
   activeRoute: RouteKey
   sidebarCollapsed: boolean
   gitHubOwner: string
@@ -130,6 +132,17 @@ export interface HostSnapshot {
   connection: ConnectionState
   hello?: Record<string, unknown>
   status?: AutoPlayerStatus
+  saveBackups?: {
+    enabled: boolean
+    maximumBackups: number
+    backupCount: number
+    backupRoot: string
+    latestBackup: string
+    lastMessage: string
+    lastBackupUtc?: string
+    pending: boolean
+    busy: boolean
+  }
   update?: UpdateStatus
   logs: HostLogEntry[]
 }
@@ -185,6 +198,7 @@ export interface DesktopApi {
   closeGameForUpdate(): Promise<{ success: boolean; remainingProcessIds: number[]; message: string }>
   applyUpdate(): Promise<{ success: boolean; message: string }>
   openEvidence(): Promise<{ path: string }>
+  openSaveBackups(): Promise<{ path: string }>
   clearLogs(): Promise<unknown>
   minimize(): Promise<void>
   toggleMaximize(): Promise<void>

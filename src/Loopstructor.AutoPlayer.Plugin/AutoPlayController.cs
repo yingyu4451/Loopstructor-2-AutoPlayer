@@ -192,6 +192,7 @@ internal sealed class AutoPlayController
     private int _wavesCompleted;
     private float _nextTickAt;
     private float _nextSaveProbeAt;
+    private string _activeSaveRoot = string.Empty;
     private float _lastProgressAt;
     private float _gameOverDetectedAt = -1f;
     private bool _defensePrepared;
@@ -762,19 +763,27 @@ internal sealed class AutoPlayController
     public void Tick()
     {
         _freshFullWaveQueryIssued = false;
-        // Isolated QA sessions verify the redirected save root before Start.
-        // Resident player mode intentionally leaves the player's save path untouched.
-        if (!_activation.IsPlayerMode
-            && !SaveIsolationPatch.Verified
-            && !SaveIsolationPatch.VerificationFailed
-            && Time.realtimeSinceStartup >= _nextSaveProbeAt)
+        if (Time.realtimeSinceStartup >= _nextSaveProbeAt)
         {
-            _nextSaveProbeAt = Time.realtimeSinceStartup + 0.5f;
-            SaveIsolationPatch.ProbeRuntimeSaveFolder();
+            _nextSaveProbeAt = Time.realtimeSinceStartup + 1f;
+            if (!_activation.IsPlayerMode
+                && !SaveIsolationPatch.Verified
+                && !SaveIsolationPatch.VerificationFailed)
+            {
+                SaveIsolationPatch.ProbeRuntimeSaveFolder();
+            }
+            if (SaveIsolationPatch.TryResolveRuntimeSaveFolder(out string saveRoot))
+            {
+                _activeSaveRoot = saveRoot;
+            }
         }
 
         Scene activeSceneInfo = SceneManager.GetActiveScene();
         ObserveActiveScene(activeSceneInfo);
+        if (string.Equals(activeSceneInfo.name, "NewGameScene", StringComparison.OrdinalIgnoreCase))
+        {
+            ObserveMapProgress(recordTimeline: _runState == AutoPlayerRunState.Running);
+        }
         if (_ownedPreviewReleaseOperation != OwnedPreviewReleaseOperation.None)
         {
             if (Time.realtimeSinceStartup >= _nextTickAt) ProcessOwnedPreviewRelease();
@@ -948,6 +957,7 @@ internal sealed class AutoPlayController
                 PlatformWritesBlocked = PlatformWriteIsolationPatch.Applied,
                 GameArtifactsRedirected = GameArtifactIsolationPatch.Applied,
                 IsolatedSaveRoot = SaveIsolationPatch.IsolatedRoot,
+                ActiveSaveRoot = _activeSaveRoot,
                 ArtifactDirectory = _activation.ArtifactRoot,
                 NeedsProcessRestart = _needsProcessRestart,
                 ConsecutiveFailures = _consecutiveFailures,
@@ -9870,7 +9880,7 @@ internal sealed class AutoPlayController
         _normalEventFingerprint = string.Empty;
     }
 
-    private void ObserveMapProgress()
+    private void ObserveMapProgress(bool recordTimeline = true)
     {
         if (Time.realtimeSinceStartup < _nextMapProgressProbeAt) return;
         _nextMapProgressProbeAt = Time.realtimeSinceStartup + MapProgressProbeIntervalSeconds;
@@ -9882,6 +9892,7 @@ internal sealed class AutoPlayController
         _currentMapLayer = layer;
         if (!stageChanged && !layerChanged) return;
 
+        if (!recordTimeline) return;
         MarkProgress();
         if (stageChanged)
         {

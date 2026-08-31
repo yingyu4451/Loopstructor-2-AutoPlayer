@@ -36,6 +36,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.53 存档保险库、Buff 详情与桌面界面修复
+
+`0.6.53` 新增由 .NET Host 执行的正式玩家存档自动备份。插件只低频读取 `SaveManager.GetSaveFolderPath` 与章节关卡，不在 Unity 主线程复制文件；Host 检测到进度变化后等待写盘稳定，在临时目录复制，并比较复制前后文件清单指纹。只有指纹一致时才原子完成名为 `第01章-第003关-20260831-123456` 的快照。用户可在 Electron 设置页启用/关闭并设置最多保留 1–100 个步骤，保留清理只处理工具专属目录中名称严格匹配的最旧快照；隔离 QA 存档不会重复备份。
+
+怪物 Buff 覆盖层改为锚定在模型下沿，避免遮挡头顶伤害数字。同类运行时 Buff 会聚合为层数徽标，图标下方显示持续时间以及当前对象可读取的减速率、移速倍率或效果值，悬停详情继续显示中文名、枚举名、层数和具体数值。本版本以 `v0.6.52` 作为相邻增量更新基线；插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
+
+战车获取恢复为上一版的初始形态和升级形态两个选择，不显示内部过渡等级；系列卡片直接渲染当前游戏目录返回的战车图标。界面设置在编辑期间不再被 Host 轮询覆盖，缩放后页面轨道和当前路由保持不变；标题栏的可用版本铭牌可直接进入安装流程。Electron 模态框和 WPF Updater 使用同一套煤黑、深铜、黄铜、信号绿与禁用态色令牌，避免更新流程出现另一套窗口风格。
+
+本地正式完整包为 221,984,564 字节（约 212 MiB），SHA-256 为 `d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544`；`v0.6.52 → v0.6.53` 增量包为 110,163,303 字节（约 106 MiB），只包含 17 个变化文件，SHA-256 为 `0f4f2c613686489d69f1dbf9fdb9f9a9cc2fb4bbe6563025206c090bf713b494`。完整包 370 个文件及增量重建结果均已逐文件验证。
+
 ## 0.6.52 导航状态、自动游玩入口与默认作弊
 
 `0.6.52` 修复 Electron renderer 把当前页面存放在 Host 快照中导致的导航回跳：用户选择的页面现在由 renderer 单独持有，旧轮询快照和设置保存失败都不会把界面强制切回“游戏与插件”。自动游玩页面重新提供当前游戏动态模式与角色读取、速度、剧情、决策优先、开始/暂停/继续/停止和运行轨迹，同时始终显示“尚未完成”风险提示。
@@ -147,27 +157,27 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.52
+.\scripts\package.ps1 -Version 0.6.53
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.52 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.53 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.52-win-x64.zip
-Loopstructor.AutoPlayer-0.6.52-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.53-win-x64.zip
+Loopstructor.AutoPlayer-0.6.53-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.52-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -198,17 +208,17 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.52",
+  "version": "0.6.53",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.52-win-x64.zip",
-  "sha256": "355de7267c651c0e6d31960b676118fc6bccbf04b40498570759bdc7eae491a8",
-  "size": 221973857,
+  "assetName": "Loopstructor.AutoPlayer-0.6.53-win-x64.zip",
+  "sha256": "d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544",
+  "size": 221984564,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.51",
-      "assetName": "Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip",
-      "sha256": "c37723c36207fa7806adc1ae4d64f3f94ab56801b175a358b6dd16f094602fc6",
-      "size": 110152596
+      "fromVersion": "0.6.52",
+      "assetName": "Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip",
+      "sha256": "0f4f2c613686489d69f1dbf9fdb9f9a9cc2fb4bbe6563025206c090bf713b494",
+      "size": 110163303
     }
   ]
 }
@@ -279,8 +289,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.52
-git push origin v0.6.52
+git tag v0.6.53
+git push origin v0.6.53
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

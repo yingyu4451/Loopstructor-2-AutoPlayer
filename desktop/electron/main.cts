@@ -121,6 +121,7 @@ function registerIpc(): void {
   ipcMain.handle('update:closeGame', () => invoke('update.closeGame'))
   ipcMain.handle('update:apply', () => invoke('update.apply', { desktopProcessId: process.pid }))
   ipcMain.handle('diagnostics:openEvidence', () => invoke('diagnostics.openEvidence'))
+  ipcMain.handle('backups:open', () => invoke('backups.open'))
   ipcMain.handle('logs:clear', () => invoke('logs.clear'))
   ipcMain.handle('window:minimize', () => window?.minimize())
   ipcMain.handle('window:toggleMaximize', () => window?.isMaximized() ? window.unmaximize() : window?.maximize())

@@ -1,6 +1,6 @@
 # Loopstructor 2 AutoPlayer
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.52` 修复 Electron 侧栏被 Host 旧快照强制跳回“游戏与插件”的问题，重新开放带未完成警告的自动游玩配置、控制和运行轨迹，并在可信连接后默认自动开启作弊功能。统一窗口继续使用 Electron 44、Vue 3、TypeScript、Pinia、Tailwind CSS 与离线 Iconify 图标；`.NET 8 Host` 负责游戏验证、插件安装、可信会话、自动游玩、作弊命令和更新交接。
+Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.53` 新增按章节、关卡与日期命名的玩家存档自动备份，并把怪物 Buff 移到模型下方显示层数、持续时间和可读取的具体效果数值；战车目录恢复为初始/升级两个形态并直接使用游戏图标，界面缩放、标题栏更新入口和 Updater 机械配色也完成统一。统一窗口继续使用 Electron 44、Vue 3、TypeScript、Pinia、Tailwind CSS 与离线 Iconify 图标；`.NET 8 Host` 负责游戏验证、插件安装、可信会话、存档备份、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -11,7 +11,7 @@ Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调�
 - Windows x64、Unity `2022.3.62f3c1`、Mono 后端的 Loopstructor 2 测试包。
 - 游戏包必须包含与当前源码一致的 `GuiGameAutomation.Runtime` 公共自动化契约。
 - 当前 BepInEx 与该 Unity Mono 构建组合要求完整游戏路径只含 ASCII 字符；可包含英文字母、数字和空格。该限制来自注入后的运行时兼容性，未安装 BepInEx 的游戏本体不受影响。
-- 玩家模式用于本地单机游玩，直接使用当前玩家存档和平台行为；自动游玩或作弊造成的存档变化不会自动回滚。需要可重复、可审计且不接触正常存档的回归时，应使用隔离 QA 模式和专用测试账号。
+- 玩家模式用于本地单机游玩，直接使用当前玩家存档和平台行为；Manager 可在章节关卡变化后自动复制稳定快照，但不会自动回滚。需要可重复、可审计且不接触正常存档的回归时，应使用隔离 QA 模式和专用测试账号。
 - 当前固定运行时为 BepInEx `5.4.23.5` Windows x64。
 
 未知游戏构建、运行时契约缺失或程序集指纹不符时，自动游玩必须保持待机或进入不兼容状态。隔离 QA 模式还会把存档隔离、平台写入阻断和诊断产物重定向作为强制门禁；玩家模式反而要求这些 QA 重定向均未启用。
@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.52 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.53 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.52
+.\scripts\package.ps1 -Version 0.6.53
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.52-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和 WPF Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -56,8 +56,11 @@ Set-ExecutionPolicy -Scope Process Bypass
   control\installed-<game-root-id>.json
   profiles\<game-id>\<qa-profile-id>\
   artifacts\<game-id>\<run-id>\
+  save-backups\<game-id>\第01章-第003关-20260831-123456\
   tickets\launch-<game-root-id>.json
 ```
+
+设置页的“存档保险库”可启用或关闭自动备份，并设置最多保留 1–100 个步骤存档。Host 只处理正式玩家模式：检测到章节或关卡变化后先等待游戏写盘稳定，再在临时目录中复制；复制前后文件指纹一致才原子完成。目录名使用“章节 + 关卡号 + 本地日期时间”，超过上限时只删除工具自己管理且名称严格匹配的最旧备份。隔离 QA 存档不会重复进入玩家备份目录。
 
 玩家模式的本机注册使用稳定的 pipe 基础名与高熵 token，使手动启动的游戏也能被同一用户的 Manager 找到；每个实际游戏进程使用带 PID 的专属端点，握手后每条请求还必须匹配随机进程实例标识。插件和 Manager 同时校验目录、PID、进程启动时间、进程实例、程序集指纹及运行时契约；检测到多个未绑定的同目录游戏进程时会拒绝任意选择。隔离 QA 模式的启动票据在读取后立即删除，最长有效期为 10 分钟，并为每次启动重新生成 pipe 与 token。两类 token 都不得写入日志或提交到 Git。
 
@@ -77,7 +80,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 6. 清除当前已经生成的所有敌人；
 7. 删除指定已有战车；使用中文属性名修改车辆属性，并编辑已有战车的附魔等级或移除附魔；
 8. 修改指定敌人的属性；对象列表同时显示中文名、枚举名和图标，战车还显示已有附魔图标；
-9. 在游戏画面中显示敌人运行时 ID，便于查询和修改；
+9. 在游戏画面中显示敌人运行时 ID，以及位于怪物模型下方的 Buff 图标；同类 Buff 聚合显示层数徽标，并显示持续时间、减速率或移速倍率等当前运行时可读取数值；
 10. 获得或删除指定遗物，也可逐帧补齐全部尚未持有的已配置遗物，或逐帧删除所有遗物；
 11. 在一个或多个指定坐标周围分散生成允许且可被战车攻击的怪物；默认使用当前波次的正式 AI 等级和难度倍率，也可显式覆盖等级。进入定位状态后可在游戏内反复按住左 Alt 并点击鼠标左键添加位置，游戏画面会显示各点编号与坐标，作弊工具可单删或清空点位；
 12. 开启地图跳关后，游戏仍隐藏当前进度层及历史层，可在当前地图界面点击进度之后的任意节点直接跳转；波次未完全结算、子关卡待选、陈旧阶段请求、跨阶段目标或失效节点都会拒绝。
@@ -152,9 +155,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.52-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.53` 新增 Host 侧玩家存档自动备份：按章节、关卡和日期命名，复制前后验证写入稳定，并按设置保留最近 1–100 个步骤。怪物 Buff 覆盖层移到模型下方，同类 Buff 聚合显示层数，持续时间和减速率等运行时数值保持可见。战车获取只显示初始/升级两个形态并使用游戏目录图标；自定义界面缩放不再被 Host 快照覆盖或跳页，标题栏版本提示可直接启动更新，Updater 与 Electron 共用统一机械配色。本版本以 `v0.6.52` 作为相邻增量更新基线。
 
 `v0.6.52` 将当前页面改为 renderer 单一所有者，Host 轮询快照不再覆盖用户导航；自动游玩页恢复动态模式/角色读取、运行配置、开始/暂停/继续/停止和时间线，并持续显示功能未完成警告。作弊在可信连接后由 Host 自动开启，界面不再提供重复的手动开关。本版本以 `v0.6.51` 作为相邻增量更新基线。
 

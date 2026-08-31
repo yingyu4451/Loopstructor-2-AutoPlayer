@@ -29,8 +29,8 @@ internal sealed class CheatRuntimeBridge
     private const int CatalogIconSize = 48;
     private const float EnemyOverlayRefreshInterval = 0.5f;
     private const float EnemyBuffIconSize = 30f;
-    private const float EnemyBuffCellWidth = 34f;
-    private const float EnemyBuffCellHeight = 45f;
+    private const float EnemyBuffCellWidth = 40f;
+    private const float EnemyBuffCellHeight = 58f;
     private const int MaxEnemyBuffColumns = 8;
     private static readonly TimeSpan SpawnPointCaptureTimeout = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, string> VehicleTypeChineseNames =
@@ -269,6 +269,8 @@ internal sealed class CheatRuntimeBridge
     private GUIStyle? _spawnPointStyle;
     private GUIStyle? _enemyBuffFrameStyle;
     private GUIStyle? _enemyBuffDurationStyle;
+    private GUIStyle? _enemyBuffStackStyle;
+    private GUIStyle? _enemyBuffDetailStyle;
     private GUIStyle? _enemyBuffFallbackStyle;
     private GUIStyle? _enemyBuffTooltipStyle;
     private float _nextEnemyOverlayRefreshAt;
@@ -2098,9 +2100,9 @@ internal sealed class CheatRuntimeBridge
         for (int index = 0; index < _enemyOverlaySnapshots.Count; index++)
         {
             EnemyOverlaySnapshot overlay = _enemyOverlaySnapshots[index];
-            if (overlay.GameObject == null || !overlay.GameObject.activeInHierarchy || overlay.Anchor == null) continue;
+            if (overlay.GameObject == null || !overlay.GameObject.activeInHierarchy || overlay.IdAnchor == null) continue;
 
-            Vector3 screen = camera.WorldToScreenPoint(overlay.Anchor.position + (Vector3.up * overlay.WorldYOffset));
+            Vector3 screen = camera.WorldToScreenPoint(overlay.IdAnchor.position + (Vector3.up * overlay.IdWorldYOffset));
             Rect viewport = camera.pixelRect;
             if (screen.z <= 0f
                 || screen.x < viewport.xMin
@@ -2114,7 +2116,11 @@ internal sealed class CheatRuntimeBridge
 
             if (EnemyBuffsVisible && overlay.Buffs.Count > 0)
             {
-                DrawEnemyBuffIcons(overlay.Buffs, screen.x, guiY, EnemyIdsVisible, ref tooltip);
+                Transform buffAnchor = overlay.BuffAnchor == null ? overlay.GameObject.transform : overlay.BuffAnchor;
+                Vector3 buffScreen = camera.WorldToScreenPoint(
+                    buffAnchor.position + (Vector3.up * overlay.BuffWorldYOffset));
+                if (buffScreen.z > 0f)
+                    DrawEnemyBuffIcons(overlay.Buffs, buffScreen.x, Screen.height - buffScreen.y, ref tooltip);
             }
 
             if (EnemyIdsVisible)
@@ -2140,19 +2146,21 @@ internal sealed class CheatRuntimeBridge
                 : Array.Empty<EnemyBuffIconSnapshot>();
             if (!EnemyIdsVisible && buffs.Count == 0) continue;
 
-            Transform? anchor = GetMember(target.Ai, "HpSliderTransform") as Transform;
-            float worldYOffset = 0.45f;
-            if (anchor == null)
+            Transform? idAnchor = GetMember(target.Ai, "HpSliderTransform") as Transform;
+            float idWorldYOffset = 0.45f;
+            if (idAnchor == null)
             {
-                anchor = target.GameObject.transform;
-                worldYOffset = 1.4f;
+                idAnchor = target.GameObject.transform;
+                idWorldYOffset = 1.4f;
             }
 
             refreshed.Add(new EnemyOverlaySnapshot
             {
                 GameObject = target.GameObject,
-                Anchor = anchor,
-                WorldYOffset = worldYOffset,
+                IdAnchor = idAnchor,
+                IdWorldYOffset = idWorldYOffset,
+                BuffAnchor = target.GameObject.transform,
+                BuffWorldYOffset = ResolveEnemyBuffWorldYOffset(target.GameObject),
                 IdText = $"[{target.RuntimeId}] {target.TypeId}",
                 Buffs = buffs
             });
@@ -2174,7 +2182,7 @@ internal sealed class CheatRuntimeBridge
         object? value = _getBuffsMethod.Invoke(manager, new object?[] { null });
         if (value is not IEnumerable buffs) return Array.Empty<EnemyBuffIconSnapshot>();
 
-        List<EnemyBuffIconSnapshot> result = new();
+        Dictionary<string, EnemyBuffIconSnapshot> grouped = new(StringComparer.Ordinal);
         foreach (object? buff in buffs)
         {
             if (buff == null || GetBool(buff, "IsEnd")) continue;
@@ -2185,18 +2193,130 @@ internal sealed class CheatRuntimeBridge
                 continue;
             }
 
-            result.Add(new EnemyBuffIconSnapshot
+            int stackCount = ResolveEnemyBuffStackCount(buff, out bool explicitStackCount);
+            string detailText = ResolveEnemyBuffDetail(buff, key);
+            if (grouped.TryGetValue(key, out EnemyBuffIconSnapshot? existing))
+            {
+                if (explicitStackCount)
+                {
+                    existing.StackCount = Math.Max(existing.StackCount, stackCount);
+                    existing.HasExplicitStackCount = true;
+                }
+                else if (!existing.HasExplicitStackCount)
+                {
+                    existing.StackCount = Math.Min(9999, existing.StackCount + 1);
+                }
+                existing.ShowStackCount = true;
+                if (string.IsNullOrWhiteSpace(existing.DetailText)) existing.DetailText = detailText;
+                continue;
+            }
+
+            grouped[key] = new EnemyBuffIconSnapshot
             {
                 Key = key,
                 DisplayName = icon.DisplayName,
                 Texture = icon.Texture,
                 Uv = icon.Uv,
                 FallbackColor = icon.FallbackColor,
-                DurationText = ResolveEnemyBuffDuration(GetMember(buff, "LifeRule"))
-            });
+                DurationText = ResolveEnemyBuffDuration(GetMember(buff, "LifeRule")),
+                StackCount = stackCount,
+                HasExplicitStackCount = explicitStackCount,
+                ShowStackCount = explicitStackCount
+                                 || key.IndexOf("poison", StringComparison.OrdinalIgnoreCase) >= 0
+                                 || key.IndexOf("腐化", StringComparison.OrdinalIgnoreCase) >= 0,
+                DetailText = detailText
+            };
         }
 
-        return result;
+        return grouped.Values.ToArray();
+    }
+
+    private static int ResolveEnemyBuffStackCount(object buff, out bool explicitStackCount)
+    {
+        explicitStackCount = false;
+        string[] members =
+        {
+            "StackCount", "stackCount", "CurrentStack", "currentStack", "Stack", "stack", "Layer", "layer"
+        };
+        foreach (string member in members)
+        {
+            object? value = GetMember(buff, member);
+            if (value == null) continue;
+            try
+            {
+                int count = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                if (count > 0)
+                {
+                    explicitStackCount = true;
+                    return Math.Min(9999, count);
+                }
+            }
+            catch (Exception exception) when (exception is FormatException or InvalidCastException or OverflowException)
+            {
+                // Continue with the next known runtime member.
+            }
+        }
+        return 1;
+    }
+
+    private static string ResolveEnemyBuffDetail(object buff, string key)
+    {
+        bool slow = key.IndexOf("slow", StringComparison.OrdinalIgnoreCase) >= 0
+                    || key.IndexOf("减速", StringComparison.OrdinalIgnoreCase) >= 0;
+        (string Member, string Label, bool Percentage, bool Inverted)[] candidates = slow
+            ? new[]
+            {
+                ("SlowRate", "减速", true, false), ("slowRate", "减速", true, false),
+                ("MoveSpeedRate", "移速倍率", true, false), ("moveSpeedRate", "移速倍率", true, false),
+                ("SpeedRate", "移速倍率", true, false), ("speedRate", "移速倍率", true, false),
+                ("Ratio", "效果比例", true, false), ("ratio", "效果比例", true, false)
+            }
+            : new[]
+            {
+                ("Damage", "每层伤害", false, false), ("damage", "每层伤害", false, false),
+                ("Value", "效果值", false, false), ("value", "效果值", false, false),
+                ("Amount", "效果值", false, false), ("amount", "效果值", false, false),
+                ("Rate", "效果比例", true, false), ("rate", "效果比例", true, false)
+            };
+        object?[] sources =
+        {
+            buff,
+            GetMember(buff, "Data"), GetMember(buff, "data"),
+            GetMember(buff, "BuffData"), GetMember(buff, "buffData"),
+            GetMember(buff, "Config"), GetMember(buff, "config"),
+            GetMember(buff, "Effect"), GetMember(buff, "effect")
+        };
+        foreach (object? source in sources)
+        {
+            if (source == null) continue;
+            foreach ((string member, string label, bool percentage, bool inverted) in candidates)
+            {
+                if (!TryGetFiniteFloat(GetMember(source, member), out float value)) continue;
+                if (percentage)
+                {
+                    float percent = Mathf.Abs(value) <= 2f ? value * 100f : value;
+                    if (inverted) percent = 100f - percent;
+                    if (string.Equals(label, "减速", StringComparison.Ordinal)) percent = Mathf.Abs(percent);
+                    return label + " " + percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+                }
+                return label + " " + value.ToString("0.##", CultureInfo.InvariantCulture);
+            }
+        }
+        return string.Empty;
+    }
+
+    private static float ResolveEnemyBuffWorldYOffset(GameObject gameObject)
+    {
+        float rootY = gameObject.transform.position.y;
+        Collider2D collider = gameObject.GetComponentInChildren<Collider2D>();
+        if (collider != null && collider.enabled)
+            return Mathf.Clamp(collider.bounds.min.y - rootY - 0.22f, -3f, -0.45f);
+        Collider collider3D = gameObject.GetComponentInChildren<Collider>();
+        if (collider3D != null && collider3D.enabled)
+            return Mathf.Clamp(collider3D.bounds.min.y - rootY - 0.22f, -3f, -0.45f);
+        Renderer renderer = gameObject.GetComponentInChildren<Renderer>();
+        float bottom = renderer != null && renderer.enabled ? renderer.bounds.min.y : rootY - 0.65f;
+        return Mathf.Clamp(bottom - rootY - 0.22f, -3f, -0.45f);
     }
 
     private bool TryResolveEnemyBuffIcon(string key, out EnemyBuffIconSource source)
@@ -2377,6 +2497,22 @@ internal sealed class CheatRuntimeBridge
             clipping = TextClipping.Clip
         };
         _enemyBuffDurationStyle.normal.textColor = Color.white;
+        _enemyBuffStackStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 10,
+            fontStyle = FontStyle.Bold,
+            clipping = TextClipping.Clip
+        };
+        _enemyBuffStackStyle.normal.textColor = new Color(1f, 0.94f, 0.58f, 1f);
+        _enemyBuffDetailStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 9,
+            fontStyle = FontStyle.Bold,
+            clipping = TextClipping.Clip
+        };
+        _enemyBuffDetailStyle.normal.textColor = new Color(0.57f, 0.9f, 1f, 1f);
         _enemyBuffFallbackStyle ??= new GUIStyle(GUI.skin.label)
         {
             alignment = TextAnchor.MiddleCenter,
@@ -2432,18 +2568,13 @@ internal sealed class CheatRuntimeBridge
         IReadOnlyList<EnemyBuffIconSnapshot> buffs,
         float screenX,
         float screenY,
-        bool leaveRoomForId,
         ref string tooltip)
     {
         int screenColumns = Mathf.Max(1, Mathf.FloorToInt((Screen.width - 16f) / EnemyBuffCellWidth));
         int columns = Mathf.Min(MaxEnemyBuffColumns, Mathf.Min(screenColumns, buffs.Count));
         int rows = Mathf.CeilToInt(buffs.Count / (float)columns);
         float totalHeight = rows * EnemyBuffCellHeight;
-        float top = screenY - totalHeight - (leaveRoomForId ? 20f : 8f);
-        if (top < 8f)
-        {
-            top = Mathf.Min(Screen.height - totalHeight - 8f, screenY + (leaveRoomForId ? 20f : 8f));
-        }
+        float top = screenY + 6f;
         top = Mathf.Clamp(top, 8f, Mathf.Max(8f, Screen.height - totalHeight - 8f));
 
         Vector2 mouse = Event.current.mousePosition;
@@ -2461,7 +2592,8 @@ internal sealed class CheatRuntimeBridge
             float y = top + (row * EnemyBuffCellHeight);
             Rect iconFrame = new(x, y, EnemyBuffIconSize, EnemyBuffIconSize);
             Rect textureRect = new(x + 2f, y + 2f, EnemyBuffIconSize - 4f, EnemyBuffIconSize - 4f);
-            Rect durationRect = new(x - 2f, y + EnemyBuffIconSize + 1f, EnemyBuffIconSize + 4f, 13f);
+            Rect durationRect = new(x - 4f, y + EnemyBuffIconSize + 1f, EnemyBuffIconSize + 8f, 12f);
+            Rect detailRect = new(x - 5f, y + EnemyBuffIconSize + 13f, EnemyBuffIconSize + 10f, 12f);
             EnemyBuffIconSnapshot buff = buffs[index];
 
             GUI.Box(iconFrame, GUIContent.none, _enemyBuffFrameStyle);
@@ -2477,12 +2609,23 @@ internal sealed class CheatRuntimeBridge
                 GUI.color = previousColor;
                 GUI.Label(textureRect, "?", _enemyBuffFallbackStyle);
             }
+            if (buff.ShowStackCount)
+            {
+                string stackText = buff.StackCount > 999 ? "999+" : "×" + buff.StackCount;
+                Rect stackRect = new(iconFrame.xMax - 19f, iconFrame.y - 3f, 22f, 14f);
+                GUI.Box(stackRect, GUIContent.none, _enemyBuffFrameStyle);
+                GUI.Label(stackRect, stackText, _enemyBuffStackStyle);
+            }
             GUI.Box(durationRect, GUIContent.none, _enemyBuffFrameStyle);
             GUI.Label(durationRect, buff.DurationText, _enemyBuffDurationStyle);
+            if (!string.IsNullOrWhiteSpace(buff.DetailText))
+                GUI.Label(detailRect, buff.DetailText, _enemyBuffDetailStyle);
 
-            if (iconFrame.Contains(mouse) || durationRect.Contains(mouse))
+            if (iconFrame.Contains(mouse) || durationRect.Contains(mouse) || detailRect.Contains(mouse))
             {
-                tooltip = $"{buff.DisplayName} ({buff.Key})\n持续时间：{buff.DurationText}";
+                string stacks = buff.ShowStackCount ? $"\n层数：{buff.StackCount}" : string.Empty;
+                string details = string.IsNullOrWhiteSpace(buff.DetailText) ? string.Empty : "\n" + buff.DetailText;
+                tooltip = $"{buff.DisplayName} ({buff.Key}){stacks}\n持续时间：{buff.DurationText}{details}";
             }
         }
     }
@@ -2490,11 +2633,12 @@ internal sealed class CheatRuntimeBridge
     private void DrawEnemyBuffTooltip(string tooltip)
     {
         const float width = 260f;
-        const float height = 52f;
+        GUIStyle tooltipStyle = _enemyBuffTooltipStyle ?? GUI.skin.box;
+        float height = Mathf.Clamp(tooltipStyle.CalcHeight(new GUIContent(tooltip), width - 16f) + 12f, 52f, 132f);
         Vector2 mouse = Event.current.mousePosition;
         float x = Mathf.Clamp(mouse.x + 14f, 8f, Mathf.Max(8f, Screen.width - width - 8f));
         float y = Mathf.Clamp(mouse.y + 14f, 8f, Mathf.Max(8f, Screen.height - height - 8f));
-        GUI.Box(new Rect(x, y, width, height), tooltip, _enemyBuffTooltipStyle);
+        GUI.Box(new Rect(x, y, width, height), tooltip, tooltipStyle);
     }
 
     public void ResetTransientFeatures()
@@ -5171,8 +5315,10 @@ internal sealed class CheatRuntimeBridge
     private sealed class EnemyOverlaySnapshot
     {
         public GameObject GameObject { get; set; } = null!;
-        public Transform Anchor { get; set; } = null!;
-        public float WorldYOffset { get; set; }
+        public Transform IdAnchor { get; set; } = null!;
+        public float IdWorldYOffset { get; set; }
+        public Transform BuffAnchor { get; set; } = null!;
+        public float BuffWorldYOffset { get; set; }
         public string IdText { get; set; } = string.Empty;
         public IReadOnlyList<EnemyBuffIconSnapshot> Buffs { get; set; } =
             Array.Empty<EnemyBuffIconSnapshot>();
@@ -5194,6 +5340,10 @@ internal sealed class CheatRuntimeBridge
         public Rect Uv { get; set; }
         public Color FallbackColor { get; set; } = Color.gray;
         public string DurationText { get; set; } = "--";
+        public int StackCount { get; set; } = 1;
+        public bool HasExplicitStackCount { get; set; }
+        public bool ShowStackCount { get; set; }
+        public string DetailText { get; set; } = string.Empty;
     }
 
     private sealed class EnemyTarget

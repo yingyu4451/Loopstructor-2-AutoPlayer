@@ -26,6 +26,7 @@
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\LogTailReader.cs" Link="Manager\Services\LogTailReader.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\ManagerSettingsStore.cs" Link="Manager\Services\ManagerSettingsStore.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\PipeControlClient.cs" Link="Manager\Services\PipeControlClient.cs" />
+    <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\SaveBackupService.cs" Link="Manager\Services\SaveBackupService.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\UpdateCoordinator.cs" Link="Manager\Services\UpdateCoordinator.cs" />
   </ItemGroup>
   <ItemGroup>

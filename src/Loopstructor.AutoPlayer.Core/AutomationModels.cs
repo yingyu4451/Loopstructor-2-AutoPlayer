@@ -165,6 +165,7 @@ public sealed class AutoPlayerStatus
     public bool PlatformWritesBlocked { get; set; }
     public bool GameArtifactsRedirected { get; set; }
     public string IsolatedSaveRoot { get; set; } = string.Empty;
+    public string ActiveSaveRoot { get; set; } = string.Empty;
     public string ArtifactDirectory { get; set; } = string.Empty;
     public bool NeedsProcessRestart { get; set; }
     public int ConsecutiveFailures { get; set; }
