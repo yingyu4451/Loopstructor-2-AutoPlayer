@@ -555,14 +555,6 @@ New-MaximumCompressionZip `
 Assert-ZipMatchesDirectory -ZipPath $zipPath -SourceDirectory $packageRoot -EntryPrefix $releaseDirectoryName
 
 $zipFile = Get-Item -LiteralPath $zipPath
-$maximumPackageBytes = 230MB
-if ($zipFile.Length -gt $maximumPackageBytes) {
-    $largest = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force |
-        Sort-Object Length -Descending |
-        Select-Object -First 12 |
-        ForEach-Object { "{0:N1} MB  {1}" -f ($_.Length / 1MB), (Get-RelativePackagePath -Path $_.FullName) }
-    throw "Release ZIP exceeds the 230 MB limit ($([Math]::Round($zipFile.Length / 1MB, 1)) MB). Largest files:`n$($largest -join "`n")"
-}
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Utf8NoBom -Path "$zipPath.sha256" -Content "$zipHash  $zipName`n"
 

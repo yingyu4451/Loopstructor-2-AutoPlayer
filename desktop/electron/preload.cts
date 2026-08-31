@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
+  isUpdater: process.argv.some((argument) => {
+    const normalized = argument.toLowerCase()
+    return normalized === '--updater' || normalized === '--loopstructor-updater'
+  }),
   getSnapshot: () => ipcRenderer.invoke('app:getSnapshot'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
   selectGameDirectory: () => ipcRenderer.invoke('game:selectDirectory'),
@@ -20,6 +24,8 @@ const api = {
   inspectUpdateProcesses: () => ipcRenderer.invoke('update:inspectProcesses'),
   closeGameForUpdate: () => ipcRenderer.invoke('update:closeGame'),
   applyUpdate: () => ipcRenderer.invoke('update:apply'),
+  startUpdater: () => ipcRenderer.invoke('updater:start'),
+  closeUpdater: () => ipcRenderer.invoke('updater:close'),
   openEvidence: () => ipcRenderer.invoke('diagnostics:openEvidence'),
   openSaveBackups: () => ipcRenderer.invoke('backups:open'),
   clearLogs: () => ipcRenderer.invoke('logs:clear'),
@@ -32,6 +38,11 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, message: unknown) => listener(message)
     ipcRenderer.on('host:event', handler)
     return () => ipcRenderer.removeListener('host:event', handler)
+  },
+  onUpdaterEvent: (listener: (event: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, message: unknown) => listener(message)
+    ipcRenderer.on('updater:event', handler)
+    return () => ipcRenderer.removeListener('updater:event', handler)
   },
 }
 

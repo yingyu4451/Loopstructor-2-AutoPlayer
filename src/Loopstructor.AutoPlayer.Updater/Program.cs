@@ -18,7 +18,9 @@ internal static class Program
     [STAThread]
     public static async Task<int> Main(string[] args)
     {
-        bool wantsJson = args.Any(argument => string.Equals(argument, "--json", StringComparison.OrdinalIgnoreCase));
+        bool wantsJson = args.Any(argument =>
+            string.Equals(argument, "--json", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(argument, "--json-stream", StringComparison.OrdinalIgnoreCase));
         UpdateCommandOptions? options = null;
         try
         {
@@ -34,11 +36,18 @@ internal static class Program
                     return 0;
                 }
 
-                Task<string> outputTask = stagedProcess.StandardOutput.ReadToEndAsync();
-                Task<string> errorTask = stagedProcess.StandardError.ReadToEndAsync();
-                await stagedProcess.WaitForExitAsync();
-                Console.Out.Write(await outputTask);
-                Console.Error.Write(await errorTask);
+                if (options.JsonStream)
+                {
+                    await RelayStreamedOutputAsync(stagedProcess);
+                }
+                else
+                {
+                    Task<string> outputTask = stagedProcess.StandardOutput.ReadToEndAsync();
+                    Task<string> errorTask = stagedProcess.StandardError.ReadToEndAsync();
+                    await stagedProcess.WaitForExitAsync();
+                    Console.Out.Write(await outputTask);
+                    Console.Error.Write(await errorTask);
+                }
                 return stagedProcess.ExitCode;
             }
 
@@ -47,8 +56,18 @@ internal static class Program
                 return options.DemoUi ? RunDemoUi(options) : RunApplyUi(options);
             }
 
-            UpdaterResult result = await ExecuteAsync(options, progress: null, CancellationToken.None);
-            WriteResult(result, options.JsonOutput);
+            if (options.Command == UpdateCommand.Cleanup)
+            {
+                UpdaterResult cleanup = CleanupTransaction(options);
+                WriteResult(cleanup, options.JsonOutput, options.JsonStream);
+                return cleanup.Success ? 0 : 1;
+            }
+
+            IProgress<UpdateProgressSnapshot>? progress = options.JsonStream
+                ? new JsonStreamProgress()
+                : null;
+            UpdaterResult result = await ExecuteAsync(options, progress, CancellationToken.None);
+            WriteResult(result, options.JsonOutput, options.JsonStream);
             return result.Success ? 0 : 1;
         }
         catch (Exception exception)
@@ -65,7 +84,7 @@ internal static class Program
             }
             else
             {
-                WriteResult(failure, options?.JsonOutput ?? wantsJson);
+                WriteResult(failure, options?.JsonOutput ?? wantsJson, options?.JsonStream == true);
             }
 
             return 1;
@@ -132,6 +151,30 @@ internal static class Program
         }
 
         return exitCode;
+    }
+
+    private static UpdaterResult CleanupTransaction(UpdateCommandOptions options)
+    {
+        try
+        {
+            TransactionalInstaller installer = new(
+                new ReleasePackageValidator(),
+                TransactionalInstaller.GetDefaultJournalPath(options.TargetRoot));
+            string message = installer.RecoverIncomplete(options.TargetRoot);
+            return new UpdaterResult
+            {
+                Success = true,
+                CurrentVersion = options.CurrentVersion,
+                LatestVersion = options.CurrentVersion,
+                Message = string.IsNullOrWhiteSpace(message)
+                    ? "更新事务已完成，无需清理。"
+                    : message
+            };
+        }
+        catch (Exception exception)
+        {
+            return Failure(options.CurrentVersion, exception);
+        }
     }
 
     internal static async Task<UpdaterResult> ExecuteAsync(
@@ -565,15 +608,41 @@ internal static class Program
         }
     }
 
-    private static void WriteResult(UpdaterResult result, bool json)
+    private static void WriteResult(UpdaterResult result, bool json, bool stream = false)
     {
         if (json)
         {
-            Console.Out.Write(JsonSerializer.Serialize(result, OutputJson));
+            if (stream)
+            {
+                Console.Out.WriteLine(JsonSerializer.Serialize(
+                    new { @event = "result", payload = result },
+                    OutputJson));
+            }
+            else
+            {
+                Console.Out.Write(JsonSerializer.Serialize(result, OutputJson));
+            }
             return;
         }
 
         Console.WriteLine(result.Success ? result.Message : "更新失败：" + result.Message);
+    }
+
+    private static async Task RelayStreamedOutputAsync(Process process)
+    {
+        Task stdout = RelayLinesAsync(process.StandardOutput, Console.Out);
+        Task stderr = RelayLinesAsync(process.StandardError, Console.Error);
+        await Task.WhenAll(stdout, stderr);
+        await process.WaitForExitAsync();
+    }
+
+    private static async Task RelayLinesAsync(StreamReader reader, TextWriter writer)
+    {
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            await writer.WriteLineAsync(line);
+            await writer.FlushAsync();
+        }
     }
 
     internal static string GetUserFacingFailureMessage(
@@ -695,6 +764,22 @@ internal static class Program
             catch
             {
                 // Progress display is non-authoritative and must never interrupt an update.
+            }
+        }
+    }
+
+    private sealed class JsonStreamProgress : IProgress<UpdateProgressSnapshot>
+    {
+        private static readonly object Sync = new();
+
+        public void Report(UpdateProgressSnapshot value)
+        {
+            lock (Sync)
+            {
+                Console.Out.WriteLine(JsonSerializer.Serialize(
+                    new { @event = "progress", payload = value },
+                    OutputJson));
+                Console.Out.Flush();
             }
         }
     }

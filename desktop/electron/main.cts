@@ -1,15 +1,25 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell } from 'electron'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import path from 'node:path'
+import fs from 'node:fs'
 import { HostClient } from './host-client.cjs'
 
 let window: BrowserWindow | undefined
 let host: HostClient | undefined
+let updaterProcess: ChildProcessWithoutNullStreams | undefined
+let updaterFinished = false
+const isUpdaterMode = process.argv.some(argument => argument.toLowerCase() === '--updater')
+const updaterArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--updater')
+const updaterArguments = updaterArgumentIndex >= 0 ? process.argv.slice(updaterArgumentIndex + 1) : []
 
 const userDataOverride = process.env.LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT
 if (userDataOverride) app.setPath('userData', path.resolve(userDataOverride))
 
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) app.quit()
+if (!isUpdaterMode) {
+  const gotLock = app.requestSingleInstanceLock()
+  if (!gotLock) app.quit()
+}
 
 function showExistingWindow(): void {
   if (!window) return
@@ -18,9 +28,13 @@ function showExistingWindow(): void {
   window.focus()
 }
 
-app.on('second-instance', showExistingWindow)
+if (!isUpdaterMode) app.on('second-instance', showExistingWindow)
 
 app.whenReady().then(() => {
+  if (isUpdaterMode) {
+    createUpdaterWindow()
+    return
+  }
   const managerDirectory = path.dirname(process.execPath)
   const developmentRoot = path.resolve(__dirname, '..', '..')
   const distributionRoot = app.isPackaged ? path.dirname(managerDirectory) : developmentRoot
@@ -91,6 +105,198 @@ app.whenReady().then(() => {
 
   registerIpc()
 })
+
+function createUpdaterWindow(): void {
+  const managerDirectory = path.dirname(process.execPath)
+  const developmentRoot = path.resolve(__dirname, '..', '..')
+  const distributionRoot = app.isPackaged ? path.dirname(managerDirectory) : developmentRoot
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'branding', 'manager-logo-256.png')
+    : path.join(distributionRoot, 'assets', 'branding', 'manager-logo-256.png')
+  window = new BrowserWindow({
+    width: 760,
+    height: 600,
+    minWidth: 680,
+    minHeight: 520,
+    frame: false,
+    show: false,
+    backgroundColor: '#12110E',
+    icon: nativeImage.createFromPath(iconPath),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      spellcheck: false,
+      additionalArguments: ['--loopstructor-updater'],
+    },
+  })
+  configureSecurity(window)
+  window.on('close', (event) => {
+    if (updaterProcess && !updaterFinished) event.preventDefault()
+  })
+  loadRenderer(window)
+  window.once('ready-to-show', () => window?.show())
+  window.on('closed', () => { window = undefined })
+  registerUpdaterIpc(distributionRoot, managerDirectory)
+}
+
+function loadRenderer(target: BrowserWindow): void {
+  const rendererUrl = process.env.VITE_DEV_SERVER_URL
+  if (rendererUrl) void target.loadURL(rendererUrl)
+  else void target.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+}
+
+function configureSecurity(target: BrowserWindow): void {
+  target.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  target.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error(`Preload 加载失败：${preloadPath}`, error)
+  })
+  target.webContents.on('will-navigate', (event, targetUrl) => {
+    const current = target.webContents.getURL()
+    if (targetUrl !== current) event.preventDefault()
+  })
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'",
+        ],
+      },
+    })
+  })
+}
+
+function registerUpdaterIpc(distributionRoot: string, managerDirectory: string): void {
+  ipcMain.handle('window:minimize', () => window?.minimize())
+  ipcMain.handle('window:toggleMaximize', () => window?.isMaximized() ? window.unmaximize() : window?.maximize())
+  ipcMain.handle('window:close', () => {
+    if (updaterProcess && !updaterFinished) return false
+    window?.close()
+    return true
+  })
+  ipcMain.handle('updater:start', () => {
+    if (updaterProcess) return { success: true, message: '更新已经在执行。' }
+    const configured = process.env.LOOPSTRUCTOR_AUTOPLAYER_UPDATER_PATH
+    const candidates = [
+      configured,
+      path.join(managerDirectory, 'Loopstructor.AutoPlayer.Updater.exe'),
+      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Release', 'net8.0-windows', 'Loopstructor.AutoPlayer.Updater.exe'),
+      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Debug', 'net8.0-windows', 'Loopstructor.AutoPlayer.Updater.exe'),
+    ].filter((candidate): candidate is string => Boolean(candidate))
+    const executable = candidates.find(candidate => fs.existsSync(candidate))
+    if (!executable) return { success: false, message: '找不到 .NET 更新事务组件。' }
+    const args = updaterArguments.filter(argument => argument.toLowerCase() !== '--updater')
+    if (!args.some(argument => argument.toLowerCase() === 'apply')) args.unshift('apply')
+    if (!args.some(argument => argument.toLowerCase() === '--json-stream')) args.push('--json-stream')
+    updaterFinished = false
+    let latestVersion = ''
+    updaterProcess = spawn(executable, args, {
+      cwd: path.dirname(executable),
+      windowsHide: true,
+      env: { ...process.env },
+    })
+    const lines = createInterface({ input: updaterProcess.stdout })
+    lines.on('line', (line) => {
+      try {
+        const message = JSON.parse(line) as { event?: string; payload?: unknown }
+        if (message.event) {
+          if (message.event === 'result' && typeof (message.payload as { latestVersion?: unknown })?.latestVersion === 'string') {
+            latestVersion = (message.payload as { latestVersion: string }).latestVersion
+          }
+          window?.webContents.send('updater:event', message)
+        } else window?.webContents.send('updater:event', { event: 'result', payload: message })
+      } catch {
+        window?.webContents.send('updater:event', { event: 'log', payload: { message: line } })
+      }
+    })
+    updaterProcess.stderr.on('data', (chunk) => {
+      window?.webContents.send('updater:event', { event: 'stderr', payload: { message: String(chunk) } })
+    })
+    updaterProcess.on('error', (error) => {
+      updaterFinished = true
+      window?.webContents.send('updater:event', { event: 'error', payload: { message: error.message } })
+    })
+    updaterProcess.on('exit', (code, signal) => {
+      updaterFinished = true
+      updaterProcess = undefined
+      window?.webContents.send('updater:event', { event: 'exit', payload: { code, signal } })
+      if (code === 0) {
+        const targetRoot = readUpdaterArgument(args, '--target')
+        if (targetRoot) {
+          startCleanupAndRestart(executable, targetRoot, latestVersion || readUpdaterArgument(args, '--current-version') || '0.0.0')
+        } else {
+          window?.webContents.send('updater:event', { event: 'error', payload: { message: '更新完成，但没有找到安装根目录，已停止自动重启。' } })
+        }
+      }
+    })
+    return { success: true, message: '更新事务已启动。' }
+  })
+  ipcMain.handle('updater:close', () => {
+    if (updaterProcess && !updaterFinished) return false
+    window?.close()
+    return true
+  })
+}
+
+function readUpdaterArgument(args: string[], name: string): string | undefined {
+  const index = args.findIndex(argument => argument.toLowerCase() === name.toLowerCase())
+  const value = index >= 0 ? args[index + 1] : undefined
+  return value && !value.startsWith('--') ? value : undefined
+}
+
+function startCleanupAndRestart(updaterExecutable: string, targetRoot: string, version: string): void {
+  const normalizedRoot = path.resolve(targetRoot)
+  const cleanup = spawn(updaterExecutable, [
+    'cleanup',
+    '--target', normalizedRoot,
+    '--current-version', version,
+    '--json',
+  ], {
+    cwd: path.dirname(updaterExecutable),
+    windowsHide: true,
+    env: { ...process.env },
+  })
+  updaterFinished = false
+  updaterProcess = cleanup
+  cleanup.stdout.on('data', () => { /* Drain the compact cleanup result. */ })
+  cleanup.stderr.on('data', (chunk) => {
+    window?.webContents.send('updater:event', { event: 'stderr', payload: { message: String(chunk) } })
+  })
+  cleanup.on('error', (error) => {
+    updaterFinished = true
+    updaterProcess = undefined
+    window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新清理失败：${error.message}` } })
+  })
+  cleanup.on('exit', (code, signal) => {
+    updaterFinished = true
+    updaterProcess = undefined
+    if (code !== 0) {
+      window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新清理失败（退出代码 ${code ?? signal ?? 'unknown'}）。` } })
+      return
+    }
+    const managerEntry = path.join(normalizedRoot, 'Loopstructor.AutoPlayer.Manager.exe')
+    if (!fs.existsSync(managerEntry)) {
+      window?.webContents.send('updater:event', { event: 'error', payload: { message: '新版安装完成，但找不到根 Manager 入口。' } })
+      return
+    }
+    try {
+      const restarted = spawn(managerEntry, ['--restarted-after-update'], {
+        cwd: normalizedRoot,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      restarted.unref()
+      window?.webContents.send('updater:event', { event: 'restarted', payload: { version } })
+      setTimeout(() => app.quit(), 900)
+    } catch (error) {
+      window?.webContents.send('updater:event', { event: 'error', payload: { message: `新版 Manager 启动失败：${String(error)}` } })
+    }
+  })
+}
 
 function invoke(method: string, params?: unknown): Promise<unknown> {
   if (!host) throw new Error('.NET Host 尚未启动。')

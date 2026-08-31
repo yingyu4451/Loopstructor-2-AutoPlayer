@@ -5,13 +5,15 @@ namespace Loopstructor.AutoPlayer.Updater.Models;
 public enum UpdateCommand
 {
     Check,
-    Apply
+    Apply,
+    Cleanup
 }
 
 public sealed class UpdateCommandOptions
 {
     public UpdateCommand Command { get; private set; }
     public bool JsonOutput { get; private set; }
+    public bool JsonStream { get; private set; }
     public bool RestartManager { get; private set; }
     public bool StagedRun { get; private set; }
     public bool DemoUi { get; private set; }
@@ -25,7 +27,7 @@ public sealed class UpdateCommandOptions
     {
         if (args.Count == 0)
         {
-            throw new ArgumentException("缺少更新器命令，应使用 check 或 apply。");
+            throw new ArgumentException("缺少更新器命令，应使用 check、apply 或 cleanup。");
         }
 
         UpdateCommandOptions result = new()
@@ -34,6 +36,7 @@ public sealed class UpdateCommandOptions
             {
                 "check" => UpdateCommand.Check,
                 "apply" => UpdateCommand.Apply,
+                "cleanup" => UpdateCommand.Cleanup,
                 _ => throw new ArgumentException("未知的更新器命令：" + args[0])
             }
         };
@@ -45,6 +48,10 @@ public sealed class UpdateCommandOptions
             {
                 case "--json":
                     result.JsonOutput = true;
+                    break;
+                case "--json-stream":
+                    result.JsonOutput = true;
+                    result.JsonStream = true;
                     break;
                 case "--restart-manager":
                     result.RestartManager = true;
@@ -96,9 +103,13 @@ public sealed class UpdateCommandOptions
             throw new ArgumentException("当前版本不是有效的 SemVer：" + result.CurrentVersion);
         }
 
-        if (result.Command == UpdateCommand.Apply && string.IsNullOrWhiteSpace(result.TargetRoot))
+        if (result.Command is UpdateCommand.Apply or UpdateCommand.Cleanup
+            && string.IsNullOrWhiteSpace(result.TargetRoot))
         {
-            throw new ArgumentException("apply 命令必须提供 --target <release-root>。");
+            throw new ArgumentException(
+                result.Command == UpdateCommand.Apply
+                    ? "apply 命令必须提供 --target <release-root>。"
+                    : "cleanup 命令必须提供 --target <release-root>。");
         }
 
         if (result.DemoUi && (result.Command != UpdateCommand.Apply || result.JsonOutput))

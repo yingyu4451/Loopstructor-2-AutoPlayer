@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.53-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.54-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -84,6 +84,30 @@ test('unified desktop is sandboxed and responsive across every route', async () 
       }
     }
     expect(rendererErrors).toEqual([])
+  } finally {
+    await app.close()
+    rmSync(dataRoot, { recursive: true, force: true })
+  }
+})
+
+test('reuses the Electron runtime for the updater mode', async () => {
+  const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-updater-e2e-'))
+  const app = await electron.launch({
+    args: ['.', '--updater'],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      LOCALAPPDATA: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT: dataRoot,
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+    await expect(page.getByText('更新未完成', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => window.loopstructorDesktop.isUpdater)).toBe(true)
+    await expect(page.locator('.updater-message')).toHaveText('apply 命令必须提供 --target <release-root>。')
+    await page.getByRole('button', { name: '退出', exact: true }).click()
   } finally {
     await app.close()
     rmSync(dataRoot, { recursive: true, force: true })

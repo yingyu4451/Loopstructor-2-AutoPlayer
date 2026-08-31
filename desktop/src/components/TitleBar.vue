@@ -6,6 +6,7 @@ import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
 const api = window.loopstructorDesktop
+const props = defineProps<{ updaterMode?: boolean }>()
 const connectionClass = computed(() => store.snapshot?.connection.trusted ? 'is-online' : 'is-waiting')
 
 function systemMenu(event: MouseEvent) {
@@ -19,12 +20,12 @@ function systemMenu(event: MouseEvent) {
       <img :src="managerLogo" alt="" class="brand-logo" />
       <div>
         <strong>Loopstructor AutoPlayer</strong>
-        <span>v{{ store.snapshot?.version ?? '0.6.53' }}</span>
+        <span>v{{ store.snapshot?.version ?? '0.6.54' }}</span>
       </div>
     </div>
     <div class="titlebar-status">
       <span class="signal-dot" :class="connectionClass" />
-      <span>{{ store.snapshot?.connection.label ?? '正在启动 Host' }}</span>
+      <span>{{ props.updaterMode ? '更新事务' : (store.snapshot?.connection.label ?? '正在启动 Host') }}</span>
       <button
         v-if="store.snapshot?.update?.updateAvailable"
         v-tooltip="'点击安装更新'"

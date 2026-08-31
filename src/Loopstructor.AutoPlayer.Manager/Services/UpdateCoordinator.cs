@@ -137,9 +137,17 @@ public sealed class UpdateCoordinator
             return (false, "更新源未配置。");
         }
 
-        if (!TryCreateInvocation(out ProcessStartInfo startInfo, "apply"))
+        bool useElectronUpdater = TryCreateElectronInvocation(out ProcessStartInfo startInfo);
+        if (!useElectronUpdater && !TryCreateInvocation(out startInfo, "apply"))
         {
             return (false, "发布目录中缺少随包提供的更新组件。");
+        }
+
+        if (useElectronUpdater)
+        {
+            startInfo.ArgumentList.Add("--updater");
+            startInfo.ArgumentList.Add("apply");
+            startInfo.ArgumentList.Add("--json-stream");
         }
 
         startInfo.ArgumentList.Add("--target");
@@ -159,7 +167,10 @@ public sealed class UpdateCoordinator
             startInfo.ArgumentList.Add(gameProcessId.Value.ToString());
         }
 
-        startInfo.ArgumentList.Add("--restart-manager");
+        if (!useElectronUpdater)
+        {
+            startInfo.ArgumentList.Add("--restart-manager");
+        }
         startInfo.Environment[GitHubOwnerEnvironmentVariable] = owner;
         startInfo.Environment[GitHubRepositoryEnvironmentVariable] = repository;
         startInfo.CreateNoWindow = true;
@@ -168,7 +179,9 @@ public sealed class UpdateCoordinator
             Process? process = Process.Start(startInfo);
             return process == null
                 ? (false, "Windows 未能创建 Updater 进程。")
-                : (true, $"Updater 已启动（PID {process.Id}），Manager 现在将关闭。");
+                : (true, useElectronUpdater
+                    ? $"Electron 更新窗口已启动（PID {process.Id}），Manager 现在将关闭。"
+                    : $"Updater 已启动（PID {process.Id}），Manager 现在将关闭。");
         }
         catch (Exception exception)
         {
@@ -186,6 +199,23 @@ public sealed class UpdateCoordinator
                 UseShellExecute = false
             };
             startInfo.ArgumentList.Add(command);
+            return true;
+        }
+
+        startInfo = null!;
+        return false;
+    }
+
+    internal bool TryCreateElectronInvocation(out ProcessStartInfo startInfo)
+    {
+        if (File.Exists(_layout.ElectronExecutable))
+        {
+            startInfo = new ProcessStartInfo(_layout.ElectronExecutable)
+            {
+                WorkingDirectory = Path.GetDirectoryName(_layout.ElectronExecutable)!,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
             return true;
         }
 

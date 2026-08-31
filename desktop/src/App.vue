@@ -15,11 +15,13 @@ import ObjectsPage from './pages/ObjectsPage.vue'
 import SpawnPage from './pages/SpawnPage.vue'
 import DiagnosticsPage from './pages/DiagnosticsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
+import UpdaterPage from './pages/UpdaterPage.vue'
 import { useAppStore } from './stores/app'
 import { useUiStore } from './stores/ui'
 
 const store = useAppStore()
 const ui = useUiStore()
+const updaterMode = window.loopstructorDesktop.isUpdater === true
 const pages = {
   game: GamePage, autoplay: AutoplayPage, vehicles: VehiclesPage, items: ItemsPage,
   relics: RelicsPage, battle: BattlePage, objects: ObjectsPage, spawn: SpawnPage,
@@ -29,6 +31,7 @@ const activePage = computed(() => pages[store.route])
 const cheatPage = computed(() => ['vehicles', 'items', 'relics', 'battle', 'objects', 'spawn'].includes(store.route))
 
 onMounted(async () => {
+  if (updaterMode) return
   await store.initialize()
   const settings = store.settings
   if (settings?.uiScaleMode === 'custom') await window.loopstructorDesktop.setZoom(settings.customUiScalePercent / 100)
@@ -38,8 +41,9 @@ onBeforeUnmount(() => store.removeHostEvent?.())
 
 <template>
   <div class="app-shell">
-    <TitleBar />
-    <div class="app-body" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">
+    <TitleBar :updater-mode="updaterMode" />
+    <UpdaterPage v-if="updaterMode" />
+    <div v-else class="app-body" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">
       <RailSidebar />
       <main class="content-shell">
         <CheatControlBar v-if="cheatPage" />

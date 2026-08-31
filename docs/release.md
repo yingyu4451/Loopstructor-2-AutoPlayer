@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.54 Electron 更新模式与流式进度
+
+`0.6.54` 复用现有 Manager 的 Electron 运行时增加 `--updater` 模式。Host 启动更新时会打开同一个 Manager 可执行文件的 Vue 更新窗口，窗口不启动游戏 Host，而是托管现有 .NET Updater 的流式进度；更新器继续在隐藏临时副本中完成清单校验、完整或增量下载、解压、事务替换、回滚和更新后重启。Electron 页面只消费进度事件，不接触安装目录写入，因此包体只增加更新界面资源。
+
+旧版 `check/apply --json` 调用保持兼容；`--json-stream` 是内部桥接选项，输出 `progress/result` 事件供 Electron 使用。若 Electron 入口不可用，Host 仍回退启动随包 WPF Updater，发布清单路径和校验格式不变。本版本以 `v0.6.53` 作为相邻增量更新基线。
+
 ## 0.6.53 存档保险库、Buff 详情与桌面界面修复
 
 `0.6.53` 新增由 .NET Host 执行的正式玩家存档自动备份。插件只低频读取 `SaveManager.GetSaveFolderPath` 与章节关卡，不在 Unity 主线程复制文件；Host 检测到进度变化后等待写盘稳定，在临时目录复制，并比较复制前后文件清单指纹。只有指纹一致时才原子完成名为 `第01章-第003关-20260831-123456` 的快照。用户可在 Electron 设置页启用/关闭并设置最多保留 1–100 个步骤，保留清理只处理工具专属目录中名称严格匹配的最旧快照；隔离 QA 存档不会重复备份。

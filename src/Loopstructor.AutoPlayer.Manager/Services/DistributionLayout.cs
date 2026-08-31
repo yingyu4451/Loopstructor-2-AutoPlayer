@@ -9,6 +9,7 @@ public sealed class DistributionLayout
         BepInExPayloadRoot = Path.Combine(PayloadRoot, "bepinex");
         PluginPayloadRoot = Path.Combine(PayloadRoot, "plugin");
         UpdaterExecutable = Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Updater.exe");
+        ElectronExecutable = Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Manager.exe");
         ManagerExecutable = Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe");
     }
 
@@ -17,6 +18,7 @@ public sealed class DistributionLayout
     public string BepInExPayloadRoot { get; }
     public string PluginPayloadRoot { get; }
     public string UpdaterExecutable { get; }
+    public string ElectronExecutable { get; }
     public string ManagerExecutable { get; }
 
     public static DistributionLayout Locate(string? baseDirectory = null)

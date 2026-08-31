@@ -178,6 +178,7 @@ export interface ControlResponse {
 }
 
 export interface DesktopApi {
+  readonly isUpdater: boolean
   getSnapshot(): Promise<HostSnapshot>
   saveSettings(settings: ManagerSettings): Promise<ManagerSettings>
   selectGameDirectory(): Promise<unknown>
@@ -197,6 +198,9 @@ export interface DesktopApi {
   inspectUpdateProcesses(): Promise<{ gameRunning: boolean; processIds: number[] }>
   closeGameForUpdate(): Promise<{ success: boolean; remainingProcessIds: number[]; message: string }>
   applyUpdate(): Promise<{ success: boolean; message: string }>
+  startUpdater(): Promise<{ success: boolean; message: string }>
+  closeUpdater(): Promise<boolean>
+  onUpdaterEvent(listener: (event: { event: string; payload: any }) => void): () => void
   openEvidence(): Promise<{ path: string }>
   openSaveBackups(): Promise<{ path: string }>
   clearLogs(): Promise<unknown>
