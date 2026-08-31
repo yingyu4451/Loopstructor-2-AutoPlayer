@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { CatalogItem, ControlResponse, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey } from '../types'
+import type { AutomationSetup, CatalogItem, ControlResponse, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey } from '../types'
 import { useUiStore } from './ui'
 
 const mutationCommands = new Set([
@@ -19,12 +19,15 @@ export const useAppStore = defineStore('app', {
     cheatState: undefined as Record<string, any> | undefined,
     vehicles: [] as Record<string, any>[],
     enemies: [] as Record<string, any>[],
+    automationSetup: undefined as AutomationSetup | undefined,
+    currentRoute: 'game' as RouteKey,
+    routeInitialized: false,
     connected: false,
     removeHostEvent: undefined as (() => void) | undefined,
   }),
   getters: {
     settings: (state): ManagerSettings | undefined => state.snapshot?.settings,
-    route: (state): RouteKey => state.snapshot?.settings.activeRoute ?? 'game',
+    route: (state): RouteKey => state.currentRoute,
     writeLocked: (state): boolean => state.snapshot?.connection.autoplayActive === true,
     cheatEnabled: (state): boolean => state.cheatState?.enabled === true || state.snapshot?.status?.cheatModeEnabled === true,
     catalogItems: (state) => (key: string): CatalogItem[] => (state.catalog?.[key] ?? []) as CatalogItem[],
@@ -44,17 +47,27 @@ export const useAppStore = defineStore('app', {
       if (this.snapshot?.connection.trusted) await this.refreshCheat(false)
     },
     applySnapshot(snapshot: HostSnapshot) {
+      if (!this.routeInitialized) {
+        this.currentRoute = snapshot.settings.activeRoute ?? 'game'
+        this.routeInitialized = true
+      }
       this.snapshot = snapshot
       this.connected = snapshot.connection.trusted
     },
     async setRoute(route: RouteKey) {
       if (!this.snapshot) return
-      this.snapshot.settings.activeRoute = route
-      await window.loopstructorDesktop.saveSettings(this.snapshot.settings)
+      this.currentRoute = route
+      const settings = { ...this.snapshot.settings, activeRoute: route }
+      this.snapshot.settings = settings
+      try {
+        await window.loopstructorDesktop.saveSettings(settings)
+      } catch {
+        // Navigation is renderer-owned. A failed preference write must not eject the user from the selected page.
+      }
     },
-    async saveSettings(settings: ManagerSettings) {
+    async saveSettings(settings: ManagerSettings, announce = true) {
       const ui = useUiStore()
-      const saved = await ui.run(() => window.loopstructorDesktop.saveSettings(settings), '设置已保存。')
+      const saved = await ui.run(() => window.loopstructorDesktop.saveSettings(settings), announce ? '设置已保存。' : undefined)
       if (saved && this.snapshot) this.snapshot.settings = saved
     },
     async selectGame() {
@@ -93,11 +106,6 @@ export const useAppStore = defineStore('app', {
       } else ui.toast(response.message || '作弊命令执行失败。', 'error')
       return response
     },
-    async setCheatEnabled(enabled: boolean) {
-      const response = await this.command('cheat.setEnabled', { enabled }, false)
-      if (response?.data) this.cheatState = response.data
-      if (enabled && response?.success) await this.refreshCheat(false)
-    },
     async refreshCheat(announce = true) {
       const catalog = await this.command('cheat.queryCatalog', {}, false)
       if (catalog?.success && catalog.data) this.catalog = catalog.data
@@ -126,8 +134,30 @@ export const useAppStore = defineStore('app', {
       const response = await this.command('cheat.queryEnemies', {}, false)
       if (response?.success) this.enemies = response.data?.enemies ?? []
     },
+    async refreshAutomationSetup() {
+      const response = await useUiStore().run(() => window.loopstructorDesktop.queryAutomationSetup())
+      if (response?.success && response.data) this.automationSetup = response.data as AutomationSetup
+      else this.automationSetup = undefined
+      return response
+    },
+    async startAutomation() {
+      return await this.automationCommand(() => window.loopstructorDesktop.startAutomation(), '自动游玩已开始。')
+    },
+    async pauseAutomation() {
+      return await this.automationCommand(() => window.loopstructorDesktop.pauseAutomation(), '自动游玩已暂停。')
+    },
+    async resumeAutomation() {
+      return await this.automationCommand(() => window.loopstructorDesktop.resumeAutomation(), '自动游玩已继续。')
+    },
     async stopAutomation() {
-      await useUiStore().run(() => window.loopstructorDesktop.stopAutomation(), '现有自动游玩已停止。')
+      return await this.automationCommand(() => window.loopstructorDesktop.stopAutomation(), '自动游玩已停止。')
+    },
+    async automationCommand(call: () => Promise<ControlResponse>, successMessage: string) {
+      const response = await useUiStore().run(call)
+      if (!response) return undefined
+      if (response.status && this.snapshot) this.snapshot.status = response.status
+      useUiStore().toast(response.message || successMessage, response.success ? 'success' : 'error')
+      return response
     },
   },
 })

@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.51',
+    version: '0.6.52',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -50,5 +50,40 @@ describe('desktop application store', () => {
 
     expect(store.route).toBe('relics')
     expect(saveSettings).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the selected route when a stale Host snapshot arrives', async () => {
+    const saveSettings = vi.fn(async (settings) => settings)
+    window.loopstructorDesktop = { saveSettings } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+
+    await store.setRoute('vehicles')
+    store.applySnapshot(snapshot())
+
+    expect(store.route).toBe('vehicles')
+  })
+
+  it('does not navigate away when route persistence fails', async () => {
+    const saveSettings = vi.fn(async () => { throw new Error('disk unavailable') })
+    window.loopstructorDesktop = { saveSettings } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+
+    await store.setRoute('battle')
+
+    expect(store.route).toBe('battle')
+  })
+
+  it('exposes the restored automation controls through the preload API', async () => {
+    const startAutomation = vi.fn(async () => ({ success: true, message: 'started' }))
+    window.loopstructorDesktop = { startAutomation } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+
+    const response = await store.startAutomation()
+
+    expect(response?.success).toBe(true)
+    expect(startAutomation).toHaveBeenCalledOnce()
   })
 })

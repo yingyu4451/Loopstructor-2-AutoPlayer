@@ -44,6 +44,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
     private ManagerUpdateStatus? _updateStatus;
     private bool _trusted;
     private bool _pollConnectedLastTime;
+    private DateTime _nextAutomaticCheatEnableUtc;
+    private string _lastAutomaticCheatEnableError = string.Empty;
     private string _connectionLabel = "等待游戏连接";
     private string _connectionReason = string.Empty;
     private Task? _pollTask;
@@ -107,6 +109,10 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
                 "game.launch" => LaunchGame(),
                 "connection.refresh" => await RefreshConnectionAsync(),
                 "cheat.command" => await SendCheatAsync(parameters),
+                "automation.querySetup" => await QueryAutomationSetupAsync(),
+                "automation.start" => await StartAutomationAsync(),
+                "automation.pause" => await SendAutomationControlAsync("pause", null),
+                "automation.resume" => await SendAutomationControlAsync("resume", null),
                 "automation.stop" => await StopAutomationAsync(),
                 "update.check" => await CheckUpdatesAsync(),
                 "update.inspectProcesses" => InspectUpdateProcesses(),
@@ -128,17 +134,17 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         ManagerSettings incoming = parameters?.ToObject<ManagerSettings>()
                                    ?? throw new InvalidOperationException("设置内容为空。");
         incoming.GameRoot = _settings.GameRoot;
-        incoming.ProfileName = _settings.ProfileName;
-        incoming.ContinueExistingProfile = _settings.ContinueExistingProfile;
-        incoming.GameMode = _settings.GameMode;
-        incoming.OverrideGameSpeed = _settings.OverrideGameSpeed;
-        incoming.SpeedState = _settings.SpeedState;
-        incoming.MaxRunMinutes = _settings.MaxRunMinutes;
-        incoming.SkipStory = _settings.SkipStory;
-        incoming.DecisionPriority = _settings.DecisionPriority;
-        incoming.CharacterCfgIndex = _settings.CharacterCfgIndex;
         incoming.GitHubOwner = _settings.GitHubOwner;
         incoming.GitHubRepository = _settings.GitHubRepository;
+        incoming.ProfileName = string.IsNullOrWhiteSpace(incoming.ProfileName)
+            ? "player-default"
+            : incoming.ProfileName.Trim();
+        if (!Enum.IsDefined(incoming.GameMode)) incoming.GameMode = AutomationGameMode.Common;
+        if (!Enum.IsDefined(incoming.DecisionPriority))
+            incoming.DecisionPriority = AutomationDecisionPriority.CatapultPoints;
+        incoming.SpeedState = Math.Clamp(incoming.SpeedState, 0, 2);
+        incoming.MaxRunMinutes = Math.Clamp(incoming.MaxRunMinutes, 5, 480);
+        incoming.CharacterCfgIndex = Math.Max(-1, incoming.CharacterCfgIndex);
         incoming.NormalizeUpdateSource();
         _settings = incoming;
         _settingsStore.Save(_settings);
@@ -281,15 +287,136 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task<JToken> StopAutomationAsync()
     {
+        return await SendAutomationControlAsync("stop", null);
+    }
+
+    private async Task<JToken> QueryAutomationSetupAsync()
+    {
+        ControlResponse response = await QueryAutomationSetupCoreAsync();
+        return Serialize(response);
+    }
+
+    private async Task<ControlResponse> QueryAutomationSetupCoreAsync()
+    {
+        if (!_trusted || _session == null)
+            throw new InvalidOperationException("连接游戏后才能读取可玩的模式和角色。");
+        PipeCallResult call = await _pipeClient.QueryAutomationSetupAsync(_session, _lifetime);
+        if (!call.TransportSuccess)
+        {
+            InvalidateTrust();
+            throw new InvalidOperationException(call.Error);
+        }
+        ControlResponse response = call.Response
+                                   ?? throw new InvalidOperationException("插件没有返回自动游玩配置。");
+        if (!response.Success || response.Data == null)
+            throw new InvalidOperationException(response.Message ?? "当前无法读取自动游玩配置。");
+        if (response.Status != null) _status = response.Status;
+        return response;
+    }
+
+    private async Task<JToken> StartAutomationAsync()
+    {
+        RunControlAvailability availability = RunControlAvailability.From(_trusted, _status);
+        if (!availability.CanStart)
+            throw new InvalidOperationException(BuildUnavailableAutomationMessage("开始"));
+
+        AutomationRunOptions options = await BuildAutomationRunOptionsAsync();
+        return await SendAutomationControlAsync("start", options);
+    }
+
+    private async Task<AutomationRunOptions> BuildAutomationRunOptionsAsync()
+    {
+        AutomationRunOptions options = new()
+        {
+            Mode = _settings.GameMode,
+            GameSpeedControlVersion = AutoPlayerGameSpeed.CurrentOptionsVersion,
+            OverrideGameSpeed = _settings.OverrideGameSpeed,
+            SpeedState = Math.Clamp(_settings.SpeedState, 0, 2),
+            MaxRunMinutes = Math.Clamp(_settings.MaxRunMinutes, 5, 480),
+            ContinueExistingProfile = _settings.ContinueExistingProfile,
+            SkipStory = _settings.SkipStory,
+            DecisionPriority = Enum.IsDefined(_settings.DecisionPriority)
+                ? _settings.DecisionPriority
+                : AutomationDecisionPriority.CatapultPoints
+        };
+        if (_settings.ContinueExistingProfile) return options;
+
+        ControlResponse setup = await QueryAutomationSetupCoreAsync();
+        JArray modes = setup.Data?["modes"] as JArray ?? new JArray();
+        JObject? selectedMode = modes.OfType<JObject>().FirstOrDefault(item =>
+            ParseAutomationMode(item.Value<string>("mode")) == _settings.GameMode);
+        if (selectedMode?.Value<bool?>("available") != true)
+        {
+            string reason = selectedMode?.Value<string>("reason") ?? "当前游戏没有提供该模式的可玩入口。";
+            throw new InvalidOperationException(reason);
+        }
+
+        if (_settings.GameMode == AutomationGameMode.Common)
+        {
+            JObject[] characters = (setup.Data?["characters"] as JArray)?.OfType<JObject>().ToArray()
+                                   ?? Array.Empty<JObject>();
+            JObject? character = characters.FirstOrDefault(item =>
+                                     item.Value<int?>("cfgIndex") == _settings.CharacterCfgIndex)
+                                 ?? characters.FirstOrDefault();
+            if (character == null)
+                throw new InvalidOperationException("当前游戏没有已解锁且可开始新游戏的角色。");
+            options.CharacterIndex = character.Value<int?>("runtimeIndex") ?? 0;
+            options.DifficultyIndex = character.Value<int?>("difficultyIndex") ?? 0;
+            options.SuperModuleIndex = character.Value<int?>("superModuleIndex") ?? 0;
+            int cfgIndex = character.Value<int?>("cfgIndex") ?? -1;
+            if (_settings.CharacterCfgIndex != cfgIndex)
+            {
+                _settings.CharacterCfgIndex = cfgIndex;
+                _settingsStore.Save(_settings);
+            }
+        }
+        return options;
+    }
+
+    private async Task<JToken> SendAutomationControlAsync(string command, AutomationRunOptions? options)
+    {
         if (!_trusted || _session == null)
             throw new InvalidOperationException("尚未与当前游戏建立安全连接。");
-        PipeCallResult call = await _pipeClient.StopAsync(_session, _lifetime);
+
+        RunControlAvailability availability = RunControlAvailability.From(true, _status);
+        bool allowed = command switch
+        {
+            "start" => availability.CanStart,
+            "pause" => availability.CanPause,
+            "resume" => availability.CanResume,
+            "stop" => availability.CanStop,
+            _ => false
+        };
+        if (!allowed) throw new InvalidOperationException(BuildUnavailableAutomationMessage(command));
+
+        PipeCallResult call = command switch
+        {
+            "start" => await _pipeClient.StartAsync(_session, options!, _lifetime),
+            "pause" => await _pipeClient.PauseAsync(_session, _lifetime),
+            "resume" => await _pipeClient.ResumeAsync(_session, _lifetime),
+            "stop" => await _pipeClient.StopAsync(_session, _lifetime),
+            _ => throw new InvalidOperationException("不支持的自动游玩命令。")
+        };
         if (!call.TransportSuccess) throw new InvalidOperationException(call.Error);
         if (call.Response?.Status != null) _status = call.Response.Status;
-        AddLog(call.Response?.Success == true ? "success" : "error", call.Response?.Message ?? "停止命令没有返回结果。");
+        AddLog(call.Response?.Success == true ? "success" : "error", call.Response?.Message ?? "自动游玩命令没有返回结果。");
         await EmitSnapshotAsync();
         return Serialize(call.Response ?? new ControlResponse { Success = false, Message = "插件没有返回响应。" });
     }
+
+    private string BuildUnavailableAutomationMessage(string command)
+    {
+        if (!_trusted) return "尚未与当前游戏建立安全连接。";
+        if (_status?.NeedsProcessRestart == true) return "当前游戏进程需要重启后才能开始新的自动游玩。";
+        if (_status?.BaseGodModeEnabled == true || _status?.MapSkipEnabled == true)
+            return "请先关闭基地无敌和地图节点自由跳转，再开始自动游玩。";
+        return $"当前运行状态不允许{command}自动游玩。";
+    }
+
+    private static AutomationGameMode ParseAutomationMode(string? value) =>
+        string.Equals(value, "random", StringComparison.OrdinalIgnoreCase)
+            ? AutomationGameMode.Random
+            : AutomationGameMode.Common;
 
     private async Task<JToken> CheckUpdatesAsync()
     {
@@ -460,7 +587,47 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
             _pollConnectedLastTime = true;
         }
         if (response.Status != null) _status = response.Status;
+        await EnsureDefaultCheatEnabledAsync();
         await EmitSnapshotAsync();
+    }
+
+    private async Task EnsureDefaultCheatEnabledAsync()
+    {
+        if (!_trusted || _session == null || DateTime.UtcNow < _nextAutomaticCheatEnableUtc) return;
+        bool available = _status?.CheatAvailable == true || _hello?.CheatAvailable == true;
+        bool authorized = _status?.CheatSessionAuthorized == true || _hello?.CheatSessionAuthorized == true;
+        bool enabled = _status?.CheatModeEnabled == true || _hello?.CheatModeEnabled == true;
+        if (!available || !authorized || enabled) return;
+
+        _nextAutomaticCheatEnableUtc = DateTime.UtcNow.AddSeconds(5);
+        PipeCallResult call = await _pipeClient.SendCheatAsync(
+            _session,
+            CheatCommands.SetEnabled,
+            new JObject { ["enabled"] = true },
+            _lifetime);
+        if (!call.TransportSuccess)
+        {
+            InvalidateTrust();
+            _connectionLabel = "等待插件响应";
+            _connectionReason = call.Error;
+            return;
+        }
+
+        ControlResponse response = call.Response!;
+        if (response.Status != null) _status = response.Status;
+        if (response.Success)
+        {
+            if (_hello != null) _hello.CheatModeEnabled = true;
+            _lastAutomaticCheatEnableError = string.Empty;
+            AddLog("cheat", "作弊功能已按默认设置自动开启。", emit: false);
+            return;
+        }
+
+        if (!string.Equals(_lastAutomaticCheatEnableError, response.Message, StringComparison.Ordinal))
+        {
+            _lastAutomaticCheatEnableError = response.Message;
+            AddLog("warn", "作弊功能暂时无法自动开启：" + response.Message, emit: false);
+        }
     }
 
     private void RefreshPluginStatus()
@@ -486,6 +653,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _status = null;
         _trusted = false;
         _pollConnectedLastTime = false;
+        _nextAutomaticCheatEnableUtc = default;
+        _lastAutomaticCheatEnableError = string.Empty;
         _logTail.Reset(session.LogPath, startAtEnd: !includeExistingLog);
     }
 
@@ -506,6 +675,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _status = null;
         _trusted = false;
         _pollConnectedLastTime = false;
+        _nextAutomaticCheatEnableUtc = default;
+        _lastAutomaticCheatEnableError = string.Empty;
         _connectionLabel = "等待游戏连接";
         _connectionReason = string.Empty;
     }

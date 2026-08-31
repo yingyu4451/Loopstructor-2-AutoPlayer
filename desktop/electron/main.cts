@@ -5,6 +5,9 @@ import { HostClient } from './host-client.cjs'
 let window: BrowserWindow | undefined
 let host: HostClient | undefined
 
+const userDataOverride = process.env.LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT
+if (userDataOverride) app.setPath('userData', path.resolve(userDataOverride))
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
 
@@ -108,6 +111,10 @@ function registerIpc(): void {
   ipcMain.handle('game:launch', () => invoke('game.launch'))
   ipcMain.handle('connection:refresh', () => invoke('connection.refresh'))
   ipcMain.handle('cheat:command', (_event, command: string, args: unknown) => invoke('cheat.command', { command, arguments: args ?? {} }))
+  ipcMain.handle('automation:querySetup', () => invoke('automation.querySetup'))
+  ipcMain.handle('automation:start', () => invoke('automation.start'))
+  ipcMain.handle('automation:pause', () => invoke('automation.pause'))
+  ipcMain.handle('automation:resume', () => invoke('automation.resume'))
   ipcMain.handle('automation:stop', () => invoke('automation.stop'))
   ipcMain.handle('update:check', () => invoke('update.check'))
   ipcMain.handle('update:inspectProcesses', () => invoke('update.inspectProcesses'))

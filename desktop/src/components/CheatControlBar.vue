@@ -28,16 +28,6 @@ const statusText = computed(() => {
       <button class="icon-button" aria-label="刷新全部作弊目录" :disabled="!store.connected || ui.busy" @click="store.refreshCheat()">
         <RefreshCw :size="17" />
       </button>
-      <label class="switch-control" :class="{ disabled: !store.snapshot?.connection.cheatAvailable }">
-        <input
-          type="checkbox"
-          :checked="store.cheatEnabled"
-          :disabled="!store.snapshot?.connection.cheatAvailable || ui.busy"
-          @change="store.setCheatEnabled(($event.target as HTMLInputElement).checked)"
-        />
-        <span class="switch-track"><span /></span>
-        <span>开启作弊</span>
-      </label>
     </div>
   </div>
 </template>

@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.52 导航状态、自动游玩入口与默认作弊
+
+`0.6.52` 修复 Electron renderer 把当前页面存放在 Host 快照中导致的导航回跳：用户选择的页面现在由 renderer 单独持有，旧轮询快照和设置保存失败都不会把界面强制切回“游戏与插件”。自动游玩页面重新提供当前游戏动态模式与角色读取、速度、剧情、决策优先、开始/暂停/继续/停止和运行轨迹，同时始终显示“尚未完成”风险提示。
+
+Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插件协议和安全门禁构造运行参数。可信会话建立后，Host 自动开启作弊功能并在租约中断后重新连接时恢复；统一窗口删除手动“开启作弊”按钮。本版本以 `v0.6.51` 作为相邻增量更新基线；游戏插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.51 Electron + Vue 统一工具窗口
 
 `0.6.51` 将旧 WPF Manager 与独立作弊窗口迁移为 Electron 44 + Vue 3 统一窗口，使用分组齿轨侧栏切换游戏与插件、作弊目录、诊断和设置页面。可见图标全部来自随包离线安装的 Iconify MDI 集合，不依赖 Lucide、CDN 或在线页面；renderer 开启 sandbox、contextIsolation 和严格 CSP，只能通过 preload 的类型化白名单访问本机能力。
@@ -141,27 +147,27 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.51
+.\scripts\package.ps1 -Version 0.6.52
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.51 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.52 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.51-win-x64.zip
-Loopstructor.AutoPlayer-0.6.51-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.52-win-x64.zip
+Loopstructor.AutoPlayer-0.6.52-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.51-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.52-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
@@ -192,17 +198,17 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.51",
+  "version": "0.6.52",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.51-win-x64.zip",
-  "sha256": "<64-lowercase-hex>",
-  "size": 221969735,
+  "assetName": "Loopstructor.AutoPlayer-0.6.52-win-x64.zip",
+  "sha256": "82ac1179abcf31ec57352d4cb90e661743434b08a49727c6e2d1787ec595ff99",
+  "size": 221973408,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.50",
-      "assetName": "Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip",
-      "sha256": "<64-lowercase-hex>",
-      "size": 159393606
+      "fromVersion": "0.6.51",
+      "assetName": "Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip",
+      "sha256": "8a1ab71a849583699299a0071be50644f4273c0cfb67dc4b7de1a28285830a5e",
+      "size": 110152147
     }
   ]
 }
@@ -273,8 +279,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.51
-git push origin v0.6.51
+git tag v0.6.52
+git push origin v0.6.52
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。

@@ -43,14 +43,14 @@ async function toggle() {
           v-for="item in group.items"
           :key="item.key"
           class="nav-item"
-          :class="{ active: store.route === item.key, locked: item.key === 'autoplay' }"
+          :class="{ active: store.route === item.key }"
           :aria-label="item.label"
           :aria-current="store.route === item.key ? 'page' : undefined"
           @click="store.setRoute(item.key)"
         >
           <span class="rail-node"><component :is="item.icon" :size="19" /></span>
           <span class="nav-label">{{ item.label }}</span>
-          <span v-if="item.key === 'autoplay'" class="tiny-status">暂停开放</span>
+          <span v-if="item.key === 'autoplay'" class="tiny-status">尚未完成</span>
         </button>
       </section>
     </nav>

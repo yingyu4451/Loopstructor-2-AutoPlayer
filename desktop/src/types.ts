@@ -80,7 +80,31 @@ export interface AutoPlayerStatus {
   wavesCompleted: number
   currentChapter: number
   currentMapLayer: number
+  needsProcessRestart?: boolean
+  timeline?: Array<{ timestampUtc: string; stage: string; kind: string; message: string }>
   [key: string]: unknown
+}
+
+export interface AutomationModeSetup {
+  mode: string
+  displayName: string
+  available: boolean
+  reason: string
+}
+
+export interface AutomationCharacterSetup {
+  cfgIndex: number
+  runtimeIndex: number
+  difficultyIndex: number
+  superModuleIndex: number
+  displayName: string
+  available?: boolean
+  reason?: string
+}
+
+export interface AutomationSetup {
+  modes: AutomationModeSetup[]
+  characters: AutomationCharacterSetup[]
 }
 
 export interface HostLogEntry {
@@ -151,6 +175,10 @@ export interface DesktopApi {
   launchGame(): Promise<unknown>
   refreshConnection(): Promise<HostSnapshot>
   cheatCommand(command: string, args?: unknown): Promise<ControlResponse>
+  queryAutomationSetup(): Promise<ControlResponse>
+  startAutomation(): Promise<ControlResponse>
+  pauseAutomation(): Promise<ControlResponse>
+  resumeAutomation(): Promise<ControlResponse>
   stopAutomation(): Promise<ControlResponse>
   checkUpdates(): Promise<UpdateStatus>
   inspectUpdateProcesses(): Promise<{ gameRunning: boolean; processIds: number[] }>

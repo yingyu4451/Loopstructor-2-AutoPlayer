@@ -19,7 +19,7 @@ function systemMenu(event: MouseEvent) {
       <img :src="managerLogo" alt="" class="brand-logo" />
       <div>
         <strong>Loopstructor AutoPlayer</strong>
-        <span>v{{ store.snapshot?.version ?? '0.6.51' }}</span>
+        <span>v{{ store.snapshot?.version ?? '0.6.52' }}</span>
       </div>
     </div>
     <div class="titlebar-status">

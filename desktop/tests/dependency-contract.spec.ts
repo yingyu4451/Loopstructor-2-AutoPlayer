@@ -10,4 +10,11 @@ describe('desktop dependency contract', () => {
     expect(packageJson.dependencies['lucide-vue-next']).toBeUndefined()
     expect(packageJson.dependencies['@lucide/vue']).toBeUndefined()
   })
+
+  it('keeps automation control behind the typed preload whitelist', () => {
+    const preload = readFileSync(resolve(process.cwd(), 'electron/preload.cts'), 'utf8')
+    expect(preload).toContain("ipcRenderer.invoke('automation:start')")
+    expect(preload).toContain("ipcRenderer.invoke('automation:querySetup')")
+    expect(preload).not.toContain('ipcRenderer: ipcRenderer')
+  })
 })

@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.51-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.52-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -19,6 +19,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     env: {
       ...process.env,
       LOCALAPPDATA: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT: dataRoot,
       LOOPSTRUCTOR_AUTOPLAYER_HOST_PATH: hostPath,
       LOOPSTRUCTOR_AUTOPLAYER_HOST_DATA_ROOT: dataRoot,
     },
@@ -42,6 +43,13 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await expect(page.locator('.titlebar-status')).not.toContainText('正在启动 Host', { timeout: 15_000 })
 
     const routes = ['游戏与插件', '自动游玩', '战车', '道具', '遗物', '战斗', '对象属性', '生成', '日志与状态', '界面与更新']
+    await page.getByRole('button', { name: '战车', exact: true }).click()
+    await page.waitForTimeout(1_100)
+    await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', '战车')
+    await expect(page.getByText('开启作弊', { exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: '自动游玩', exact: true }).click()
+    await expect(page.getByRole('status').getByText('自动游玩尚未完成', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '开始', exact: true })).toBeVisible()
     for (const size of [{ width: 980, height: 680 }, { width: 1280, height: 860 }]) {
       await app.evaluate(({ BrowserWindow }, nextSize) => {
         BrowserWindow.getAllWindows()[0]?.setSize(nextSize.width, nextSize.height)

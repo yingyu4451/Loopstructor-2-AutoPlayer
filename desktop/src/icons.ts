@@ -29,6 +29,7 @@ import plugIcon from '@iconify-icons/mdi/power-plug'
 import plugOffIcon from '@iconify-icons/mdi/power-plug-off'
 import deleteIcon from '@iconify-icons/mdi/delete'
 import playIcon from '@iconify-icons/mdi/play'
+import pauseIcon from '@iconify-icons/mdi/pause'
 import stopIcon from '@iconify-icons/mdi/stop-circle'
 import searchIcon from '@iconify-icons/mdi/magnify'
 import plusIcon from '@iconify-icons/mdi/plus'
@@ -88,6 +89,7 @@ export const PlugZap = iconComponent('PluginInstallIcon', plugIcon)
 export const Plug = iconComponent('PluginToggleIcon', plugOffIcon)
 export const Trash2 = iconComponent('DeleteIcon', deleteIcon)
 export const Play = iconComponent('PlayIcon', playIcon)
+export const Pause = iconComponent('PauseIcon', pauseIcon)
 export const OctagonX = iconComponent('StopIcon', stopIcon)
 export const Search = iconComponent('SearchIcon', searchIcon)
 export const Plus = iconComponent('AddIcon', plusIcon)
