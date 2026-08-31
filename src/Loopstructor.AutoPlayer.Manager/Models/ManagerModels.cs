@@ -121,6 +121,8 @@ public sealed class ManagerSettings
     public UiScaleMode UiScaleMode { get; set; } = UiScaleMode.System;
     public int CustomUiScalePercent { get; set; } = 100;
     public int CharacterCfgIndex { get; set; } = -1;
+    public string ActiveRoute { get; set; } = "game";
+    public bool SidebarCollapsed { get; set; }
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
 
@@ -138,10 +140,20 @@ public sealed class ManagerSettings
 
         if (!Enum.IsDefined(UiScaleMode)) UiScaleMode = UiScaleMode.System;
         CustomUiScalePercent = Math.Clamp(CustomUiScalePercent, 75, 200);
+        ActiveRoute = NormalizeRoute(ActiveRoute);
     }
 
     private static string NormalizeCoordinate(string? value, string defaultValue) =>
         string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
+
+    private static string NormalizeRoute(string? value)
+    {
+        string route = string.IsNullOrWhiteSpace(value) ? "game" : value.Trim();
+        return route is "game" or "autoplay" or "vehicles" or "items" or "relics" or "battle"
+            or "objects" or "spawn" or "diagnostics" or "settings"
+            ? route
+            : "game";
+    }
 }
 
 public enum UiScaleMode

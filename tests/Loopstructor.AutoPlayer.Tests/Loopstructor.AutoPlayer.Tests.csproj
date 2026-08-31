@@ -19,8 +19,20 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Core\Loopstructor.AutoPlayer.Core.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Launcher\Loopstructor.AutoPlayer.Launcher.csproj" />
-    <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj" />
+    <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Host\Loopstructor.AutoPlayer.Host.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="CatalogActionGridWpfTests.cs" />
+    <Compile Remove="CatalogPickerWpfTests.cs" />
+    <Compile Remove="CheatFormWpfLayoutTests.cs" />
+    <Compile Remove="CheatShellViewModelTests.cs" />
+    <Compile Remove="CustomTitleBarWpfTests.cs" />
+    <Compile Remove="EnchantmentSelectorWpfTests.cs" />
+    <Compile Remove="ManagerDemoTests.cs" />
+    <Compile Remove="ManagerSingleInstanceTests.cs" />
+    <Compile Remove="ManagerVersionPlacementContractTests.cs" />
+    <Compile Remove="VehicleQuickSelectorWpfTests.cs" />
   </ItemGroup>
 </Project>

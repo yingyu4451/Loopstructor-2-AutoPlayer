@@ -2,13 +2,14 @@
 
 ## 设计目标
 
-AutoPlayer 把“控制编排”和“游戏内执行”分开：Windows Manager 掌握安装、进程连接、更新和报告；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权；决策引擎只根据结构化状态选择下一步动作。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。
+AutoPlayer 把“桌面呈现”“控制编排”和“游戏内执行”分开：Electron + Vue Desktop 负责统一可见界面，.NET 8 Host 掌握安装、进程连接、更新和本机 IPC；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。`0.6.51` 暂停开放自动游玩启动入口，但保留 Core 与 Plugin 实现，并允许停止升级前遗留的运行会话。
 
 工具不携带游戏 DLL，也不修改 `Assembly-CSharp.dll`。插件通过反射发现打包游戏中已有的 `GuiGameAutomation.Runtime` 类型，因此游戏更新后可以先完成指纹和契约检查，再决定是否运行。
 
 ```mermaid
 flowchart LR
-    M["Manager (.NET 8 Windows)"] -->|"安装经 SHA-256 校验的载荷"| G["游戏目录"]
+    D["Electron + Vue Desktop"] <-->|"白名单 IPC"| M[".NET 8 Host"]
+    M -->|"安装经 SHA-256 校验的载荷"| G["游戏目录"]
     M -->|"玩家本机注册或一次性 QA ActivationContext"| P["BepInEx 5 Plugin"]
     M <-->|"本机 Named Pipe + Token"| P
     P --> C["Core 决策引擎"]
@@ -25,24 +26,26 @@ flowchart LR
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
-| `Loopstructor.AutoPlayer.Manager` | .NET 8 Windows 自包含，共享运行时 | 选择游戏、安装载荷、维护玩家模式本机注册、连接或启动游戏、显示状态和发起更新；`manager\` 同时携带 Manager 与 Updater 共用的运行时 |
-| `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows，共享 Manager 运行时 | 在管理器退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖 |
+| `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS | 单实例统一窗口、路由、响应式布局、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
+| `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、作弊命令、设置、日志和更新交接 |
+| `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows WPF 自包含 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
 ## 启动与激活
 
-1. Manager 定位游戏 EXE，并读取 `<Game>_Data\Managed\Assembly-CSharp.dll` 的 SHA-256。
-2. 安装或验证插件后，Manager 为该游戏根目录写入当前 Windows 用户专用的 `control\installed-<root-id>.json`。其中的稳定 pipe、随机高熵 token、根目录哈希、程序集指纹和工具拥有的数据目录构成玩家模式本机注册。
-3. 玩家可以手动启动游戏，也可以由 Manager 启动。游戏已运行时 Manager 只连接现有进程；插件读取本机注册后进入 `ResidentPlayer` 待命，不会自动开始操作。
-4. 隔离 QA 模式使用另一条路径：每次启动生成新 pipe 和 token，通过子进程环境变量或最长 10 分钟的单次票据传递 QA profile、artifact 与预期程序集哈希；票据读取后立即删除。
-5. BepInEx 加载插件后，`ActivationContext` 验证协议、游戏根目录、pipe、token、工具拥有的数据目录和预期程序集哈希，再启动一个隐藏且独立于 BepInEx 管理对象的运行时根对象。BepInEx 启动组件随后被游戏清理也不会关闭控制通道；独立宿主若在场景切换中消失，静态会话通过场景和渲染前回调在主线程重建它。玩家注册还必须匹配固定文件位置与根目录哈希；单次票据还必须验证有效期。
-6. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。失败时不安装操作补丁，也不接受控制。
-7. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Manager 拒绝握手。玩家原存档和平台行为保持游戏默认语义。
-8. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
-9. 插件在 `hello` 中回传自身真实 PID、随机进程实例标识、激活模式、指纹、运行时契约和隔离状态。Manager 只在该 PID 仍存活、启动时间未变化、可执行文件路径等于所选游戏且模式门禁相符时接受握手；后续每条请求都必须继续匹配 PID 与进程实例标识。
-10. 连接成功后插件保持 Standby；只有用户发送 `start` 才开始自动决策。作弊能力随可信会话提供，但仍必须在独立作弊窗口中显式开启。
+1. 根 Launcher 启动 Electron Desktop；Electron 启动 .NET Host，并通过逐行 JSON RPC 取得状态。renderer 只能调用 preload 暴露的类型化白名单。
+2. Host 定位游戏 EXE，并读取 `<Game>_Data\Managed\Assembly-CSharp.dll` 的 SHA-256。
+3. 安装或验证插件后，Host 为该游戏根目录写入当前 Windows 用户专用的 `control\installed-<root-id>.json`。其中的稳定 pipe、随机高熵 token、根目录哈希、程序集指纹和工具拥有的数据目录构成玩家模式本机注册。
+4. 玩家可以手动启动游戏，也可以由统一桌面窗口启动。游戏已运行时 Host 只连接现有进程；插件读取本机注册后进入 `ResidentPlayer` 待命，不会自动开始操作。
+5. 隔离 QA 模式使用另一条路径：每次启动生成新 pipe 和 token，通过子进程环境变量或最长 10 分钟的单次票据传递 QA profile、artifact 与预期程序集哈希；票据读取后立即删除。
+6. BepInEx 加载插件后，`ActivationContext` 验证协议、游戏根目录、pipe、token、工具拥有的数据目录和预期程序集哈希，再启动一个隐藏且独立于 BepInEx 管理对象的运行时根对象。BepInEx 启动组件随后被游戏清理也不会关闭控制通道；独立宿主若在场景切换中消失，静态会话通过场景和渲染前回调在主线程重建它。玩家注册还必须匹配固定文件位置与根目录哈希；单次票据还必须验证有效期。
+7. 插件重新计算实际程序集指纹，检查产品身份和 `GuiGameAutomation.Runtime` 必需方法集合。失败时不安装操作补丁，也不接受控制。
+8. `ResidentPlayer` 明确不安装 QA 存档重定向、平台写入阻断或游戏诊断产物重定向；任一标志意外为 true 时 Host 拒绝握手。玩家原存档和平台行为保持游戏默认语义。
+9. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
+10. 插件在 `hello` 中回传自身真实 PID、随机进程实例标识、激活模式、指纹、运行时契约和隔离状态。Host 只在该 PID 仍存活、启动时间未变化、可执行文件路径等于所选游戏且模式门禁相符时接受握手；后续每条请求都必须继续匹配 PID 与进程实例标识。
+11. 连接成功后插件保持 Standby。`0.6.51` 的自动游玩页不发送 `start`；作弊能力随可信会话提供，并在统一窗口顶部控制条中显式开启。
 
 支持的环境变量由共享协议定义：
 
@@ -202,17 +205,18 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.50-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.51-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
   Loopstructor.AutoPlayer.Manager.exe  用户启动的根目录单文件入口
   manager/
-    Loopstructor.AutoPlayer.Manager.exe  管理器入口
-    Loopstructor.AutoPlayer.Updater.exe  更新器入口
-    PresentationFramework.dll      两个入口共用的 WPF 运行时文件
-    PresentationCore.dll
-    WindowsBase.dll
+    Loopstructor.AutoPlayer.Manager.exe  Electron 桌面入口
+    resources/app.asar                  Vue renderer 与 Electron 主进程
+    Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
+    Loopstructor.AutoPlayer.Host.dll
+    Loopstructor.AutoPlayer.Updater.exe  WPF 更新器入口
+    PresentationFramework.dll           Updater 的 WPF 运行时文件
   payload/
     bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
     plugin/                        AutoPlayer Plugin/Core 及运行依赖
@@ -231,4 +235,4 @@ schema 2 更新清单始终指向完整 Release ZIP，并可通过 `deltaAssets`
 
 `v0.1.3` 的无 token 更新仍可能因匿名 REST API 配额耗尽而返回 403。遇到该情况时需等待配额恢复、在当前 Manager 进程环境中临时提供只读 token，或手动安装 `v0.1.4` 一次；之后公开仓库的无 token 更新即使用新的网页 Release 路径。
 
-根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。根启动器是自包含单文件，内部 Manager 和 Updater 都位于 `manager\`，并只携带一套共用的 .NET/WPF 运行时；发布根不再包含旧 `updater\` 目录。完整解压后运行根部 EXE 仍无需安装系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和 WPF Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。标题栏永久显示当前产品版本，实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。

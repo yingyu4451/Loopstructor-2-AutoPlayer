@@ -16,7 +16,7 @@ $ProgressPreference = 'SilentlyContinue'
 $repositoryRoot = Get-RepositoryRoot
 $runtimeIdentifier = 'win-x64'
 $launcherProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Launcher\Loopstructor.AutoPlayer.Launcher.csproj'
-$managerProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Manager\Loopstructor.AutoPlayer.Manager.csproj'
+$hostProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Host\Loopstructor.AutoPlayer.Host.csproj'
 $updaterProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj'
 $pluginProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj'
 $pluginInfoPath = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\PluginInfo.cs'
@@ -398,12 +398,14 @@ function Assert-ProductVersion {
     }
 
     $actualVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path).ProductVersion
-    if (-not [StringComparer]::Ordinal.Equals($actualVersion, $ExpectedVersion)) {
+    $actualMatches = [StringComparer]::Ordinal.Equals($actualVersion, $ExpectedVersion) -or
+        [StringComparer]::Ordinal.Equals($actualVersion, "$ExpectedVersion.0")
+    if (-not $actualMatches) {
         throw "Release binary product version must be $ExpectedVersion but was $actualVersion`: $Path"
     }
 }
 
-foreach ($requiredProject in @($launcherProject, $managerProject, $updaterProject, $pluginProject)) {
+foreach ($requiredProject in @($launcherProject, $hostProject, $updaterProject, $pluginProject)) {
     if (-not (Test-Path -LiteralPath $requiredProject -PathType Leaf)) {
         throw "Required release project not found: $requiredProject"
     }
@@ -441,14 +443,26 @@ $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 
-# Both apphosts must share this one self-contained runtime directory.
-Publish-WindowsProject -Project $managerProject -Output $managerOutput -PackageVersion $packageVersion
+# Electron owns the visible Manager process. The headless Host and WPF Updater
+# share one self-contained .NET runtime in the same manager directory.
+Invoke-Pnpm -Arguments @('package:dir:only')
+$electronOutput = Join-Path $repositoryRoot 'desktop\dist-electron\win-unpacked'
+if (-not (Test-Path -LiteralPath $electronOutput -PathType Container)) {
+    throw "Electron unpacked output is missing: $electronOutput"
+}
+New-Item -ItemType Directory -Path $managerOutput -Force | Out-Null
+Copy-Item -Path (Join-Path $electronOutput '*') -Destination $managerOutput -Recurse -Force
+Publish-WindowsProject -Project $hostProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-WindowsProject -Project $updaterProject -Output $managerOutput -PackageVersion $packageVersion
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
 
 foreach ($requiredManagerFile in @(
     'Loopstructor.AutoPlayer.Manager.exe'
-    'Loopstructor.AutoPlayer.Manager.dll'
+    'resources\app.asar'
+    'Loopstructor.AutoPlayer.Host.exe'
+    'Loopstructor.AutoPlayer.Host.dll'
+    'Loopstructor.AutoPlayer.Host.deps.json'
+    'Loopstructor.AutoPlayer.Host.runtimeconfig.json'
     'Loopstructor.AutoPlayer.Updater.exe'
     'Loopstructor.AutoPlayer.Updater.dll'
     'Loopstructor.AutoPlayer.Updater.deps.json'
@@ -501,6 +515,7 @@ Get-ChildItem -LiteralPath $pluginOutput -File | Where-Object {
 }
 
 Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Host.exe') -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $bundledUpdaterExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $rootManagerExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $pluginPayloadOutput 'Loopstructor.AutoPlayer.Plugin.dll') -ExpectedVersion $packageVersion
@@ -540,6 +555,14 @@ New-MaximumCompressionZip `
 Assert-ZipMatchesDirectory -ZipPath $zipPath -SourceDirectory $packageRoot -EntryPrefix $releaseDirectoryName
 
 $zipFile = Get-Item -LiteralPath $zipPath
+$maximumPackageBytes = 230MB
+if ($zipFile.Length -gt $maximumPackageBytes) {
+    $largest = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force |
+        Sort-Object Length -Descending |
+        Select-Object -First 12 |
+        ForEach-Object { "{0:N1} MB  {1}" -f ($_.Length / 1MB), (Get-RelativePackagePath -Path $_.FullName) }
+    throw "Release ZIP exceeds the 230 MB limit ($([Math]::Round($zipFile.Length / 1MB, 1)) MB). Largest files:`n$($largest -join "`n")"
+}
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Utf8NoBom -Path "$zipPath.sha256" -Content "$zipHash  $zipName`n"
 

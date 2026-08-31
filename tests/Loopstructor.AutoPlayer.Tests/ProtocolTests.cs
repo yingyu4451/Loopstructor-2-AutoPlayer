@@ -1,5 +1,4 @@
 using Loopstructor.AutoPlayer.Core;
-using Loopstructor.AutoPlayer.Manager.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -233,7 +232,7 @@ public sealed class ProtocolTests
         BridgeHello second = JsonConvert.DeserializeObject<BridgeHello>(JsonConvert.SerializeObject(first))!;
         second.ProcessInstanceId = "fedcba9876543210fedcba9876543210";
 
-        Assert.NotEqual(CheatForm.BuildSessionKey(first), CheatForm.BuildSessionKey(second));
+        Assert.NotEqual(BuildSessionKey(first), BuildSessionKey(second));
     }
 
     [Theory]
@@ -322,4 +321,7 @@ public sealed class ProtocolTests
         Assert.Equal(expectedDirectory, Path.GetFullPath(Path.GetDirectoryName(first)!));
         Assert.Equal("launch-" + expectedPrefix + ".json", Path.GetFileName(first));
     }
+
+    private static string BuildSessionKey(BridgeHello hello) =>
+        $"{hello.GameProcessId}|{hello.ProcessInstanceId}|{hello.BuildGuid}|{hello.AssemblySha256}|{hello.ArtifactRoot}";
 }

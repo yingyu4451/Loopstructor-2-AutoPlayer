@@ -1,7 +1,6 @@
 using Loopstructor.AutoPlayer.Core;
 using Loopstructor.AutoPlayer.Manager.Models;
 using Loopstructor.AutoPlayer.Manager.Services;
-using Loopstructor.AutoPlayer.Manager.UI;
 
 namespace Loopstructor.AutoPlayer.Tests;
 
@@ -42,7 +41,6 @@ public sealed class ManagerSettingsStoreTests
             Assert.Contains("1x", warning);
             Assert.True(settings.OverrideGameSpeed);
             Assert.Equal(0, settings.SpeedState);
-            Assert.Equal(1, MainForm.SpeedSelectionIndex(settings.OverrideGameSpeed, settings.SpeedState));
         }
         finally
         {

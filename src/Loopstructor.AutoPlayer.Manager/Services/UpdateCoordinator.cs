@@ -129,7 +129,8 @@ public sealed class UpdateCoordinator
 
     public (bool Success, string Message) StartApply(
         ManagerSettings settings,
-        int? gameProcessId = null)
+        int? gameProcessId = null,
+        int? desktopProcessId = null)
     {
         if (!TryResolveCoordinates(settings, out string owner, out string repository))
         {
@@ -147,6 +148,11 @@ public sealed class UpdateCoordinator
         startInfo.ArgumentList.Add(CurrentVersion);
         startInfo.ArgumentList.Add("--wait-pid");
         startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+        if (desktopProcessId is > 0 && desktopProcessId != Environment.ProcessId)
+        {
+            startInfo.ArgumentList.Add("--wait-pid");
+            startInfo.ArgumentList.Add(desktopProcessId.Value.ToString());
+        }
         if (gameProcessId is > 0)
         {
             startInfo.ArgumentList.Add("--wait-pid");

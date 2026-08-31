@@ -36,3 +36,6 @@ if (-not [string]::IsNullOrWhiteSpace($Version)) {
 }
 
 Invoke-DotNet -Arguments $buildArguments
+
+Invoke-Pnpm -Arguments @('install', '--frozen-lockfile')
+Invoke-Pnpm -Arguments @('build')

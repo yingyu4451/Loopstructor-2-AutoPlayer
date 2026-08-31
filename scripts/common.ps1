@@ -80,6 +80,31 @@ function Invoke-DotNet {
     }
 }
 
+function Invoke-Pnpm {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $pnpm = Get-Command 'pnpm.cmd' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $pnpm) {
+        throw 'pnpm 11 is required to build the Electron desktop client.'
+    }
+
+    $desktopRoot = Join-Path $script:RepositoryRoot 'desktop'
+    Push-Location $desktopRoot
+    try {
+        & $pnpm.Source @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "pnpm $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Assert-SolutionExists {
     if (-not (Test-Path -LiteralPath $script:SolutionPath -PathType Leaf)) {
         throw "Solution not found: $script:SolutionPath"

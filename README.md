@@ -1,6 +1,6 @@
 # Loopstructor 2 AutoPlayer
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的自动游玩与本地调试工具。Manager 安装并验证载荷、连接已经运行或由它启动的游戏，并展示自动游玩状态；BepInEx 插件在游戏进程内读取可验证状态并调用游戏自带的 `GuiGameAutomation.Runtime` 契约完成操作，不占用系统鼠标和键盘。玩家模式安装后在后台待命，可在游戏运行期间随时从 Manager 开始、暂停或停止自动游玩。
+Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.51` 使用 Electron 44、Vue 3、TypeScript、Pinia、Tailwind CSS 与离线 Iconify 图标重写 Manager 和作弊工具，并合并为一个窗口；`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、作弊命令和更新交接。自动游玩后端代码仍保留，但当前版本暂时禁止启动，只允许停止升级前遗留的运行会话。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -18,7 +18,7 @@ Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的自动游�
 
 ## 从源码构建
 
-要求 Windows PowerShell 5.1 或 PowerShell 7。仓库不依赖机器已安装的 .NET SDK；bootstrap 会把固定的 .NET SDK `8.0.423` 安装到仓库内的 `.dotnet` 目录。
+要求 Windows PowerShell 5.1 或 PowerShell 7、Node.js 24 与 pnpm 11。仓库不依赖机器已安装的 .NET SDK；bootstrap 会把固定的 .NET SDK `8.0.423` 安装到仓库内的 `.dotnet` 目录。
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -26,21 +26,21 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.50 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.51 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.50
+.\scripts\package.ps1 -Version 0.6.51
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.50-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
-2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包已自带唯一一套共享 .NET/WPF 运行时，无需安装系统 .NET；内部 Manager 和 Updater 均位于 `manager\` 目录。用户不需要进入内部目录查找或启动程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.51-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和 WPF Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
 5. 安装完成后，Manager 会为该游戏目录创建当前 Windows 用户专用的玩家模式本机控制注册；注册绑定游戏根目录、插件协议和 `Assembly-CSharp.dll` SHA-256，不会开放网络端口。
@@ -63,7 +63,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ### 作弊调试模式
 
-通过安全握手的游戏进程都可以随时打开独立的“作弊工具”窗口，再手动开启或关闭作弊模式；不需要启动前选择单独的作弊调试会话。作弊工具与 Manager 是两个独立任务栏窗口，最小化 Manager 不会同时最小化作弊工具，操作作弊工具也不会把 Manager 抢到前台。自动游玩期间可继续查询对象并显示怪物 ID 与 Buff，其他作弊写操作会锁定；基地无敌或地图跳关仍开启时不能开始自动游玩。玩家模式会直接修改当前玩家存档，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
+通过安全握手的游戏进程可以在统一工具窗口的“作弊”分组中手动开启或关闭作弊模式。战车、道具、遗物、战斗、对象属性和生成均为同一窗口中的独立页面；自动游玩遗留会话存在时，只读查询与敌人 ID/Buff 显示仍可用，其他写操作锁定。玩家模式会直接修改当前玩家存档，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
 
 战车、附魔、消耗品、弹射点和遗物目录直接读取当前游戏程序集与配置，怪物目录另行保留安全生成筛选；各目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断，配置缺少显示资料时才回退到内部 ID 和占位图。战车底层目录仍保留内部过渡形态用于旧数据诊断，但快捷投放区每个系列只显示“初始形态 / 升级形态”。新增或设置附魔的选择器不显示已停用的群组专属附魔；旧存档已有项仍可在对象详情中查看和移除。插件不会为了读取中文名而切换游戏的全局语言。
 
@@ -139,7 +139,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 src/Loopstructor.AutoPlayer.Core/      共享协议、状态模型与决策引擎
 src/Loopstructor.AutoPlayer.Plugin/    netstandard2.1 BepInEx 5 插件
 src/Loopstructor.AutoPlayer.Launcher/  根目录单文件启动器
-src/Loopstructor.AutoPlayer.Manager/   .NET 8 Windows 管理器与共享自包含运行时
+src/Loopstructor.AutoPlayer.Host/      .NET 8 无窗口服务与 JSON 行 RPC
+desktop/                               Electron 44 + Vue 3 统一桌面界面
+src/Loopstructor.AutoPlayer.Manager/   保留的服务源与退出构建的旧 WPF 界面
 src/Loopstructor.AutoPlayer.Updater/   独立更新进程
 tests/                                 自动化测试
 scripts/                               bootstrap、构建、测试和打包脚本
@@ -150,9 +152,11 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行构建与测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.50-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.51-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
+
+`v0.6.51` 将 Manager 与作弊工具迁移为 Electron + Vue 统一窗口，使用分组齿轨侧栏、响应式 Grid、虚拟目录、统一 Tooltip/Toast 和 Vue 更新确认弹窗；全部图标来自随包离线 Iconify 集合。游戏/插件/作弊/更新能力迁入 `.NET 8 Host`，renderer 保持 sandbox、contextIsolation 与严格 IPC 白名单。旧 WPF Manager 不再进入产品构建，WPF Updater 继续保留。自动游玩入口暂时禁用，但可停止升级前遗留会话。正式完整包为 221,969,735 字节（约 212 MiB），`v0.6.50 → v0.6.51` 增量包为 159,393,606 字节（约 153 MiB）。
 
 `v0.6.50` 修复多轨道站点分配与外环形状：游戏 `RailManager` 的第一条轨道内部 ID 从 `0` 开始，旧版误把它当成无效值，导致额外中继站绕过主环并被后建外环吸收。现在扩轨、特殊站点移动和完整重连都按最早仍存在的轨道优先；新外环只取组成独立闭环所需的一个始发站和两个中继站，剩余站点留给主环。新建和实测验收均要求简单、包围基地且角度/半径均衡的防御环，当前现场出现的细长三角外环会被判为待修复而不是合法完成。本版本以 `v0.6.49` 作为相邻增量更新基线。
 

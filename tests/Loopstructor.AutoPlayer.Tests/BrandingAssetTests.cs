@@ -70,14 +70,13 @@ public sealed class BrandingAssetTests
     {
         string root = RepositoryRoot();
         string launcher = File.ReadAllText(Path.Combine(root, "src", "Loopstructor.AutoPlayer.Launcher", "Loopstructor.AutoPlayer.Launcher.csproj"));
-        string manager = File.ReadAllText(Path.Combine(root, "src", "Loopstructor.AutoPlayer.Manager", "Loopstructor.AutoPlayer.Manager.csproj"));
+        string desktop = File.ReadAllText(Path.Combine(root, "desktop", "package.json"));
         string updater = File.ReadAllText(Path.Combine(root, "src", "Loopstructor.AutoPlayer.Updater", "Loopstructor.AutoPlayer.Updater.csproj"));
 
         Assert.Contains("assets\\branding\\manager.ico", launcher, StringComparison.Ordinal);
-        Assert.Contains("assets\\branding\\manager.ico", manager, StringComparison.Ordinal);
+        Assert.Contains("assets/branding/manager.ico", desktop, StringComparison.Ordinal);
         Assert.Contains("assets\\branding\\manager.ico", updater, StringComparison.Ordinal);
-        Assert.Contains("Assets/Branding/manager-logo-256.png", manager, StringComparison.Ordinal);
-        Assert.Contains("Assets/Branding/cheat-logo-256.png", manager, StringComparison.Ordinal);
+        Assert.Contains("Loopstructor.AutoPlayer.Manager", desktop, StringComparison.Ordinal);
         Assert.Contains("Assets/Branding/manager-logo-256.png", updater, StringComparison.Ordinal);
     }
 

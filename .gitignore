@@ -17,6 +17,15 @@ TestResults/
 payload/
 release-output/
 
+# Electron / Vue workspace output
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/dist-main/
+desktop/dist-electron/
+desktop/playwright-report/
+desktop/test-results/
+
 # Local credentials and machine-specific configuration
 .env
 .env.*

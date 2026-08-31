@@ -53,3 +53,7 @@ if ($NoBuild) {
 }
 
 Invoke-DotNet -Arguments $verificationArguments
+
+Invoke-Pnpm -Arguments @('typecheck')
+Invoke-Pnpm -Arguments @('lint')
+Invoke-Pnpm -Arguments @('test')

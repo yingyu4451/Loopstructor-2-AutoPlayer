@@ -11,7 +11,8 @@
 | BepInEx 编译包 | `BepInEx.Core 5.4.21` |
 | Unity 编译引用 | `UnityEngine.Modules 2022.3.62` |
 | 插件目标框架 | `netstandard2.1`（对应当前 Unity 2022 项目的 `apiCompatibilityLevel: 6`） |
-| Manager/Updater RID | `win-x64`；Manager 自包含目录携带唯一一套运行时，Updater 复用该运行时 |
+| Desktop | Electron `44.x`、Node `24` 构建链、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、离线 Iconify |
+| Host/Updater RID | `win-x64`；Host 与 WPF Updater 均随包发布，无需系统 .NET |
 
 BepInEx runtime 下载地址和 SHA-256 集中在 `Directory.Build.props`：
 
@@ -33,7 +34,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
 ```
 
-`bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed。`test.ps1` 把 TRX 写入 `artifacts\TestResults`。
+`bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
+
+## 0.6.51 Electron + Vue 统一工具窗口
+
+`0.6.51` 将旧 WPF Manager 与独立作弊窗口迁移为 Electron 44 + Vue 3 统一窗口，使用分组齿轨侧栏切换游戏与插件、作弊目录、诊断和设置页面。可见图标全部来自随包离线安装的 Iconify MDI 集合，不依赖 Lucide、CDN 或在线页面；renderer 开启 sandbox、contextIsolation 和严格 CSP，只能通过 preload 的类型化白名单访问本机能力。
+
+原 Manager 非 UI 服务由无窗口 `.NET 8 Host` 承接，通过内部 `desktopHostProtocolVersion: 1` 的逐行 JSON RPC 为 Electron 提供游戏验证、插件管理、可信会话、作弊命令、设置、日志和更新交接。自动游玩后端暂时保留但新界面不允许启动，只保留停止升级前遗留会话的入口。Updater 继续使用独立 WPF 进程。本版本以 `v0.6.50` 作为相邻增量更新基线；游戏插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
 
 ## 0.6.50 主环优先与均衡外环
 
@@ -134,37 +141,38 @@ Set-ExecutionPolicy -Scope Process Bypass
 完整构建、发布并打包：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.50
+.\scripts\package.ps1 -Version 0.6.51
 ```
 
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.50 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.51 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.50-win-x64.zip
-Loopstructor.AutoPlayer-0.6.50-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.49-to-0.6.50-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.49-to-0.6.50-win-x64.delta.zip.sha256 可选
+Loopstructor.AutoPlayer-0.6.51-win-x64.zip
+Loopstructor.AutoPlayer-0.6.51-win-x64.zip.sha256
+Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip        可选
+Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip.sha256 可选
   autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.50-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor.AutoPlayer-0.6.51-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor 2.AutoPlayer/
   Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
   manager/
-    Loopstructor.AutoPlayer.Manager.exe 内部 Manager 入口
-    Loopstructor.AutoPlayer.Updater.exe 内部 Updater 入口
-    PresentationFramework.dll           Manager/Updater 共用 WPF 运行时文件
-    PresentationCore.dll
-    WindowsBase.dll
+    Loopstructor.AutoPlayer.Manager.exe Electron 桌面入口
+    resources/app.asar                  Vue renderer 与 Electron 主进程
+    Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
+    Loopstructor.AutoPlayer.Host.dll
+    Loopstructor.AutoPlayer.Updater.exe  WPF Updater 入口
+    PresentationFramework.dll           Updater 的 WPF 运行时文件
   payload/
     bepinex/
     plugin/
@@ -173,7 +181,7 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装系统 .NET；根启动器为自包含单文件，内部 Manager 与 Updater 都位于 `manager\`，并只携带唯一一套 .NET/WPF 运行时。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和共享运行时一起复制到临时目录，因此仍能安全替换整个程序目录。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与 WPF Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。标题栏永久显示当前产品版本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
@@ -184,17 +192,17 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 ```json
 {
   "schemaVersion": 2,
-  "version": "0.6.50",
+  "version": "0.6.51",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.50-win-x64.zip",
+  "assetName": "Loopstructor.AutoPlayer-0.6.51-win-x64.zip",
   "sha256": "<64-lowercase-hex>",
-  "size": 65155164,
+  "size": 221969735,
   "deltaAssets": [
     {
-      "fromVersion": "0.6.49",
-      "assetName": "Loopstructor.AutoPlayer-0.6.49-to-0.6.50-win-x64.delta.zip",
+      "fromVersion": "0.6.50",
+      "assetName": "Loopstructor.AutoPlayer-0.6.50-to-0.6.51-win-x64.delta.zip",
       "sha256": "<64-lowercase-hex>",
-      "size": 2498589
+      "size": 159393606
     }
   ]
 }
@@ -265,8 +273,8 @@ git fetch origin
 在 GitHub 仓库 Settings 中允许 GitHub Actions 对 contents 写入，确认 CI 通过后发布：
 
 ```powershell
-git tag v0.6.50
-git push origin v0.6.50
+git tag v0.6.51
+git push origin v0.6.51
 ```
 
 仅创建本地 tag 不会发布；必须把 tag 推送到已配置的 GitHub remote。
@@ -275,7 +283,7 @@ git push origin v0.6.50
 
 ## 发布检查表
 
-- Core、Plugin、Manager、Updater 和 Tests 全部在 solution 中且 Release 构建成功；
+- Core、Plugin、Host、Updater 和 Tests 全部在 solution 中且 Release 构建成功；Electron/Vue 的冻结依赖恢复、类型检查、ESLint、Vitest 和 Playwright 均通过；
 - 测试覆盖玩家本机注册、一次性 QA 票据、token 拒绝、路径越界拒绝、程序集哈希不符和更新哈希失败；
 - 使用新的空 QA profile 分别完成普通模式和随机模式跨波验证；记录 2 波启动、1 波完成、奖励和波后选路，或记录当前版本的新等价证据；
 - 验证所有前端写操作只在全局模块和当前场景 Main 稳定就绪后发出；检查随机模式日志并记录转盘离场后的非致命动画异常是否仍存在；
@@ -283,7 +291,7 @@ git push origin v0.6.50
 - 确认四个强制平台写入补丁全部应用；使用 QA 账号或离线环境，不得把“无已知成就写入”等同于账号零痕迹；
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
-- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；Manager 与作弊工具可独立最小化且不会互相抢前台；验证自动游玩期间仅开放作弊监视、敌人 ID/Buff 覆盖层不产生作弊标记、其他写命令被双重锁定，且基地无敌/地图跳关会阻止开始；中文/枚举/图标搜索、战车/附魔家族排序、附魔无限层数与卡片全量换行、消耗品/弹射点互斥目录、对象图标、已有附魔图标、批量删除消耗品/背包及场上弹射点、场上点击删除精确命中、一键逐帧补齐或删除全部遗物及其进度/幂等/部分失败、多点生成列表、游戏内点位标记、当前 AI 等级链、写命令前置作弊标记、场景复位和 Manager 租约失效关闭均符合预期；
+- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；统一窗口单实例、侧栏、响应式页面和作弊控制条正确；自动游玩页不可启动且可停止遗留会话；中文/枚举/Iconify 图标搜索、战车/附魔家族排序、附魔无限层数与卡片全量换行、消耗品/弹射点互斥目录、对象图标、已有附魔图标、批量删除和多点生成等作弊能力符合预期；
 - 验证地图跳关仍隐藏当前进度层及历史层，只开放进度之后的节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 验证普通事件剧情开关只点击 `EventUI_Normal` 的真实 Skip 按钮，轨神事件不受影响；两种决策优先级可持久化并改变奖励与路线排序；右侧目标型道具只使用最新 MCP 合法候选，扩轨资源不会被战斗逻辑消耗；
@@ -292,7 +300,7 @@ git push origin v0.6.50
 - 验证装修厂优先直升真实且未升级的战车，并完整走过选择战车、确认、稳定三选一附魔和结算阶段；同名个人附魔优先升级，既有个人附魔全部保留且附魔数量不设上限；
 - 验证作弊快捷投放每个战车系列只显示“初始形态 / 升级形态”，内部过渡形态和车列专属附魔不出现在新增或设置目录，旧存档已有车列专属附魔仍可查看和移除；旧决策配置值 `0` 加载为“优先拿战车”；
 - 在受支持构建上验证运行时契约检查允许启动和执行；在程序集指纹或必需运行时契约未知的构建上验证插件拒绝写入并返回明确的不兼容原因；
-- 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 .NET 即可启动、Manager 与 Updater 共用 `manager\` 内唯一一套 WPF 运行时、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
+- 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 Node.js/.NET 即可启动 Electron、Host 与 Updater，`resources/app.asar` 存在、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
 - 验证 schema 2 更新清单的完整包资产名、大小和 SHA-256 正确；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
 - 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
