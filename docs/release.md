@@ -201,14 +201,14 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
   "version": "0.6.52",
   "runtimeIdentifier": "win-x64",
   "assetName": "Loopstructor.AutoPlayer-0.6.52-win-x64.zip",
-  "sha256": "82ac1179abcf31ec57352d4cb90e661743434b08a49727c6e2d1787ec595ff99",
-  "size": 221973408,
+  "sha256": "355de7267c651c0e6d31960b676118fc6bccbf04b40498570759bdc7eae491a8",
+  "size": 221973857,
   "deltaAssets": [
     {
       "fromVersion": "0.6.51",
       "assetName": "Loopstructor.AutoPlayer-0.6.51-to-0.6.52-win-x64.delta.zip",
-      "sha256": "8a1ab71a849583699299a0071be50644f4273c0cfb67dc4b7de1a28285830a5e",
-      "size": 110152147
+      "sha256": "c37723c36207fa7806adc1ae4d64f3f94ab56801b175a358b6dd16f094602fc6",
+      "size": 110152596
     }
   ]
 }
