@@ -44,7 +44,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 战车获取恢复为上一版的初始形态和升级形态两个选择，不显示内部过渡等级；系列卡片直接渲染当前游戏目录返回的战车图标。界面设置在编辑期间不再被 Host 轮询覆盖，缩放后页面轨道和当前路由保持不变；标题栏的可用版本铭牌可直接进入安装流程。Electron 模态框和 WPF Updater 使用同一套煤黑、深铜、黄铜、信号绿与禁用态色令牌，避免更新流程出现另一套窗口风格。
 
-本地正式完整包为 221,984,564 字节（约 212 MiB），SHA-256 为 `d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544`；`v0.6.52 → v0.6.53` 增量包为 110,163,303 字节（约 106 MiB），只包含 17 个变化文件，SHA-256 为 `0f4f2c613686489d69f1dbf9fdb9f9a9cc2fb4bbe6563025206c090bf713b494`。完整包 370 个文件及增量重建结果均已逐文件验证。
+本地正式完整包为 221,984,564 字节（约 212 MiB），SHA-256 为 `d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544`；GitHub Release workflow 重新构建后的公开完整资产为 221,984,374 字节，SHA-256 为 `eb7a113384ee1f46027094dda2dfb50fdf46c72a8b274c32b4e291c554844598`。`v0.6.52 → v0.6.53` 本地增量包为 110,163,303 字节，公开 Release 资产为 110,163,113 字节，SHA-256 为 `60bfe5dfbee7a18dc1b0eed664e26f5b23437dde15371ddec5b74ef81ff2795e`，只包含 17 个变化文件。完整包 370 个文件及增量重建结果均已逐文件验证；安装和更新时以公开清单中的云端 SHA 为准。
 
 ## 0.6.52 导航状态、自动游玩入口与默认作弊
 
@@ -211,14 +211,14 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
   "version": "0.6.53",
   "runtimeIdentifier": "win-x64",
   "assetName": "Loopstructor.AutoPlayer-0.6.53-win-x64.zip",
-  "sha256": "d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544",
-  "size": 221984564,
+  "sha256": "eb7a113384ee1f46027094dda2dfb50fdf46c72a8b274c32b4e291c554844598",
+  "size": 221984374,
   "deltaAssets": [
     {
       "fromVersion": "0.6.52",
       "assetName": "Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip",
-      "sha256": "0f4f2c613686489d69f1dbf9fdb9f9a9cc2fb4bbe6563025206c090bf713b494",
-      "size": 110163303
+      "sha256": "60bfe5dfbee7a18dc1b0eed664e26f5b23437dde15371ddec5b74ef81ff2795e",
+      "size": 110163113
     }
   ]
 }
