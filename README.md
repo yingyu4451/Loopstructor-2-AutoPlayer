@@ -153,6 +153,8 @@ docs/                                  架构、安全与发布说明
 
 架构和数据流见 [docs/architecture.md](docs/architecture.md)。
 
+更换电脑或在新的 Codex 任务中继续开发前，先阅读 [docs/codex-handoff.md](docs/codex-handoff.md)。
+
 ## GitHub 与自动更新
 
 push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
