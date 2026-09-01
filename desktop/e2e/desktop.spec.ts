@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.55-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.56-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -94,7 +94,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
 test('reuses the Electron runtime for the updater mode', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-updater-e2e-'))
   const app = await electron.launch({
-    args: ['.', '--updater'],
+    args: ['.', '--updater', '--desktop-staged-run'],
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -108,6 +108,37 @@ test('reuses the Electron runtime for the updater mode', async () => {
     await expect(page.getByText('更新未完成', { exact: true })).toBeVisible()
     expect(await page.evaluate(() => window.loopstructorDesktop.isUpdater)).toBe(true)
     await expect(page.locator('.updater-message')).toHaveText('apply 命令必须提供 --target <release-root>。')
+    for (const size of [{ width: 680, height: 520 }, { width: 760, height: 600 }]) {
+      await app.evaluate(({ BrowserWindow }, nextSize) => {
+        BrowserWindow.getAllWindows()[0]?.setSize(nextSize.width, nextSize.height)
+      }, size)
+      await page.waitForTimeout(100)
+      const layout = await page.evaluate(() => {
+        const appRoot = document.querySelector<HTMLElement>('#app')!
+        const card = document.querySelector<HTMLElement>('.updater-card')!
+        const bounds = card.getBoundingClientRect()
+        return {
+          rootWidth: appRoot.clientWidth,
+          rootScrollWidth: appRoot.scrollWidth,
+          rootHeight: appRoot.clientHeight,
+          rootScrollHeight: appRoot.scrollHeight,
+          left: bounds.left,
+          top: bounds.top,
+          right: bounds.right,
+          bottom: bounds.bottom,
+        }
+      })
+      expect(layout.rootScrollWidth).toBeLessThanOrEqual(layout.rootWidth)
+      expect(layout.rootScrollHeight).toBeLessThanOrEqual(layout.rootHeight)
+      expect(layout.left).toBeGreaterThanOrEqual(0)
+      expect(layout.top).toBeGreaterThanOrEqual(54)
+      expect(layout.right).toBeLessThanOrEqual(layout.rootWidth)
+      expect(layout.bottom).toBeLessThanOrEqual(layout.rootHeight)
+      await page.screenshot({
+        path: resolve(screenshotRoot, `${size.width}x${size.height}-更新窗口.png`),
+        animations: 'disabled',
+      })
+    }
     await page.getByRole('button', { name: '退出', exact: true }).click()
   } finally {
     await app.close()

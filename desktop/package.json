@@ -1,6 +1,6 @@
 {
   "name": "loopstructor-autoplayer-desktop",
-  "version": "0.6.55",
+  "version": "0.6.56",
   "private": true,
   "description": "Loopstructor AutoPlayer unified Electron desktop client",
   "author": "yingyu4451",
@@ -12,7 +12,8 @@
     "build:main": "tsc -p tsconfig.main.json",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:main",
+    "test:main": "pnpm build:main && node --test dist-main/updater-relocator.test.cjs",
     "start": "pnpm build && electron .",
     "package:dir": "pnpm build && electron-builder --win --dir",
     "package:dir:only": "electron-builder --win --dir",
@@ -54,6 +55,7 @@
     "files": [
       "dist/**/*",
       "dist-main/**/*",
+      "!dist-main/**/*.test.cjs",
       "package.json"
     ],
     "extraResources": [

@@ -41,7 +41,7 @@ onBeforeUnmount(() => store.removeHostEvent?.())
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'updater-mode': updaterMode }">
     <TitleBar :updater-mode="updaterMode" />
     <UpdaterPage v-if="updaterMode" />
     <div v-else class="app-body" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">

@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.56 更新窗口自适应与安装目录解锁
+
+`0.6.56` 将 Manager 的最小窗口尺寸约束留在原生 `BrowserWindow`，不再把 `980×680` 强制施加到更新 renderer。更新卡片会在 `680×520` 的最小更新窗口和默认 `760×600` 窗口内自适应缩放，长错误消息自动换行，只有内容真实溢出时才在卡片内部滚动。
+
+Electron 更新窗口启动后会先把当前 `manager` 运行时复制到 `%TEMP%\LoopstructorAutoPlayerUpdater\electron-*`，再由临时副本托管 Vue 更新界面和 .NET 更新事务。正式安装目录因此不再被 Electron 自身占用，可以完成原子替换；更新成功并重启新版 Manager 后会清理本次临时运行时。插件协议、作弊协议、目录格式和更新清单 schema 保持不变。本版本以 `v0.6.55` 作为相邻增量更新基线。
+
 ## 0.6.55 独立存档页与手动读档
 
 `0.6.55` 将存档保险库从界面设置中拆为侧栏独立页面，列出当前游戏范围内全部受管快照、章节关卡、保存时间、文件数量和大小。选择“读档”后会先显示机械风确认窗口；确认后 Host 验证备份 ID 和当前玩家存档目录，请求 Skyspine 正常退出，在同一存档父目录完成暂存、内容校验、原存档回滚点和原子切换，失败时恢复读档前存档，成功后自动重新启动游戏。新增 `backups.list` 与 `backups.restore` 为 Desktop Host 内部向后兼容白名单 RPC；游戏插件协议、作弊协议和更新清单 schema 保持不变。本版本以 `v0.6.54` 作为相邻增量更新基线。

@@ -4,6 +4,13 @@ import { createInterface } from 'node:readline'
 import path from 'node:path'
 import fs from 'node:fs'
 import { HostClient } from './host-client.cjs'
+import {
+  createElectronUpdaterRelocationPlan,
+  cleanupElectronUpdaterRuntimeCopy,
+  isRuntimeOutsideTarget,
+  isStagedUpdaterRun,
+  stageElectronUpdaterRuntime,
+} from './updater-relocator.cjs'
 
 let window: BrowserWindow | undefined
 let host: HostClient | undefined
@@ -12,6 +19,7 @@ let updaterFinished = false
 const isUpdaterMode = process.argv.some(argument => argument.toLowerCase() === '--updater')
 const updaterArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--updater')
 const updaterArguments = updaterArgumentIndex >= 0 ? process.argv.slice(updaterArgumentIndex + 1) : []
+const updaterCleanupRoot = process.env.LOOPSTRUCTOR_AUTOPLAYER_CLEANUP_UPDATER_RUNTIME
 
 const userDataOverride = process.env.LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT
 if (userDataOverride) app.setPath('userData', path.resolve(userDataOverride))
@@ -32,8 +40,37 @@ if (!isUpdaterMode) app.on('second-instance', showExistingWindow)
 
 app.whenReady().then(() => {
   if (isUpdaterMode) {
+    if (!isStagedUpdaterRun(updaterArguments)) {
+      try {
+        const sourceRoot = path.dirname(process.execPath)
+        const plan = createElectronUpdaterRelocationPlan(sourceRoot, process.execPath)
+        stageElectronUpdaterRuntime(sourceRoot, plan)
+        const relocatedArguments = [
+          ...(process.defaultApp ? [path.resolve(__dirname, '..')] : []),
+          '--updater',
+          ...updaterArguments,
+          '--desktop-staged-run',
+        ]
+        const relocated = spawn(plan.executablePath, relocatedArguments, {
+          cwd: plan.workingDirectory,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+          env: { ...process.env },
+        })
+        relocated.unref()
+        app.quit()
+      } catch (error) {
+        dialog.showErrorBox('无法启动更新窗口', `无法准备独立的更新运行环境。\n\n${String(error)}`)
+        app.quit()
+      }
+      return
+    }
     createUpdaterWindow()
     return
+  }
+  if (updaterCleanupRoot) {
+    setTimeout(() => cleanupElectronUpdaterRuntimeCopy(updaterCleanupRoot, path.dirname(process.execPath)), 3000)
   }
   const managerDirectory = path.dirname(process.execPath)
   const developmentRoot = path.resolve(__dirname, '..', '..')
@@ -188,9 +225,18 @@ function registerUpdaterIpc(distributionRoot: string, managerDirectory: string):
     ].filter((candidate): candidate is string => Boolean(candidate))
     const executable = candidates.find(candidate => fs.existsSync(candidate))
     if (!executable) return { success: false, message: '找不到 .NET 更新事务组件。' }
-    const args = updaterArguments.filter(argument => argument.toLowerCase() !== '--updater')
+    const args = updaterArguments.filter(argument => {
+      const normalized = argument.toLowerCase()
+      return normalized !== '--updater' && normalized !== '--desktop-staged-run'
+    })
     if (!args.some(argument => argument.toLowerCase() === 'apply')) args.unshift('apply')
     if (!args.some(argument => argument.toLowerCase() === '--json-stream')) args.push('--json-stream')
+    const targetRoot = readUpdaterArgument(args, '--target')
+    if (targetRoot
+        && isRuntimeOutsideTarget(process.execPath, targetRoot)
+        && !args.some(argument => argument.toLowerCase() === '--staged-run')) {
+      args.push('--staged-run')
+    }
     updaterFinished = false
     let latestVersion = ''
     updaterProcess = spawn(executable, args, {
@@ -288,6 +334,10 @@ function startCleanupAndRestart(updaterExecutable: string, targetRoot: string, v
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
+        env: {
+          ...process.env,
+          LOOPSTRUCTOR_AUTOPLAYER_CLEANUP_UPDATER_RUNTIME: path.dirname(process.execPath),
+        },
       })
       restarted.unref()
       window?.webContents.send('updater:event', { event: 'restarted', payload: { version } })
