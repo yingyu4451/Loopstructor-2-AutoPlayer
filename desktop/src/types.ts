@@ -1,4 +1,4 @@
-export type RouteKey = 'game' | 'autoplay' | 'vehicles' | 'items' | 'relics' | 'battle' | 'objects' | 'spawn' | 'diagnostics' | 'settings'
+export type RouteKey = 'game' | 'saves' | 'autoplay' | 'vehicles' | 'items' | 'relics' | 'battle' | 'objects' | 'spawn' | 'diagnostics' | 'settings'
 export type ToastKind = 'success' | 'info' | 'warning' | 'error'
 
 export interface ManagerSettings {
@@ -123,6 +123,42 @@ export interface UpdateStatus {
   message: string
 }
 
+export interface SaveBackupStatus {
+  enabled: boolean
+  maximumBackups: number
+  backupCount: number
+  backupRoot: string
+  latestBackup: string
+  lastMessage: string
+  lastBackupUtc?: string
+  pending: boolean
+  busy: boolean
+}
+
+export interface SaveBackupEntry {
+  id: string
+  chapter: number
+  level: number
+  createdAt: string
+  fileCount: number
+  totalBytes: number
+  isLatest: boolean
+}
+
+export interface SaveBackupCatalog {
+  backups: SaveBackupEntry[]
+  status: SaveBackupStatus
+}
+
+export interface SaveRestoreResponse {
+  success: boolean
+  backupId: string
+  targetDirectory: string
+  gameRestarted: boolean
+  message: string
+  backups: SaveBackupEntry[]
+}
+
 export interface HostSnapshot {
   protocolVersion: number
   version: string
@@ -132,17 +168,7 @@ export interface HostSnapshot {
   connection: ConnectionState
   hello?: Record<string, unknown>
   status?: AutoPlayerStatus
-  saveBackups?: {
-    enabled: boolean
-    maximumBackups: number
-    backupCount: number
-    backupRoot: string
-    latestBackup: string
-    lastMessage: string
-    lastBackupUtc?: string
-    pending: boolean
-    busy: boolean
-  }
+  saveBackups?: SaveBackupStatus
   update?: UpdateStatus
   logs: HostLogEntry[]
 }
@@ -203,6 +229,8 @@ export interface DesktopApi {
   onUpdaterEvent(listener: (event: { event: string; payload: any }) => void): () => void
   openEvidence(): Promise<{ path: string }>
   openSaveBackups(): Promise<{ path: string }>
+  listSaveBackups(): Promise<SaveBackupCatalog>
+  restoreSaveBackup(backupId: string): Promise<SaveRestoreResponse>
   clearLogs(): Promise<unknown>
   minimize(): Promise<void>
   toggleMaximize(): Promise<void>

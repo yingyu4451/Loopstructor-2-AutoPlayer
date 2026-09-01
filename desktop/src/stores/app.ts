@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { AutomationSetup, CatalogItem, ControlResponse, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey } from '../types'
+import type { AutomationSetup, CatalogItem, ControlResponse, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey, SaveBackupCatalog, SaveBackupEntry } from '../types'
 import { useUiStore } from './ui'
 
 const mutationCommands = new Set([
@@ -20,6 +20,7 @@ export const useAppStore = defineStore('app', {
     vehicles: [] as Record<string, any>[],
     enemies: [] as Record<string, any>[],
     automationSetup: undefined as AutomationSetup | undefined,
+    saveBackupCatalog: undefined as SaveBackupCatalog | undefined,
     currentRoute: 'game' as RouteKey,
     routeInitialized: false,
     connected: false,
@@ -95,6 +96,35 @@ export const useAppStore = defineStore('app', {
     },
     async launchGame() {
       await useUiStore().run(() => window.loopstructorDesktop.launchGame(), '游戏启动请求已发送。')
+    },
+    async refreshSaveBackups(announce = false) {
+      const catalog = await useUiStore().run(
+        () => window.loopstructorDesktop.listSaveBackups(),
+        announce ? '存档列表已刷新。' : undefined,
+      )
+      if (catalog) this.saveBackupCatalog = catalog
+      return catalog
+    },
+    async restoreSaveBackup(backup: SaveBackupEntry) {
+      const ui = useUiStore()
+      const confirmed = await ui.confirm({
+        title: '关闭游戏并读取存档',
+        message: `将读取第 ${backup.chapter} 章、第 ${backup.level} 关的备份。Manager 会先请求 Skyspine 正常关闭，恢复存档后再自动启动游戏。`,
+        confirmText: '关闭游戏并读档',
+        danger: true,
+      })
+      if (!confirmed) return undefined
+      const result = await ui.run(() => window.loopstructorDesktop.restoreSaveBackup(backup.id))
+      if (!result) return undefined
+      this.saveBackupCatalog = {
+        backups: result.backups,
+        status: this.snapshot?.saveBackups ?? this.saveBackupCatalog?.status ?? {
+          enabled: true, maximumBackups: 20, backupCount: result.backups.length,
+          backupRoot: '', latestBackup: '', lastMessage: result.message, pending: false, busy: false,
+        },
+      }
+      ui.toast(result.message, result.gameRestarted ? 'success' : 'warning')
+      return result
     },
     async refreshConnection() {
       const snapshot = await useUiStore().run(() => window.loopstructorDesktop.refreshConnection())

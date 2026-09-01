@@ -1,6 +1,6 @@
 # Loopstructor 2 AutoPlayer
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.54` 将更新器界面并入现有 Electron 运行时：更新时由同一 Manager 可执行文件以 `--updater` 模式显示 Vue 机械风进度页，仍由隐藏的 .NET Updater 执行校验、增量下载、事务替换和回滚。统一窗口继续使用 Electron 44、Vue 3、TypeScript、Pinia、Tailwind CSS 与离线 Iconify 图标；`.NET 8 Host` 负责游戏验证、插件安装、可信会话、存档备份、自动游玩、作弊命令和更新交接。
+Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.55` 将存档保险库拆成统一 Electron 窗口中的独立页面，可浏览全部受管快照并选择读档；Manager 会在确认后正常关闭游戏，以可回滚事务恢复存档，再重新启动游戏。更新界面继续复用同一 Electron 运行时的 `--updater` 模式。统一窗口使用 Electron 44、Vue 3、TypeScript、Pinia、Tailwind CSS 与离线 Iconify 图标；`.NET 8 Host` 负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.54 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.55 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.54
+.\scripts\package.ps1 -Version 0.6.55
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.54-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.55-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和隐藏事务用 WPF Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -60,7 +60,7 @@ Set-ExecutionPolicy -Scope Process Bypass
   tickets\launch-<game-root-id>.json
 ```
 
-设置页的“存档保险库”可启用或关闭自动备份，并设置最多保留 1–100 个步骤存档。Host 只处理正式玩家模式：检测到章节或关卡变化后先等待游戏写盘稳定，再在临时目录中复制；复制前后文件指纹一致才原子完成。目录名使用“章节 + 关卡号 + 本地日期时间”，超过上限时只删除工具自己管理且名称严格匹配的最旧备份。隔离 QA 存档不会重复进入玩家备份目录。
+独立的“存档”页面可启用或关闭自动备份、设置最多保留 1–100 个步骤存档，并列出全部受管快照。Host 只处理正式玩家模式：检测到章节或关卡变化后先等待游戏写盘稳定，再在临时目录中复制；复制前后文件指纹一致才原子完成。目录名使用“章节 + 关卡号 + 本地日期时间”，超过上限时只删除工具自己管理且名称严格匹配的最旧备份。选择读档后，Manager 会请求 Skyspine 正常关闭，把快照完整校验后以临时事务替换当前玩家存档；失败会恢复读档前状态，成功后自动重启游戏。隔离 QA 存档不会进入玩家备份目录。
 
 玩家模式的本机注册使用稳定的 pipe 基础名与高熵 token，使手动启动的游戏也能被同一用户的 Manager 找到；每个实际游戏进程使用带 PID 的专属端点，握手后每条请求还必须匹配随机进程实例标识。插件和 Manager 同时校验目录、PID、进程启动时间、进程实例、程序集指纹及运行时契约；检测到多个未绑定的同目录游戏进程时会拒绝任意选择。隔离 QA 模式的启动票据在读取后立即删除，最长有效期为 10 分钟，并为每次启动重新生成 pipe 与 token。两类 token 都不得写入日志或提交到 Git。
 

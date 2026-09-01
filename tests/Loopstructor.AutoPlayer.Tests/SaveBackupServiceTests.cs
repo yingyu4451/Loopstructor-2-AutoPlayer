@@ -86,6 +86,61 @@ public sealed class SaveBackupServiceTests : IDisposable
         Assert.Equal(2, service.Snapshot(true, 10).BackupCount);
     }
 
+    [Fact]
+    public async Task ListBackups_ReturnsEveryManagedSnapshotNewestFirst()
+    {
+        string source = Path.Combine(_root, "game-save");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "progress.json"), "one");
+        SaveBackupService service = new(Path.Combine(_root, "backups"), TimeSpan.Zero);
+        ManagerSettings settings = new() { AutomaticSaveBackupEnabled = true, MaximumSaveBackups = 10 };
+
+        await ObserveStep(service, settings, source, chapter: 1, level: 2);
+        File.WriteAllText(Path.Combine(source, "progress.json"), "second-save");
+        await ObserveStep(service, settings, source, chapter: 2, level: 4);
+
+        IReadOnlyList<SaveBackupEntry> backups = service.ListBackups(_root);
+
+        Assert.Equal(2, backups.Count);
+        Assert.Equal((2, 4), (backups[0].Chapter, backups[0].Level));
+        Assert.Equal((1, 2), (backups[1].Chapter, backups[1].Level));
+        Assert.All(backups, backup => Assert.True(backup.FileCount > 0));
+    }
+
+    [Fact]
+    public async Task Restore_ReplacesThePlayerSaveAndRemovesFilesNotInTheSnapshot()
+    {
+        string source = Path.Combine(_root, "game-save");
+        Directory.CreateDirectory(source);
+        string progress = Path.Combine(source, "progress.json");
+        File.WriteAllText(progress, "saved-state");
+        SaveBackupService service = new(Path.Combine(_root, "backups"), TimeSpan.Zero);
+        ManagerSettings settings = new() { AutomaticSaveBackupEnabled = true, MaximumSaveBackups = 10 };
+        await ObserveStep(service, settings, source, chapter: 3, level: 7);
+        SaveBackupEntry backup = Assert.Single(service.ListBackups(_root));
+
+        File.WriteAllText(progress, "current-state");
+        File.WriteAllText(Path.Combine(source, "not-in-backup.json"), "remove-me");
+        SaveRestorePlan plan = service.CreateRestorePlan(_root, backup.Id, source);
+        SaveRestoreResult result = await service.RestoreAsync(plan, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("saved-state", File.ReadAllText(progress));
+        Assert.False(File.Exists(Path.Combine(source, "not-in-backup.json")));
+        Assert.Empty(Directory.GetDirectories(_root, ".game-save.restore-*", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void RestorePlan_RejectsPathsThatAreNotManagedBackupIds()
+    {
+        SaveBackupService service = new(Path.Combine(_root, "backups"), TimeSpan.Zero);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            service.CreateRestorePlan(_root, "..\\other-save", Path.Combine(_root, "game-save")));
+
+        Assert.Contains("不属于", error.Message, StringComparison.Ordinal);
+    }
+
     private static async Task ObserveStep(
         SaveBackupService service,
         ManagerSettings settings,

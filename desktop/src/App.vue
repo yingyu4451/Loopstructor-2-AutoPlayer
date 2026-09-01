@@ -6,6 +6,7 @@ import CheatControlBar from './components/CheatControlBar.vue'
 import AppToast from './components/AppToast.vue'
 import AppModal from './components/AppModal.vue'
 import GamePage from './pages/GamePage.vue'
+import SavesPage from './pages/SavesPage.vue'
 import AutoplayPage from './pages/AutoplayPage.vue'
 import VehiclesPage from './pages/VehiclesPage.vue'
 import ItemsPage from './pages/ItemsPage.vue'
@@ -23,7 +24,7 @@ const store = useAppStore()
 const ui = useUiStore()
 const updaterMode = window.loopstructorDesktop.isUpdater === true
 const pages = {
-  game: GamePage, autoplay: AutoplayPage, vehicles: VehiclesPage, items: ItemsPage,
+  game: GamePage, saves: SavesPage, autoplay: AutoplayPage, vehicles: VehiclesPage, items: ItemsPage,
   relics: RelicsPage, battle: BattlePage, objects: ObjectsPage, spawn: SpawnPage,
   diagnostics: DiagnosticsPage, settings: SettingsPage,
 }

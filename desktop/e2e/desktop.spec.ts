@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.54-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.55-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -42,7 +42,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     expect(directSnapshot.value?.protocolVersion).toBe(1)
     await expect(page.locator('.titlebar-status')).not.toContainText('正在启动 Host', { timeout: 15_000 })
 
-    const routes = ['游戏与插件', '自动游玩', '战车', '道具', '遗物', '战斗', '对象属性', '生成', '日志与状态', '界面与更新']
+    const routes = ['游戏与插件', '存档', '自动游玩', '战车', '道具', '遗物', '战斗', '对象属性', '生成', '日志与状态', '界面与更新']
     await page.getByRole('button', { name: '战车', exact: true }).click()
     await page.waitForTimeout(1_100)
     await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', '战车')
@@ -50,10 +50,11 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await page.getByRole('button', { name: '自动游玩', exact: true }).click()
     await expect(page.getByRole('status').getByText('自动游玩尚未完成', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '开始', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '界面与更新', exact: true }).click()
+    await page.getByRole('button', { name: '存档', exact: true }).click()
     await expect(page.getByText('存档保险库', { exact: true })).toBeVisible()
     await expect(page.getByText('自动备份存档', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '打开备份目录', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '打开目录', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '界面与更新', exact: true }).click()
     await page.getByRole('radio', { name: /自定义/ }).check()
     await page.getByRole('slider').fill('125')
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()

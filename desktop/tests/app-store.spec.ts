@@ -2,12 +2,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '../src/stores/app'
 import { useUiStore } from '../src/stores/ui'
-import type { DesktopApi, HostSnapshot } from '../src/types'
+import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.54',
+    version: '0.6.55',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -100,5 +100,27 @@ describe('desktop application store', () => {
 
     expect(response?.success).toBe(true)
     expect(startAutomation).toHaveBeenCalledOnce()
+  })
+
+  it('confirms one selected backup before sending the restore request', async () => {
+    const backup: SaveBackupEntry = {
+      id: '第01章-第003关-20260901-120000', chapter: 1, level: 3,
+      createdAt: '2026-09-01T12:00:00+08:00', fileCount: 4, totalBytes: 1024, isLatest: true,
+    }
+    const restoreSaveBackup = vi.fn(async () => ({
+      success: true, backupId: backup.id, targetDirectory: 'C:\\Saves', gameRestarted: true,
+      message: '读档完成', backups: [backup],
+    }))
+    window.loopstructorDesktop = { restoreSaveBackup } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+
+    const pending = store.restoreSaveBackup(backup)
+    expect(useUiStore().confirmDialog?.title).toBe('关闭游戏并读取存档')
+    useUiStore().resolveConfirm(true)
+    await pending
+
+    expect(restoreSaveBackup).toHaveBeenCalledOnce()
+    expect(restoreSaveBackup).toHaveBeenCalledWith(backup.id)
   })
 })

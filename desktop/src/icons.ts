@@ -47,6 +47,8 @@ import saveIcon from '@iconify-icons/mdi/content-save'
 import fileIcon from '@iconify-icons/mdi/file-document'
 import monitorIcon from '@iconify-icons/mdi/monitor-dashboard'
 import githubIcon from '@iconify-icons/mdi/github'
+import archiveClockIcon from '@iconify-icons/mdi/archive-clock'
+import backupRestoreIcon from '@iconify-icons/mdi/backup-restore'
 
 function iconComponent(name: string, icon: IconifyIcon) {
   return defineComponent({
@@ -108,3 +110,5 @@ export const Crosshair = iconComponent('CrosshairIcon', scanIcon)
 export const FileText = iconComponent('LogIcon', fileIcon)
 export const MonitorCog = iconComponent('DisplayIcon', monitorIcon)
 export const Github = iconComponent('GitHubIcon', githubIcon)
+export const ArchiveClock = iconComponent('ArchiveClockIcon', archiveClockIcon)
+export const BackupRestore = iconComponent('BackupRestoreIcon', backupRestoreIcon)

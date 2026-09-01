@@ -328,6 +328,11 @@ function registerIpc(): void {
   ipcMain.handle('update:apply', () => invoke('update.apply', { desktopProcessId: process.pid }))
   ipcMain.handle('diagnostics:openEvidence', () => invoke('diagnostics.openEvidence'))
   ipcMain.handle('backups:open', () => invoke('backups.open'))
+  ipcMain.handle('backups:list', () => invoke('backups.list'))
+  ipcMain.handle('backups:restore', (_event, backupId: string) => {
+    if (!host) throw new Error('.NET Host 尚未启动。')
+    return host.invoke('backups.restore', { backupId }, 120000)
+  })
   ipcMain.handle('logs:clear', () => invoke('logs.clear'))
   ipcMain.handle('window:minimize', () => window?.minimize())
   ipcMain.handle('window:toggleMaximize', () => window?.isMaximized() ? window.unmaximize() : window?.maximize())

@@ -123,6 +123,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
                 "update.apply" => StartUpdate(parameters?.Value<int?>("desktopProcessId") ?? 0),
                 "diagnostics.openEvidence" => OpenEvidenceDirectory(),
                 "backups.open" => OpenSaveBackupDirectory(),
+                "backups.list" => ListSaveBackups(),
+                "backups.restore" => await RestoreSaveBackupAsync(RequiredString(parameters, "backupId")),
                 "logs.clear" => ClearLogs(),
                 _ => throw new InvalidOperationException("Host 不允许调用未知方法：" + method)
             };
@@ -492,6 +494,68 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
             UseShellExecute = false
         });
         return Serialize(new { path });
+    }
+
+    private JToken ListSaveBackups()
+    {
+        IReadOnlyList<SaveBackupEntry> backups = _saveBackups.ListBackups(
+            _game?.GameRoot ?? _settings.GameRoot,
+            _lifetime);
+        return Serialize(new
+        {
+            backups,
+            status = _saveBackups.Snapshot(
+                _settings.AutomaticSaveBackupEnabled,
+                _settings.MaximumSaveBackups)
+        });
+    }
+
+    private async Task<JToken> RestoreSaveBackupAsync(string backupId)
+    {
+        GameInstallValidation game = RequireGame();
+        string activeSaveRoot = _status?.ActivationMode == AutoPlayerActivationMode.ResidentPlayer
+            ? _status.ActiveSaveRoot
+            : string.Empty;
+        SaveRestorePlan plan = _saveBackups.CreateRestorePlan(game.GameRoot, backupId, activeSaveRoot);
+        IReadOnlyList<IUpdateGameProcess> processes = GameUpdateShutdownCoordinator.FindRunning(game.ExecutablePath);
+        try
+        {
+            GameUpdateShutdownResult shutdown = await _gameUpdateShutdown.RequestCloseAndWaitAsync(
+                processes,
+                TimeSpan.FromSeconds(30),
+                _lifetime);
+            if (!shutdown.Success) throw new InvalidOperationException(shutdown.Message.Replace("更新", "读档", StringComparison.Ordinal));
+        }
+        finally
+        {
+            foreach (IUpdateGameProcess process in processes) process.Dispose();
+        }
+
+        ResetSession();
+        SaveRestoreResult restored = await _saveBackups.RestoreAsync(plan, _lifetime);
+        bool gameRestarted = false;
+        string message = restored.Message;
+        try
+        {
+            LaunchGame();
+            gameRestarted = true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            message = $"已恢复 {restored.BackupId}，但游戏未能自动启动：{exception.Message}";
+        }
+
+        AddLog(gameRestarted ? "success" : "warn", message);
+        await EmitSnapshotAsync();
+        return Serialize(new
+        {
+            success = true,
+            restored.BackupId,
+            restored.TargetDirectory,
+            gameRestarted,
+            message,
+            backups = _saveBackups.ListBackups(game.GameRoot, _lifetime)
+        });
     }
 
     private async Task ObserveSaveBackupsAsync(AutoPlayerStatus? status)

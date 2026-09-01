@@ -36,6 +36,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.55 独立存档页与手动读档
+
+`0.6.55` 将存档保险库从界面设置中拆为侧栏独立页面，列出当前游戏范围内全部受管快照、章节关卡、保存时间、文件数量和大小。选择“读档”后会先显示机械风确认窗口；确认后 Host 验证备份 ID 和当前玩家存档目录，请求 Skyspine 正常退出，在同一存档父目录完成暂存、内容校验、原存档回滚点和原子切换，失败时恢复读档前存档，成功后自动重新启动游戏。新增 `backups.list` 与 `backups.restore` 为 Desktop Host 内部向后兼容白名单 RPC；游戏插件协议、作弊协议和更新清单 schema 保持不变。本版本以 `v0.6.54` 作为相邻增量更新基线。
+
 ## 0.6.54 Electron 更新模式与流式进度
 
 `0.6.54` 复用现有 Manager 的 Electron 运行时增加 `--updater` 模式。Host 启动更新时会打开同一个 Manager 可执行文件的 Vue 更新窗口，窗口不启动游戏 Host，而是托管现有 .NET Updater 的流式进度；更新器继续在隐藏临时副本中完成清单校验、完整或增量下载、解压、事务替换、回滚和更新后重启。Electron 页面只消费进度事件，不接触安装目录写入，因此包体只增加更新界面资源。

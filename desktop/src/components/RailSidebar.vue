@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Gamepad2, Bot, TrainFront, PackageOpen, Gem, Swords, ScanSearch, BugPlay,
-  Activity, Settings, ChevronLeft, ChevronRight,
+  Activity, Settings, ChevronLeft, ChevronRight, ArchiveClock,
 } from '../icons'
 import type { Component } from 'vue'
 import type { RouteKey } from '../types'
@@ -12,6 +12,7 @@ const api = window.loopstructorDesktop
 const groups: Array<{ label: string; items: Array<{ key: RouteKey; label: string; icon: Component }> }> = [
   { label: '系统', items: [
     { key: 'game', label: '游戏与插件', icon: Gamepad2 },
+    { key: 'saves', label: '存档', icon: ArchiveClock },
     { key: 'autoplay', label: '自动游玩', icon: Bot },
   ] },
   { label: '作弊', items: [
