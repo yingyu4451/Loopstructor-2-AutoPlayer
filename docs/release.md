@@ -12,7 +12,7 @@
 | Unity 编译引用 | `UnityEngine.Modules 2022.3.62` |
 | 插件目标框架 | `netstandard2.1`（对应当前 Unity 2022 项目的 `apiCompatibilityLevel: 6`） |
 | Desktop | Electron `44.x`、Node `24` 构建链、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、离线 Iconify |
-| Host/Updater RID | `win-x64`；Host 与 WPF Updater 均随包发布，无需系统 .NET |
+| Host/Updater RID | `win-x64`；Host 与无窗口 .NET Updater 均随包发布，无需系统 .NET |
 
 BepInEx runtime 下载地址和 SHA-256 集中在 `Directory.Build.props`：
 
@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.57 Electron-only 桌面界面与无窗口更新事务
+
+`0.6.57` 删除了不再进入产品构建的旧 WPF Manager 窗口、页面、主题、缩放服务、演示数据和对应布局测试。当前唯一可见的 Manager 与更新界面均由 Electron 44 + Vue 3 提供；`src/Loopstructor.AutoPlayer.Manager` 目录只保留 Host 复用的安装、会话、存档与更新服务模型。
+
+独立 Updater 保留下载、清单校验、增量重建、事务替换、回滚和重启能力，但改为纯 `net8.0` 无窗口进程。`--json` 与 `--json-stream` 输出协议保持不变，Electron `UpdaterPage.vue` 继续消费 `progress/result` 事件；非 JSON 调用只输出控制台进度，不再启动 WPF 窗口。协议版本、目录格式和更新清单 schema 未改变。本版本以 `v0.6.56` 作为相邻增量更新基线。
+
 ## 0.6.56 更新窗口自适应与安装目录解锁
 
 `0.6.56` 将 Manager 的最小窗口尺寸约束留在原生 `BrowserWindow`，不再把 `980×680` 强制施加到更新 renderer。更新卡片会在 `680×520` 的最小更新窗口和默认 `760×600` 窗口内自适应缩放，长错误消息自动换行，只有内容真实溢出时才在卡片内部滚动。
@@ -50,7 +56,7 @@ Electron 更新窗口启动后会先把当前 `manager` 运行时复制到 `%TEM
 
 `0.6.54` 复用现有 Manager 的 Electron 运行时增加 `--updater` 模式。Host 启动更新时会打开同一个 Manager 可执行文件的 Vue 更新窗口，窗口不启动游戏 Host，而是托管现有 .NET Updater 的流式进度；更新器继续在隐藏临时副本中完成清单校验、完整或增量下载、解压、事务替换、回滚和更新后重启。Electron 页面只消费进度事件，不接触安装目录写入，因此包体只增加更新界面资源。
 
-旧版 `check/apply --json` 调用保持兼容；`--json-stream` 是内部桥接选项，输出 `progress/result` 事件供 Electron 使用。若 Electron 入口不可用，Host 仍回退启动随包 WPF Updater，发布清单路径和校验格式不变。本版本以 `v0.6.53` 作为相邻增量更新基线。
+旧版 `check/apply --json` 调用保持兼容；`--json-stream` 是内部桥接选项，输出 `progress/result` 事件供 Electron 使用。若 Electron 入口不可用，Host 仍回退启动随包无窗口 .NET Updater，发布清单路径和校验格式不变。本版本以 `v0.6.53` 作为相邻增量更新基线。
 
 ## 0.6.53 存档保险库、Buff 详情与桌面界面修复
 
@@ -58,7 +64,7 @@ Electron 更新窗口启动后会先把当前 `manager` 运行时复制到 `%TEM
 
 怪物 Buff 覆盖层改为锚定在模型下沿，避免遮挡头顶伤害数字。同类运行时 Buff 会聚合为层数徽标，图标下方显示持续时间以及当前对象可读取的减速率、移速倍率或效果值，悬停详情继续显示中文名、枚举名、层数和具体数值。本版本以 `v0.6.52` 作为相邻增量更新基线；插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
 
-战车获取恢复为上一版的初始形态和升级形态两个选择，不显示内部过渡等级；系列卡片直接渲染当前游戏目录返回的战车图标。界面设置在编辑期间不再被 Host 轮询覆盖，缩放后页面轨道和当前路由保持不变；标题栏的可用版本铭牌可直接进入安装流程。Electron 模态框和 WPF Updater 使用同一套煤黑、深铜、黄铜、信号绿与禁用态色令牌，避免更新流程出现另一套窗口风格。
+战车获取恢复为上一版的初始形态和升级形态两个选择，不显示内部过渡等级；系列卡片直接渲染当前游戏目录返回的战车图标。界面设置在编辑期间不再被 Host 轮询覆盖，缩放后页面轨道和当前路由保持不变；标题栏的可用版本铭牌可直接进入安装流程。Electron 模态框和更新页使用同一套煤黑、深铜、黄铜、信号绿与禁用态色令牌，避免更新流程出现另一套窗口风格。
 
 本地正式完整包为 221,984,564 字节（约 212 MiB），SHA-256 为 `d88c2706e37ce85edc1228757702e547e27c1fd3d0d935fa500f5225a49da544`；GitHub Release workflow 重新构建后的公开完整资产为 221,984,374 字节，SHA-256 为 `eb7a113384ee1f46027094dda2dfb50fdf46c72a8b274c32b4e291c554844598`。`v0.6.52 → v0.6.53` 本地增量包为 110,163,303 字节，公开 Release 资产为 110,163,113 字节，SHA-256 为 `60bfe5dfbee7a18dc1b0eed664e26f5b23437dde15371ddec5b74ef81ff2795e`，只包含 17 个变化文件。完整包 370 个文件及增量重建结果均已逐文件验证；安装和更新时以公开清单中的云端 SHA 为准。
 
@@ -72,7 +78,7 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 
 `0.6.51` 将旧 WPF Manager 与独立作弊窗口迁移为 Electron 44 + Vue 3 统一窗口，使用分组齿轨侧栏切换游戏与插件、作弊目录、诊断和设置页面。可见图标全部来自随包离线安装的 Iconify MDI 集合，不依赖 Lucide、CDN 或在线页面；renderer 开启 sandbox、contextIsolation 和严格 CSP，只能通过 preload 的类型化白名单访问本机能力。
 
-原 Manager 非 UI 服务由无窗口 `.NET 8 Host` 承接，通过内部 `desktopHostProtocolVersion: 1` 的逐行 JSON RPC 为 Electron 提供游戏验证、插件管理、可信会话、作弊命令、设置、日志和更新交接。自动游玩后端暂时保留但新界面不允许启动，只保留停止升级前遗留会话的入口。Updater 继续使用独立 WPF 进程。本版本以 `v0.6.50` 作为相邻增量更新基线；游戏插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
+原 Manager 非 UI 服务由无窗口 `.NET 8 Host` 承接，通过内部 `desktopHostProtocolVersion: 1` 的逐行 JSON RPC 为 Electron 提供游戏验证、插件管理、可信会话、作弊命令、设置、日志和更新交接。自动游玩后端暂时保留但新界面不允许启动，只保留停止升级前遗留会话的入口。Updater 使用独立无窗口 .NET 进程。本版本以 `v0.6.50` 作为相邻增量更新基线；游戏插件协议、作弊协议、目录格式和更新清单 schema 均未改变。
 
 ## 0.6.50 主环优先与均衡外环
 
@@ -203,8 +209,7 @@ Loopstructor 2.AutoPlayer/
     resources/app.asar                  Vue renderer 与 Electron 主进程
     Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
     Loopstructor.AutoPlayer.Host.dll
-    Loopstructor.AutoPlayer.Updater.exe  WPF Updater 入口
-    PresentationFramework.dll           Updater 的 WPF 运行时文件
+    Loopstructor.AutoPlayer.Updater.exe  无窗口 .NET 更新事务入口
   payload/
     bepinex/
     plugin/
@@ -213,7 +218,7 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与 WPF Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。标题栏永久显示当前产品版本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与无窗口 .NET Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。标题栏永久显示当前产品版本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 

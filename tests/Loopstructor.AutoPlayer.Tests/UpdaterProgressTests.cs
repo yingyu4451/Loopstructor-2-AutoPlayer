@@ -149,42 +149,6 @@ public sealed class UpdaterProgressTests
     }
 
     [Fact]
-    public void Parse_DemoUi_PreservesApplyMode()
-    {
-        UpdateCommandOptions options = UpdateCommandOptions.Parse(new[]
-        {
-            "apply",
-            "--target",
-            Path.GetTempPath(),
-            "--current-version",
-            "0.1.8",
-            "--staged-run",
-            "--demo-ui"
-        });
-
-        Assert.Equal(UpdateCommand.Apply, options.Command);
-        Assert.True(options.StagedRun);
-        Assert.True(options.DemoUi);
-        Assert.False(options.JsonOutput);
-    }
-
-    [Fact]
-    public void Parse_DemoUiWithJson_IsRejected()
-    {
-        Assert.Throws<ArgumentException>(() => UpdateCommandOptions.Parse(new[]
-        {
-            "apply",
-            "--target",
-            Path.GetTempPath(),
-            "--current-version",
-            "0.1.8",
-            "--staged-run",
-            "--demo-ui",
-            "--json"
-        }));
-    }
-
-    [Fact]
     public void OperationCanceled_WithoutUserCancellation_IsReportedAsNetworkTimeout()
     {
         string message = Loopstructor.AutoPlayer.Updater.Program.GetUserFacingFailureMessage(

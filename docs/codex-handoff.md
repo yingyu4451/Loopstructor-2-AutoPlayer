@@ -43,7 +43,7 @@ Codex 聊天记录不是事实来源。旧记录如果与当前源码、测试�
 
 - 产品面向 Windows x64 的 Unity `2022.3.62f3c1` Mono 打包游戏；固定使用 BepInEx `5.4.23.5`。当前注入组合要求游戏完整路径只含 ASCII 字符，可包含英文、数字和空格。
 - Electron 44 + Vue 3 + TypeScript 是当前统一桌面 UI；`.NET 8 Host` 负责安装、进程绑定、可信会话、存档、自动游玩、作弊与更新交接；BepInEx 插件只在游戏进程内执行运行时操作。
-- 根 Launcher 是 NativeAOT 单文件入口；WPF Updater 仍是隐藏事务层。旧 WPF Manager 源码只保留服务和兼容参考，不进入当前产品 UI 构建。
+- 根 Launcher 是 NativeAOT 单文件入口；无窗口 .NET Updater 是隐藏事务层。旧 WPF Manager 窗口与测试已删除，`src/Loopstructor.AutoPlayer.Manager` 只保留 Host 复用的服务和模型。
 - 仓库不携带游戏 DLL，不修改磁盘上的 `Assembly-CSharp.dll`。插件通过反射连接游戏自带的 `GuiGameAutomation.Runtime`，未知程序集指纹或契约缺失时必须保持待机或拒绝运行。
 - 玩家常驻模式使用当前玩家存档和原平台行为；隔离 QA 模式使用一次性票据、独立 profile、平台写入门禁和诊断重定向。两种模式的门禁不能混用。
 - 自动玩家不发送系统鼠标或键盘输入。所有 Unity 写操作都进入主线程，并使用请求 ID、进程实例、身份锁定事务和只读对账避免不确定写入被重复执行。
@@ -88,12 +88,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
 ```
 
-预期版本面均为 `0.6.56`：
+预期版本面均为 `0.6.57`：
 
 - `Directory.Build.props` 的 `VersionPrefix`；
 - `src/Loopstructor.AutoPlayer.Plugin/PluginInfo.cs`；
 - `desktop/package.json`；
-- `src/Loopstructor.AutoPlayer.Manager/UI/DemoData.cs`。
 
 `.dotnet`、`.tools`、`desktop/node_modules`、`artifacts` 等目录可在新电脑重新生成，不作为 Git 迁移内容。
 

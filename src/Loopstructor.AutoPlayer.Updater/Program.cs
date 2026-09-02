@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using System.Net;
-using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Loopstructor.AutoPlayer.Updater.Models;
 using Loopstructor.AutoPlayer.Updater.Services;
-using Loopstructor.AutoPlayer.Updater.UI;
 
 namespace Loopstructor.AutoPlayer.Updater;
 
@@ -15,7 +13,6 @@ internal static class Program
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    [STAThread]
     public static async Task<int> Main(string[] args)
     {
         bool wantsJson = args.Any(argument =>
@@ -51,11 +48,6 @@ internal static class Program
                 return stagedProcess.ExitCode;
             }
 
-            if (options.Command == UpdateCommand.Apply && !options.JsonOutput)
-            {
-                return options.DemoUi ? RunDemoUi(options) : RunApplyUi(options);
-            }
-
             if (options.Command == UpdateCommand.Cleanup)
             {
                 UpdaterResult cleanup = CleanupTransaction(options);
@@ -65,7 +57,9 @@ internal static class Program
 
             IProgress<UpdateProgressSnapshot>? progress = options.JsonStream
                 ? new JsonStreamProgress()
-                : null;
+                : options.Command == UpdateCommand.Apply
+                    ? new ConsoleProgress()
+                    : null;
             UpdaterResult result = await ExecuteAsync(options, progress, CancellationToken.None);
             WriteResult(result, options.JsonOutput, options.JsonStream);
             return result.Success ? 0 : 1;
@@ -78,79 +72,10 @@ internal static class Program
                 TryRestartManagerAfterFailure(options.TargetRoot, failure);
             }
 
-            if (options?.Command == UpdateCommand.Apply && !(options.JsonOutput || wantsJson))
-            {
-                ShowStartupFailure(failure);
-            }
-            else
-            {
-                WriteResult(failure, options?.JsonOutput ?? wantsJson, options?.JsonStream == true);
-            }
+            WriteResult(failure, options?.JsonOutput ?? wantsJson, options?.JsonStream == true);
 
             return 1;
         }
-    }
-
-    private static int RunApplyUi(UpdateCommandOptions options) => RunOnStaThread(() =>
-    {
-        System.Windows.Application application = new()
-        {
-            ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose
-        };
-        UpdateForm form = new(
-            options.CurrentVersion,
-            (progress, cancellationToken, tryBeginCommit) =>
-                ExecuteAsync(options, progress, cancellationToken, tryBeginCommit));
-        application.Run(form);
-        return form.ExitCode;
-    });
-
-    private static int RunDemoUi(UpdateCommandOptions options) => RunOnStaThread(() =>
-    {
-        System.Windows.Application application = new()
-        {
-            ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose
-        };
-        UpdateForm form = UpdateForm.CreateDemo(
-            options.CurrentVersion,
-            typeof(Program).Assembly.GetName().Version?.ToString(3) ?? options.CurrentVersion);
-        application.Run(form);
-        return 0;
-    });
-
-    private static int RunOnStaThread(Func<int> operation)
-    {
-        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
-        {
-            return operation();
-        }
-
-        int exitCode = 1;
-        Exception? failure = null;
-        Thread uiThread = new(() =>
-        {
-            try
-            {
-                exitCode = operation();
-            }
-            catch (Exception exception)
-            {
-                failure = exception;
-            }
-        })
-        {
-            IsBackground = false,
-            Name = "AutoPlayer Updater UI"
-        };
-        uiThread.SetApartmentState(ApartmentState.STA);
-        uiThread.Start();
-        uiThread.Join();
-        if (failure is not null)
-        {
-            ExceptionDispatchInfo.Capture(failure).Throw();
-        }
-
-        return exitCode;
     }
 
     private static UpdaterResult CleanupTransaction(UpdateCommandOptions options)
@@ -592,22 +517,6 @@ internal static class Program
         }
     }
 
-    private static void ShowStartupFailure(UpdaterResult failure)
-    {
-        try
-        {
-            System.Windows.MessageBox.Show(
-                failure.Message,
-                "Loopstructor 2.AutoPlayer 更新器启动失败",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Error);
-        }
-        catch
-        {
-            WriteResult(failure, json: false);
-        }
-    }
-
     private static void WriteResult(UpdaterResult result, bool json, bool stream = false)
     {
         if (json)
@@ -780,6 +689,23 @@ internal static class Program
                     new { @event = "progress", payload = value },
                     OutputJson));
                 Console.Out.Flush();
+            }
+        }
+    }
+
+    private sealed class ConsoleProgress : IProgress<UpdateProgressSnapshot>
+    {
+        private readonly object _sync = new();
+        private string _lastLine = string.Empty;
+
+        public void Report(UpdateProgressSnapshot value)
+        {
+            string line = $"[{value.OverallPercent,3}%] {value.Message}";
+            lock (_sync)
+            {
+                if (string.Equals(line, _lastLine, StringComparison.Ordinal)) return;
+                _lastLine = line;
+                Console.WriteLine(line);
             }
         }
     }

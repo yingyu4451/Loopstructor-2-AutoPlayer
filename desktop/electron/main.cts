@@ -220,8 +220,8 @@ function registerUpdaterIpc(distributionRoot: string, managerDirectory: string):
     const candidates = [
       configured,
       path.join(managerDirectory, 'Loopstructor.AutoPlayer.Updater.exe'),
-      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Release', 'net8.0-windows', 'Loopstructor.AutoPlayer.Updater.exe'),
-      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Debug', 'net8.0-windows', 'Loopstructor.AutoPlayer.Updater.exe'),
+      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Release', 'net8.0', 'Loopstructor.AutoPlayer.Updater.exe'),
+      path.join(distributionRoot, 'src', 'Loopstructor.AutoPlayer.Updater', 'bin', 'Debug', 'net8.0', 'Loopstructor.AutoPlayer.Updater.exe'),
     ].filter((candidate): candidate is string => Boolean(candidate))
     const executable = candidates.find(candidate => fs.existsSync(candidate))
     if (!executable) return { success: false, message: '找不到 .NET 更新事务组件。' }

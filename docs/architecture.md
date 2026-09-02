@@ -29,7 +29,7 @@ flowchart LR
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
 | `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS | 单实例统一窗口、路由、响应式布局、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
 | `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
-| `Loopstructor.AutoPlayer.Updater` | .NET 8 Windows WPF 自包含（无窗口事务层） | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
+| `Loopstructor.AutoPlayer.Updater` | .NET 8 `net8.0` 自包含无窗口进程 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
 | `--updater` Electron 模式 | Electron 44 + Vue 3 | 复用 Manager 运行时显示统一更新窗口，不启动 Host，只托管隐藏的 .NET 更新事务 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
@@ -217,8 +217,7 @@ Loopstructor 2.AutoPlayer/
     resources/app.asar                  Vue renderer 与 Electron 主进程
     Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
     Loopstructor.AutoPlayer.Host.dll
-    Loopstructor.AutoPlayer.Updater.exe  WPF 更新器入口
-    PresentationFramework.dll           Updater 的 WPF 运行时文件
+    Loopstructor.AutoPlayer.Updater.exe  无窗口 .NET 更新器入口
   payload/
     bepinex/                       BepInEx 5.4.23.5 完整 Windows x64 运行时
     plugin/                        AutoPlayer Plugin/Core 及运行依赖
@@ -237,4 +236,4 @@ schema 2 更新清单始终指向完整 Release ZIP，并可通过 `deltaAssets`
 
 `v0.1.3` 的无 token 更新仍可能因匿名 REST API 配额耗尽而返回 403。遇到该情况时需等待配额恢复、在当前 Manager 进程环境中临时提供只读 token，或手动安装 `v0.1.4` 一次；之后公开仓库的无 token 更新即使用新的网页 Release 路径。
 
-根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和 WPF Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。标题栏永久显示当前产品版本，实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和无窗口 .NET Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。标题栏永久显示当前产品版本，实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。

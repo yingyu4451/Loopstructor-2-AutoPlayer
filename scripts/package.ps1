@@ -443,8 +443,8 @@ $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
 
-# Electron owns the visible Manager process. The headless Host and WPF Updater
-# share one self-contained .NET runtime in the same manager directory.
+# Electron owns the visible Manager and updater pages. The headless Host and
+# console transaction Updater share one self-contained .NET runtime directory.
 Invoke-Pnpm -Arguments @('package:dir:only')
 $electronOutput = Join-Path $repositoryRoot 'desktop\dist-electron\win-unpacked'
 if (-not (Test-Path -LiteralPath $electronOutput -PathType Container)) {
@@ -470,9 +470,6 @@ foreach ($requiredManagerFile in @(
     'hostfxr.dll'
     'hostpolicy.dll'
     'coreclr.dll'
-    'PresentationFramework.dll'
-    'PresentationCore.dll'
-    'WindowsBase.dll'
 )) {
     $requiredManagerPath = Join-Path $managerOutput $requiredManagerFile
     if (-not (Test-Path -LiteralPath $requiredManagerPath -PathType Leaf)) {
