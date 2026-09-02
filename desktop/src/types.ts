@@ -1,5 +1,6 @@
 export type RouteKey = 'game' | 'saves' | 'autoplay' | 'vehicles' | 'items' | 'relics' | 'battle' | 'objects' | 'spawn' | 'diagnostics' | 'settings'
 export type ToastKind = 'success' | 'info' | 'warning' | 'error'
+export type SkinId = 'mechanical' | 'signal'
 
 export interface ManagerSettings {
   gameRoot: string
@@ -18,6 +19,7 @@ export interface ManagerSettings {
   maximumSaveBackups?: number
   activeRoute: RouteKey
   sidebarCollapsed: boolean
+  skinId?: SkinId
   gitHubOwner: string
   gitHubRepository: string
 }

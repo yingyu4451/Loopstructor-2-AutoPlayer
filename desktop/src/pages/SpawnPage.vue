@@ -78,7 +78,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="spawn-workspace" :class="{ mutationLocked: store.writeLocked }">
     <section class="spawn-catalog mechanical-section">
-      <label class="search-box"><Search :size="17" /><input v-model="search" aria-label="搜索怪物" placeholder="搜索怪物中文名或枚举" /></label>
+      <label class="search-box"><Search :size="17" /><input v-model="search" name="enemy-search" autocomplete="off" aria-label="搜索怪物" placeholder="搜索怪物中文名或枚举…" /></label>
       <VirtualCatalogGrid :items="enemies" :selected-ids="selected ? [selected.id] : []" :disabled="store.writeLocked" @invoke="(_button, item) => selected = item" />
     </section>
     <section class="spawn-editor mechanical-section">

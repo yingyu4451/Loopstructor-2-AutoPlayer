@@ -48,7 +48,7 @@ async function setFieldDeleteMode(enabled: boolean) {
         <div class="heading-with-icon"><PackageOpen :size="20" /><div><h2>消耗品</h2><p>左键直接获取，单种最多持有 5 个。</p></div></div>
         <button class="button danger compact" :disabled="store.writeLocked" @click="store.command('cheat.clearConsumables').then(() => store.refreshState())"><Trash2 :size="16" />全部删除</button>
       </header>
-      <label class="search-box"><Search :size="17" /><input v-model="consumableSearch" aria-label="搜索消耗品" placeholder="搜索消耗品" /></label>
+      <label class="search-box"><Search :size="17" /><input v-model="consumableSearch" name="consumable-search" autocomplete="off" aria-label="搜索消耗品" placeholder="搜索消耗品…" /></label>
       <VirtualCatalogGrid :items="consumables" :counts="consumableCounts" :disabled="store.writeLocked" @invoke="grantConsumable" />
       <footer class="fixed-operation-note">{{ consumables.length }} 项 · 点击卡片立即写入背包</footer>
     </section>
@@ -56,7 +56,7 @@ async function setFieldDeleteMode(enabled: boolean) {
       <header class="section-heading compact-heading">
         <div class="heading-with-icon"><MapPin :size="20" /><div><h2>弹射点</h2><p>包含普通、能量和当前游戏配置的特殊站点。</p></div></div>
       </header>
-      <label class="search-box"><Search :size="17" /><input v-model="catapultSearch" aria-label="搜索弹射点" placeholder="搜索弹射点" /></label>
+      <label class="search-box"><Search :size="17" /><input v-model="catapultSearch" name="catapult-search" autocomplete="off" aria-label="搜索弹射点" placeholder="搜索弹射点…" /></label>
       <VirtualCatalogGrid :items="catapults" :counts="catapultCounts" :disabled="store.writeLocked" @invoke="grantCatapult" />
       <label class="field-delete-toggle" :class="{ disabled: store.writeLocked }">
         <input type="checkbox" :checked="fieldDeleteMode" :disabled="store.writeLocked" @change="setFieldDeleteMode(($event.target as HTMLInputElement).checked)" />

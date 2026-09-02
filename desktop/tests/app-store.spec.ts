@@ -7,12 +7,12 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.57',
+    version: '0.6.58',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
       decisionPriority: 0, uiScaleMode: 'system', customUiScalePercent: 100, characterCfgIndex: 0,
-      activeRoute: 'game', sidebarCollapsed: false, gitHubOwner: 'yingyu4451',
+      activeRoute: 'game', sidebarCollapsed: false, skinId: 'mechanical', gitHubOwner: 'yingyu4451',
       gitHubRepository: 'Loopstructor-2-AutoPlayer',
     },
     connection: {
@@ -88,6 +88,20 @@ describe('desktop application store', () => {
     expect(store.route).toBe('settings')
     expect(saveSettings.mock.calls.at(-1)?.[0].activeRoute).toBe('settings')
     expect(store.settings?.activeRoute).toBe('settings')
+  })
+
+  it('persists the selected skin with the current renderer route', async () => {
+    const saveSettings = vi.fn(async (settings) => settings)
+    window.loopstructorDesktop = { saveSettings } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+    await store.setRoute('settings')
+
+    await store.saveSettings({ ...store.settings!, skinId: 'signal' }, false)
+
+    expect(saveSettings.mock.calls.at(-1)?.[0].skinId).toBe('signal')
+    expect(saveSettings.mock.calls.at(-1)?.[0].activeRoute).toBe('settings')
+    expect(store.settings?.skinId).toBe('signal')
   })
 
   it('exposes the restored automation controls through the preload API', async () => {

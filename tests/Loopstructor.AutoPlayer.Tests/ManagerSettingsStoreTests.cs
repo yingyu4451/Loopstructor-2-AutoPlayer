@@ -255,6 +255,31 @@ public sealed class ManagerSettingsStoreTests
     }
 
     [Fact]
+    public void Save_PreservesSupportedSkinAndNormalizesUnknownSkin()
+    {
+        string root = CreateTemporaryDirectory();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings.json");
+            ManagerSettingsStore store = new(settingsPath);
+            ManagerSettings settings = new() { SkinId = "signal" };
+
+            store.Save(settings);
+            ManagerSettings reloaded = store.Load(out string warning);
+
+            Assert.Empty(warning);
+            Assert.Equal("signal", reloaded.SkinId);
+            reloaded.SkinId = "unknown";
+            store.Save(reloaded);
+            Assert.Equal("mechanical", store.Load(out _).SkinId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Load_LegacyStartupUpdatePreference_IsIgnoredAndNotSavedAgain()
     {
         string root = CreateTemporaryDirectory();

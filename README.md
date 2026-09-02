@@ -1,6 +1,6 @@
 # Loopstructor 2 AutoPlayer
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.57` 移除了旧 WPF Manager 与更新器界面，统一由 Electron 44 + Vue 3 提供可见 UI；`.NET 8 Host` 负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接，独立 .NET 更新进程只负责无窗口事务。
+Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.58` 将 Electron/Vue 界面重构为可换皮的机械仪表盘，皮肤可同时控制材质、边框、间距、导航、组件形状和信号色，并使用 GSAP 提供遵循系统减少动态效果设置的页面与进度动效。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.57 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.58 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.57
+.\scripts\package.ps1 -Version 0.6.58
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.57-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.58-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。

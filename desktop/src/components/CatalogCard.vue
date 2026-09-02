@@ -29,11 +29,12 @@ const detail = computed(() => [
     class="catalog-card"
     :class="{ selected, disabled }"
     :disabled="disabled"
+    :aria-pressed="selected ? 'true' : 'false'"
     @click="emit('invoke', 'left', item)"
     @contextmenu.prevent="emit('invoke', 'right', item)"
   >
     <span class="catalog-icon">
-      <img v-if="image" :src="image" alt="" />
+      <img v-if="image" :src="image" alt="" width="46" height="46" loading="lazy" />
       <ImageOff v-else :size="24" />
     </span>
     <span class="catalog-copy">

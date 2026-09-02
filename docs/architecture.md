@@ -27,13 +27,15 @@ flowchart LR
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
-| `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS | 单实例统一窗口、路由、响应式布局、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
+| `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
 | `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 `net8.0` 自包含无窗口进程 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
 | `--updater` Electron 模式 | Electron 44 + Vue 3 | 复用 Manager 运行时显示统一更新窗口，不启动 Host，只托管隐藏的 .NET 更新事务 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
+
+皮肤契约位于 `desktop/src/theme/skins.ts` 与 `styles.css` 的 `data-skin` 作用域。组件只消费语义化令牌和稳定 variant class；皮肤可覆盖颜色、材质、边框、圆角、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知值回退到 `mechanical`。GSAP 只用于可中断的 transform/opacity 过渡和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
 
 ## 启动与激活
 

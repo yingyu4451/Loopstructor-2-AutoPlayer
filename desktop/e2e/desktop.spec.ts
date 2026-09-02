@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.57-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.58-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -55,6 +55,15 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await expect(page.getByText('自动备份存档', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '打开目录', exact: true })).toBeVisible()
     await page.getByRole('button', { name: '界面与更新', exact: true }).click()
+    await page.getByRole('radio', { name: '信号夜航' }).click()
+    await page.getByRole('button', { name: '应用界面设置', exact: true }).click()
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-skin', 'signal')
+    await page.waitForTimeout(280)
+    await page.screenshot({
+      path: resolve(screenshotRoot, '1280x860-信号夜航皮肤.png'),
+      animations: 'disabled',
+    })
+    await page.getByRole('radio', { name: '齿轨工坊' }).click()
     await page.getByRole('radio', { name: /自定义/ }).check()
     await page.getByRole('slider').fill('125')
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()
@@ -65,6 +74,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()
     await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', '界面与更新')
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomFactor())).toBeCloseTo(1, 2)
+    await page.waitForTimeout(3_500)
     for (const size of [{ width: 980, height: 680 }, { width: 1280, height: 860 }]) {
       await app.evaluate(({ BrowserWindow }, nextSize) => {
         BrowserWindow.getAllWindows()[0]?.setSize(nextSize.width, nextSize.height)
@@ -72,7 +82,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
       for (const route of routes) {
         await page.getByRole('button', { name: route, exact: true }).click()
         await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', route)
-        await page.waitForTimeout(50)
+        await page.waitForTimeout(280)
         if (await page.locator('.page-host > *').count() === 0) {
           throw new Error(`${route} 页面没有渲染。${rendererErrors.join('\n')}`)
         }

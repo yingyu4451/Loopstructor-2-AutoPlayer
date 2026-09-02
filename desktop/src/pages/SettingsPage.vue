@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, toRaw, watch } from 'vue'
 import type { ManagerSettings } from '../types'
-import { MonitorCog, RefreshCw, Download, Github } from '../icons'
+import { Check, Download, Github, MonitorCog, Palette, RefreshCw } from '../icons'
 import { useAppStore } from '../stores/app'
+import { skinOptions } from '../theme/skins'
 const store = useAppStore()
 const api = window.loopstructorDesktop
 const cloneSettings = (settings: ManagerSettings): ManagerSettings => ({
@@ -49,6 +50,25 @@ async function save() {
           <button class="button primary" :disabled="!store.snapshot?.update?.updateAvailable" @click="store.installUpdate()"><Download :size="17" />安装更新</button>
         </div>
       </div>
+    </section>
+    <section class="mechanical-section skin-settings">
+      <header class="section-heading"><div class="heading-with-icon"><Palette :size="21" /><div><h2>皮肤</h2><p>切换界面的材质、边框、间距和信号色。</p></div></div></header>
+      <div v-if="draft" class="skin-grid" role="radiogroup" aria-label="界面皮肤">
+        <button
+          v-for="skin in skinOptions"
+          :key="skin.id"
+          class="skin-option"
+          :class="{ selected: (draft.skinId ?? 'mechanical') === skin.id }"
+          role="radio"
+          :aria-checked="(draft.skinId ?? 'mechanical') === skin.id"
+          @click="draft.skinId = skin.id; markDirty()"
+        >
+          <span class="skin-swatch" aria-hidden="true"><i v-for="color in skin.swatches" :key="color" :style="{ backgroundColor: color }" /></span>
+          <span><strong>{{ skin.label }}</strong><small>{{ skin.description }}</small></span>
+          <Check v-if="(draft.skinId ?? 'mechanical') === skin.id" :size="18" />
+        </button>
+      </div>
+      <p class="setting-note">皮肤设置会随 Manager 配置保存，更新后仍保留。</p>
     </section>
   </div>
 </template>

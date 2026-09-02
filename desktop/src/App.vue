@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { gsap } from 'gsap'
 import TitleBar from './components/TitleBar.vue'
 import RailSidebar from './components/RailSidebar.vue'
 import CheatControlBar from './components/CheatControlBar.vue'
@@ -30,6 +31,35 @@ const pages = {
 }
 const activePage = computed(() => pages[store.route])
 const cheatPage = computed(() => ['vehicles', 'items', 'relics', 'battle', 'objects', 'spawn'].includes(store.route))
+let pageTween: gsap.core.Tween | undefined
+let busyTween: gsap.core.Tween | undefined
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
+
+async function animatePage(): Promise<void> {
+  await nextTick()
+  const target = document.querySelector('.page-host > *')
+  if (!target || prefersReducedMotion()) return
+  pageTween?.kill()
+  pageTween = gsap.fromTo(target, { opacity: 0, y: 8 }, {
+    opacity: 1,
+    y: 0,
+    duration: 0.24,
+    ease: 'power2.out',
+    clearProps: 'transform',
+  })
+}
+
+watch(() => store.route, animatePage)
+watch(() => ui.busy, (busy) => {
+  if (prefersReducedMotion()) return
+  busyTween?.kill()
+  busyTween = busy
+    ? gsap.fromTo('.busy-indicator', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out' })
+    : gsap.to('.busy-indicator', { opacity: 0, y: 6, duration: 0.16, ease: 'power1.in' })
+})
 
 onMounted(async () => {
   if (updaterMode) return
@@ -37,11 +67,15 @@ onMounted(async () => {
   const settings = store.settings
   if (settings?.uiScaleMode === 'custom') await window.loopstructorDesktop.setZoom(settings.customUiScalePercent / 100)
 })
-onBeforeUnmount(() => store.removeHostEvent?.())
+onBeforeUnmount(() => {
+  store.removeHostEvent?.()
+  pageTween?.kill()
+  busyTween?.kill()
+})
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'updater-mode': updaterMode }">
+  <div class="app-shell" :data-skin="store.settings?.skinId ?? 'mechanical'" :class="{ 'updater-mode': updaterMode }">
     <TitleBar :updater-mode="updaterMode" />
     <UpdaterPage v-if="updaterMode" />
     <div v-else class="app-body" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">

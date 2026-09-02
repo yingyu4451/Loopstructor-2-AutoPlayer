@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { gsap } from 'gsap'
 import { CheckCircle2, Download, RefreshCw, XCircle } from '../icons'
 
 interface ProgressSnapshot {
@@ -14,12 +15,14 @@ interface ProgressSnapshot {
 }
 
 const api = window.loopstructorDesktop
-const progress = ref<ProgressSnapshot>({ message: '正在准备更新...', overallPercent: 0 })
+const progress = ref<ProgressSnapshot>({ message: '正在准备更新…', overallPercent: 0 })
 const result = ref<{ success?: boolean; message?: string; latestVersion?: string; usedIncrementalUpdate?: boolean }>()
 const exitCode = ref<number | null>(null)
 const logs = ref<string[]>([])
 const started = ref(false)
+const progressFill = ref<HTMLElement>()
 let removeListener: (() => void) | undefined
+let progressTween: gsap.core.Tween | undefined
 
 const percent = computed(() => Math.max(0, Math.min(100, progress.value.overallPercent ?? 0)))
 const isFailure = computed(() => progress.value.isFailure === true || result.value?.success === false || (exitCode.value !== null && exitCode.value !== 0))
@@ -36,6 +39,17 @@ const stageLabel = computed(() => {
   }
   return labels[String(progress.value.stage ?? '')] || String(progress.value.stage || '准备中')
 })
+
+watch(percent, (value) => {
+  if (!progressFill.value) return
+  progressTween?.kill()
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  progressTween = gsap.to(progressFill.value, {
+    scaleX: value / 100,
+    duration: reduced ? 0 : 0.34,
+    ease: 'power2.out',
+  })
+}, { immediate: true })
 
 function formatBytes(value = 0): string {
   if (value < 1024) return `${value} B`
@@ -74,6 +88,10 @@ async function closeUpdater(): Promise<void> {
 }
 
 onMounted(async () => {
+  await nextTick()
+  if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    gsap.fromTo('.updater-card', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.32, ease: 'power2.out' })
+  }
   removeListener = api.onUpdaterEvent(handleEvent)
   if (started.value) return
   started.value = true
@@ -84,7 +102,10 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => removeListener?.())
+onBeforeUnmount(() => {
+  removeListener?.()
+  progressTween?.kill()
+})
 </script>
 
 <template>
@@ -97,9 +118,9 @@ onBeforeUnmount(() => removeListener?.())
         </div>
         <span class="updater-stage">{{ stageLabel }}</span>
       </header>
-      <p class="updater-message">{{ result?.message || progress.message || '正在准备更新...' }}</p>
+      <p class="updater-message">{{ result?.message || progress.message || '正在准备更新…' }}</p>
       <div class="updater-progress-track" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
-        <div class="updater-progress-fill" :class="{ failure: isFailure, completed: result?.success }" :style="{ width: `${percent}%` }" />
+        <div ref="progressFill" class="updater-progress-fill" :class="{ failure: isFailure, completed: result?.success }" />
       </div>
       <div class="updater-progress-meta">
         <strong>{{ percent }}%</strong>

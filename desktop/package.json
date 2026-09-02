@@ -1,6 +1,6 @@
 {
   "name": "loopstructor-autoplayer-desktop",
-  "version": "0.6.57",
+  "version": "0.6.58",
   "private": true,
   "description": "Loopstructor AutoPlayer unified Electron desktop client",
   "author": "yingyu4451",
@@ -22,12 +22,13 @@
   "dependencies": {
     "@iconify-icons/mdi": "2.0.0",
     "@iconify/vue": "5.0.1",
+    "gsap": "3.15.0",
     "pinia": "4.0.3",
     "vue": "3.5.42"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1",
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.10.1",
     "@vitejs/plugin-vue": "6.0.2",

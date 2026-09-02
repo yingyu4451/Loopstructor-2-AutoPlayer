@@ -17,10 +17,10 @@ function systemMenu(event: MouseEvent) {
 <template>
   <header class="titlebar" @contextmenu.prevent="systemMenu">
     <div class="titlebar-brand">
-      <img :src="managerLogo" alt="" class="brand-logo" />
+      <img :src="managerLogo" alt="" width="42" height="42" class="brand-logo" fetchpriority="high" />
       <div>
         <strong>Loopstructor AutoPlayer</strong>
-        <span>v{{ store.snapshot?.version ?? '0.6.57' }}</span>
+        <span>v{{ store.snapshot?.version ?? '0.6.58' }}</span>
       </div>
     </div>
     <div class="titlebar-status">

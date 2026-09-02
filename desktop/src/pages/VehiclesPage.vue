@@ -80,7 +80,7 @@ async function grantVehicle() {
   <div class="vehicle-workspace">
     <section class="vehicle-selector mechanical-section">
       <div class="search-row">
-        <label class="search-box"><Search :size="17" /><input v-model="search" aria-label="搜索战车" placeholder="搜索中文名、枚举或系列" /></label>
+        <label class="search-box"><Search :size="17" /><input v-model="search" name="vehicle-search" autocomplete="off" aria-label="搜索战车" placeholder="搜索中文名、枚举或系列…" /></label>
       </div>
       <div class="type-switcher">
         <button :class="{ active: activeType === 'all' }" @click="activeType = 'all'">全部</button>
@@ -90,7 +90,7 @@ async function grantVehicle() {
         <article v-for="family in families" :key="family.key" class="vehicle-family" :class="{ selected: family.items.some(item => item.id === selectedVehicle?.id) }">
           <div class="family-identity">
             <span class="vehicle-game-icon">
-              <img v-if="vehicleImage(family.items[0])" :src="vehicleImage(family.items[0])" alt="" />
+              <img v-if="vehicleImage(family.items[0])" :src="vehicleImage(family.items[0])" alt="" width="46" height="46" loading="lazy" />
               <ImageOff v-else :size="22" />
             </span>
             <div><strong>{{ family.items[0].name || family.items[0].fallbackName || family.key }}</strong><small>{{ family.key }}</small></div>
@@ -127,7 +127,7 @@ async function grantVehicle() {
 
     <section class="enchantment-panel mechanical-section">
       <div class="search-row">
-        <label class="search-box"><Search :size="17" /><input v-model="enchantmentSearch" aria-label="搜索附魔" placeholder="搜索附魔中文名或枚举" /></label>
+        <label class="search-box"><Search :size="17" /><input v-model="enchantmentSearch" name="enchantment-search" autocomplete="off" aria-label="搜索附魔" placeholder="搜索附魔中文名或枚举…" /></label>
         <button class="button secondary compact" @click="enchantments = {}"><Trash2 :size="16" />清空所选</button>
       </div>
       <VirtualCatalogGrid :items="enchantmentItems" :counts="enchantments" @invoke="adjustEnchantment" />

@@ -125,6 +125,7 @@ public sealed class ManagerSettings
     public int MaximumSaveBackups { get; set; } = 20;
     public string ActiveRoute { get; set; } = "game";
     public bool SidebarCollapsed { get; set; }
+    public string SkinId { get; set; } = "mechanical";
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
 
@@ -144,6 +145,7 @@ public sealed class ManagerSettings
         CustomUiScalePercent = Math.Clamp(CustomUiScalePercent, 75, 200);
         MaximumSaveBackups = Math.Clamp(MaximumSaveBackups, 1, 100);
         ActiveRoute = NormalizeRoute(ActiveRoute);
+        SkinId = NormalizeSkin(SkinId);
     }
 
     private static string NormalizeCoordinate(string? value, string defaultValue) =>
@@ -157,6 +159,11 @@ public sealed class ManagerSettings
             ? route
             : "game";
     }
+
+    private static string NormalizeSkin(string? value) =>
+        string.Equals(value?.Trim(), "signal", StringComparison.OrdinalIgnoreCase)
+            ? "signal"
+            : "mechanical";
 }
 
 public enum UiScaleMode

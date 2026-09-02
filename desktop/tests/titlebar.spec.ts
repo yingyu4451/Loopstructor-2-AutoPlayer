@@ -29,20 +29,20 @@ describe('title bar update action', () => {
 function snapshot(): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.57',
+    version: '0.6.58',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
       decisionPriority: 0, uiScaleMode: 'system', customUiScalePercent: 100, characterCfgIndex: 0,
-      activeRoute: 'settings', sidebarCollapsed: false, gitHubOwner: 'yingyu4451',
+      activeRoute: 'settings', sidebarCollapsed: false, skinId: 'mechanical', gitHubOwner: 'yingyu4451',
       gitHubRepository: 'Loopstructor-2-AutoPlayer',
     },
     connection: { trusted: false, label: '等待游戏连接', reason: '', cheatAvailable: false, autoplayActive: false },
     update: {
       success: true,
       updateAvailable: true,
-      currentVersion: '0.6.57',
-      latestVersion: '0.6.57',
+      currentVersion: '0.6.58',
+      latestVersion: '0.6.58',
       message: '发现新版本',
     },
     logs: [],

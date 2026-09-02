@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.58 可换皮机械仪表盘与 GSAP 动效
+
+`0.6.58` 保留现有标题栏、分组导航、作弊控制条、11 个路由、IPC 和数据绑定，重构可见层为更接近游戏参考图的机械仪表盘：深蓝钢底板、铜轨、黄铜铭牌、信号灯、纹理面板和更清晰的操作层级。首版内置“齿轨工坊”和“信号夜航”两套皮肤；皮肤契约可同时切换颜色、材质、边框、圆角、间距、导航宽度和组件形状，不是单纯换色。
+
+皮肤 ID 由 Host 设置模型校验并持久化，未知值回退到“齿轨工坊”。前端新增 GSAP `3.15.0`，用于页面进入、忙碌反馈和更新进度；系统启用“减少动态效果”时自动跳过这些动画。插件协议、Desktop Host 协议、目录格式和更新清单 schema 未改变。本版本以 `v0.6.57` 作为相邻增量更新基线。
+
 ## 0.6.57 Electron-only 桌面界面与无窗口更新事务
 
 `0.6.57` 删除了不再进入产品构建的旧 WPF Manager 窗口、页面、主题、缩放服务、演示数据和对应布局测试。当前唯一可见的 Manager 与更新界面均由 Electron 44 + Vue 3 提供；`src/Loopstructor.AutoPlayer.Manager` 目录只保留 Host 复用的安装、会话、存档与更新服务模型。

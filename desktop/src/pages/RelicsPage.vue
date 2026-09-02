@@ -41,7 +41,7 @@ onBeforeUnmount(() => { if (pollTimer) window.clearInterval(pollTimer) })
         <button class="button danger compact" :disabled="store.writeLocked" @click="runBatch('cheat.removeAllRelics')"><Trash2 :size="16" />全部删除</button>
       </div>
     </header>
-    <label class="search-box"><Search :size="17" /><input v-model="search" aria-label="搜索遗物" placeholder="搜索遗物中文名或枚举" /></label>
+    <label class="search-box"><Search :size="17" /><input v-model="search" name="relic-search" autocomplete="off" aria-label="搜索遗物" placeholder="搜索遗物中文名或枚举…" /></label>
     <VirtualCatalogGrid :items="items" :selected-ids="ownedIds" :disabled="store.writeLocked" @invoke="toggle" />
     <footer class="relic-footer">
       <span>{{ task?.state === 'running' ? task.message : removal?.state === 'running' ? removal.message : `已启用 ${ownedIds.length} / ${items.length}` }}</span>
