@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
       <RailSidebar />
       <main class="content-shell">
         <img :src="stationArt" alt="" width="256" height="256" class="workspace-station" aria-hidden="true" />
-        <div v-if="!cheatPage" class="workbench-caption" aria-hidden="true">{{ activeTitle }}</div>
+        <div class="workbench-caption" aria-hidden="true">{{ activeTitle }}</div>
         <CheatControlBar v-if="cheatPage" />
         <div class="page-host" :class="{ 'with-cheat-bar': cheatPage }">
           <component :is="activePage" />

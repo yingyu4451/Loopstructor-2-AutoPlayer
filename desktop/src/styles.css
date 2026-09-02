@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+@layer app-base {
 :root {
   font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
   color: #e8dfd2;
@@ -118,7 +119,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .button.compact { min-height: 32px; padding: 0 10px; }
 .icon-button { width: 36px; padding: 0; }
 .danger-icon { color: #f39b88; border-color: #7f3c30; }
-button:disabled, .disabled { color: #6f675d !important; background: #24211d !important; border-color: #463e34 !important; cursor: not-allowed; box-shadow: none !important; }
+button:disabled, .disabled { color: #6f675d; cursor: not-allowed; }
 
 .status-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border: 1px solid #67553d; background: #2a241c; color: #c9bda9; font: 600 11px/1 Bahnschrift, sans-serif; white-space: nowrap; }
 .status-badge.online { color: #caffe0; border-color: #4e9630; background: #20331a; }
@@ -511,7 +512,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .button.danger { border-color: var(--theme-danger); background: #4b2730; color: #ffd9d5; }
 .app-shell[data-skin] .button.launch { min-width: 170px; min-height: 46px; border-width: 2px; border-color: var(--theme-signal); background: linear-gradient(135deg, #366d45, #1d3d2b); font-size: 14px; }
 .app-shell[data-skin] .icon-button { width: 40px; padding: 0; }
-.app-shell[data-skin] button:disabled, .app-shell[data-skin] .disabled { background: var(--theme-surface-deep) !important; border-color: var(--theme-line) !important; color: var(--theme-disabled) !important; }
+.app-shell[data-skin] button:disabled, .app-shell[data-skin] .disabled { color: var(--theme-disabled); cursor: not-allowed; }
 .app-shell[data-skin] .status-badge { min-height: 26px; padding-inline: 10px; border-color: var(--theme-line-strong); border-radius: 999px; background: var(--theme-surface-deep); color: var(--theme-muted); }
 .app-shell[data-skin] .status-badge.online { border-color: var(--theme-signal); background: #1c452e; color: #e2ffdc; }
 .app-shell[data-skin] .status-badge.warning { border-color: var(--theme-amber); background: #4c351e; color: #ffe5ad; }
@@ -604,4 +605,5 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 }

@@ -35,7 +35,7 @@ flowchart LR
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
-皮肤契约位于 `desktop/src/theme/skins.ts`，共享令牌位于 `styles.css`，游戏原生皮肤实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。组件只消费语义化令牌和稳定 variant class；皮肤可覆盖整套图片资产、颜色、材质、边框、圆角、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
+皮肤契约位于 `desktop/src/theme/skins.ts`，共享布局与语义规则位于 `styles.css` 的低优先级 `app-base` cascade layer，游戏原生皮肤实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。Skyspine 模块拥有 rest、hover、active、selected、focus-visible 和 disabled 的完整状态接口；外轮廓与内材质使用同一 polygon 分层绘制，内容只进入工作台 chrome 声明的安全区。皮肤可覆盖整套图片资产、颜色、材质、边框、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
 
 ## 启动与激活
 

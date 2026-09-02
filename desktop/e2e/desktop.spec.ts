@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.59-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.60-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -144,6 +144,108 @@ test('reuses the Electron runtime for the updater mode', async () => {
       })
     }
     await page.getByRole('button', { name: '退出', exact: true }).click()
+  } finally {
+    await app.close()
+    rmSync(dataRoot, { recursive: true, force: true })
+  }
+})
+
+test('skyspine interaction states preserve material, focus, and chrome spacing', async () => {
+  const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-states-e2e-'))
+  mkdirSync(screenshotRoot, { recursive: true })
+  const app = await electron.launch({
+    args: ['.'],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      LOCALAPPDATA: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_HOST_PATH: hostPath,
+      LOOPSTRUCTOR_AUTOPLAYER_HOST_DATA_ROOT: dataRoot,
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+    await expect(page.getByText('Loopstructor AutoPlayer', { exact: true })).toBeVisible()
+    await expect(page.locator('.titlebar-status')).not.toContainText('正在启动 Host', { timeout: 15_000 })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 860))
+    await page.waitForTimeout(250)
+
+    const activeNav = page.locator('.nav-item.active')
+    const navBefore = await activeNav.evaluate(element => ({
+      face: getComputedStyle(element, '::before').backgroundImage,
+      filter: getComputedStyle(element).filter,
+    }))
+    await activeNav.hover()
+    const navHover = await activeNav.evaluate(element => ({
+      face: getComputedStyle(element, '::before').backgroundImage,
+      filter: getComputedStyle(element).filter,
+      cog: getComputedStyle(element.querySelector('.rail-cog')!).backgroundImage,
+    }))
+    expect(navBefore.face).not.toBe('none')
+    expect(navHover.face).not.toBe('none')
+    expect(navHover.cog).toContain('gear-')
+    expect(navHover.filter).not.toBe(navBefore.filter)
+    await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-nav-hover.png'), animations: 'disabled' })
+
+    const secondary = page.getByRole('button', { name: '刷新连接', exact: true })
+    const secondaryBefore = await secondary.evaluate(element => getComputedStyle(element, '::before').backgroundImage)
+    await secondary.hover()
+    const secondaryHover = await secondary.evaluate(element => ({
+      face: getComputedStyle(element, '::before').backgroundImage,
+      filter: getComputedStyle(element).filter,
+    }))
+    expect(secondaryBefore).not.toBe('none')
+    expect(secondaryHover.face).not.toBe('none')
+    expect(secondaryHover.filter).toContain('brightness')
+    await secondary.focus()
+    expect(await secondary.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
+
+    const disabledLaunch = page.getByRole('button', { name: '启动游戏', exact: true })
+    await expect(disabledLaunch).toBeDisabled()
+    const disabledMaterial = await disabledLaunch.evaluate(element => ({
+      face: getComputedStyle(element, '::before').backgroundImage,
+      background: getComputedStyle(element).backgroundColor,
+      shadow: getComputedStyle(element).boxShadow,
+    }))
+    expect(disabledMaterial.face).not.toBe('none')
+    expect(disabledMaterial.background).not.toBe('rgba(0, 0, 0, 0)')
+    expect(disabledMaterial.shadow).not.toBe('none')
+    await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-button-focus-disabled.png'), animations: 'disabled' })
+
+    const chromeSpacing = await page.evaluate(() => {
+      const caption = document.querySelector<HTMLElement>('.workbench-caption')!.getBoundingClientRect()
+      const heading = document.querySelector<HTMLElement>('.page-heading')!.getBoundingClientRect()
+      const chrome = getComputedStyle(document.querySelector<HTMLElement>('.content-shell')!, '::before')
+      return { separated: caption.bottom <= heading.top, chromeZ: Number(chrome.zIndex), chromeMask: chrome.maskImage || chrome.webkitMaskImage }
+    })
+    expect(chromeSpacing.separated).toBe(true)
+    expect(chromeSpacing.chromeZ).toBeGreaterThan(2)
+    expect(chromeSpacing.chromeMask).not.toBe('none')
+
+    await page.getByRole('button', { name: '界面与更新', exact: true }).click()
+    const selectedSkin = page.getByRole('radio', { name: '天穹机械终端' })
+    await selectedSkin.hover()
+    expect(await selectedSkin.evaluate(element => getComputedStyle(element, '::before').backgroundImage)).not.toBe('none')
+    expect(await selectedSkin.evaluate(element => getComputedStyle(element).getPropertyValue('--skin-edge').trim())).toBe('#a0f36f')
+    await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-selected-hover.png'), animations: 'disabled' })
+
+    await page.getByRole('button', { name: '战车', exact: true }).click()
+    const activeTab = page.locator('.type-switcher button.active')
+    await activeTab.hover()
+    expect(await activeTab.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    const cheatSpacing = await page.evaluate(() => {
+      const caption = document.querySelector<HTMLElement>('.workbench-caption')!.getBoundingClientRect()
+      const controls = document.querySelector<HTMLElement>('.cheat-control-bar')!.getBoundingClientRect()
+      return caption.bottom <= controls.top
+    })
+    expect(cheatSpacing).toBe(true)
+    await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-tab-hover.png'), animations: 'disabled' })
+
+    const closeButton = page.getByRole('button', { name: '关闭', exact: true })
+    await closeButton.hover()
+    expect(await closeButton.evaluate(element => getComputedStyle(element).backgroundImage)).toContain('gear-')
   } finally {
     await app.close()
     rmSync(dataRoot, { recursive: true, force: true })

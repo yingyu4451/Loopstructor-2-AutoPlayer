@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.60 机械 UI 状态与层级修复
+
+`0.6.60` 修复 Skyspine 皮肤在 hover、active、selected、focus-visible 和 disabled 之间发生 cascade 竞争的问题。基础布局规则进入低优先级 `app-base` layer；Skyspine 模块通过组件状态 token 保留金属渐变、齿轮背景和结构阴影，禁用状态只降低明度与饱和度，不再用全局 `!important` 抹掉材质。选中导航、目录卡、选项卡和皮肤项都有独立 hover 组合，键盘焦点沿控件自身异形轮廓增强，不再叠加被 `clip-path` 裁断的矩形焦点框。
+
+异形面板、按钮、导航和目录行改为外轮廓与内材质两层绘制，清理 `clip-path + border + outline` 产生的断角和粗细不一。工作台原生框图改成只覆盖边缘的 chrome overlay，并统一顶部铭牌、左右管线和底部齿轮安全区；每个页面只显示一个可见标题，作弊控制条位于铭牌下方。紧凑高度下缩短导航节奏并保留滚动安全区，底部节点不再被裁切。Playwright 新增 hover、focus、selected、disabled、chrome z-index/mask 和标题间距断言与截图。本版本以 `v0.6.59` 为相邻增量基线；协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.59 游戏原生机械终端 UI
 
 `0.6.59` 纠正 `0.6.58` 只改主题令牌、但组件剪影和材质变化不足的问题。标题栏、左侧导航、主内容区、作弊控制条、11 个路由及各页面原有功能分组保持原位；可见组件全部重做为游戏原生机械终端：标题栏贯穿齿轴和驱动齿轮、导航齿轮座和推出铭牌、主工作台机械管线外框、铆钉切角面板、金属压入按钮、荧光数据槽、齿轮窗口控制和机械更新终端。

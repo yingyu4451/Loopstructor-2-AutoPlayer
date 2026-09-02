@@ -210,19 +210,26 @@
 }
 
 .app-shell[data-skin="skyspine"] .nav-item {
+  --nav-edge: #4f2f1a;
+  --nav-start: #170f0a;
+  --nav-end: #27170d;
   height: 49px;
   margin: 1px 0;
   grid-template-columns: 46px minmax(0, 1fr) auto;
   padding: 0 10px 0 0;
   overflow: visible;
+  isolation: isolate;
   clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 8px 100%, 0 calc(100% - 8px));
-  border: 2px solid transparent;
+  border: 0;
   border-radius: 0;
-  background: linear-gradient(90deg, transparent 34px, #170f0a 34px, #27170d 100%);
+  background: linear-gradient(90deg, transparent 34px, var(--nav-edge) 34px);
   color: #c8ad7b;
+  transition: color 140ms ease, filter 140ms ease;
 }
-.app-shell[data-skin="skyspine"] .nav-item:hover { border-color: #70411d; background: linear-gradient(90deg, transparent 34px, #27170e 34px, #432511 100%); color: #ffe0a0; transform: translateX(2px); }
-.app-shell[data-skin="skyspine"] .nav-item.active { border-color: #c7852e; background: linear-gradient(90deg, transparent 34px, #2b1609 34px, #513018 100%); color: #ffe38d; box-shadow: inset 0 -3px #140b06, inset -5px 0 #e1a13f, 5px 4px 0 #070503; }
+.app-shell[data-skin="skyspine"] .nav-item::before { content: ""; position: absolute; inset: 2px; z-index: -1; clip-path: inherit; background: linear-gradient(90deg, transparent 32px, var(--nav-start) 32px, var(--nav-end) 100%); box-shadow: inset 0 -3px #140b06; }
+.app-shell[data-skin="skyspine"] .nav-item:hover { --nav-edge: #a4632c; --nav-start: #27170e; --nav-end: #432511; color: #ffe0a0; filter: brightness(1.1); }
+.app-shell[data-skin="skyspine"] .nav-item.active { --nav-edge: #e1a13f; --nav-start: #2b1609; --nav-end: #513018; color: #ffe38d; filter: drop-shadow(5px 4px 0 #070503); }
+.app-shell[data-skin="skyspine"] .nav-item.active:hover { --nav-edge: #f5bd55; --nav-start: #3a1e0c; --nav-end: #653c1c; color: #fff0ba; filter: brightness(1.1) drop-shadow(5px 4px 0 #070503); }
 .app-shell[data-skin="skyspine"] .rail-node { position: relative; width: 43px; height: 43px; overflow: hidden; border: 0; border-radius: 50%; background: #100b07; transform: none; }
 .app-shell[data-skin="skyspine"] .rail-cog { position: absolute; inset: -2px; z-index: 0; background: url("./assets/skins/skyspine/gear.png") center / contain no-repeat; filter: sepia(.35) brightness(.64); transform-origin: center; }
 .app-shell[data-skin="skyspine"] .rail-symbol { position: relative; z-index: 2; color: #d2c3aa; filter: drop-shadow(0 2px #000); }
@@ -256,9 +263,19 @@
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 5;
   pointer-events: none;
   background: url("./assets/skins/skyspine/console-frame.png") center / 100% 100% no-repeat;
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% 118px no-repeat,
+    linear-gradient(#000 0 0) bottom / 100% 72px no-repeat,
+    linear-gradient(#000 0 0) left / 54px 100% no-repeat,
+    linear-gradient(#000 0 0) right / 54px 100% no-repeat;
+  mask:
+    linear-gradient(#000 0 0) top / 100% 118px no-repeat,
+    linear-gradient(#000 0 0) bottom / 100% 72px no-repeat,
+    linear-gradient(#000 0 0) left / 54px 100% no-repeat,
+    linear-gradient(#000 0 0) right / 54px 100% no-repeat;
   opacity: .88;
   filter: saturate(.88) brightness(1.12);
 }
@@ -272,18 +289,16 @@
   background: radial-gradient(circle at 56% 42%, #15395e4f, transparent 45%), radial-gradient(circle at 50% 50%, transparent 58%, #000 100%);
 }
 
-.app-shell[data-skin="skyspine"] .workspace-station { position: absolute; right: 32px; bottom: 24px; z-index: 1; width: 200px; height: 200px; object-fit: contain; opacity: .18; filter: drop-shadow(0 12px 12px #000); pointer-events: none; }
+.app-shell[data-skin="skyspine"] .workspace-station { position: absolute; right: 58px; bottom: 54px; z-index: 0; width: 200px; height: 200px; object-fit: contain; opacity: .18; filter: drop-shadow(0 12px 12px #000); pointer-events: none; }
 .app-shell[data-skin="skyspine"][data-route="game"] .workspace-station,
 .app-shell[data-skin="skyspine"][data-route="autoplay"] .workspace-station { opacity: .34; }
-.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 43px; left: 50%; z-index: 3; width: min(360px, 34%); transform: translateX(-50%); overflow: hidden; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
+.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 43px; left: 50%; z-index: 6; width: min(360px, 34%); transform: translateX(-50%); overflow: hidden; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
 
-.app-shell[data-skin="skyspine"] .cheat-control-bar { position: relative; z-index: 4; min-height: 68px; margin: 18px 52px 0; padding: 10px 22px; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 14px); border: 4px solid #140c07; outline: 2px solid #9a5e2d; background: linear-gradient(180deg, #4b2b16, #1d120b 44%, #0b0907); box-shadow: inset 0 2px #c18042, 0 6px 14px #0009; }
+.app-shell[data-skin="skyspine"] .cheat-control-bar { position: relative; z-index: 4; min-height: 64px; margin: 116px 62px 0; padding: 10px 22px; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 14px); border: 0; background: linear-gradient(180deg, #9a5e2d 0 3px, #4b2b16 3px, #1d120b 44%, #0b0907); box-shadow: inset 0 0 0 3px #140c07, inset 0 0 0 5px #9a5e2d, inset 0 2px #c18042, 0 6px 14px #0009; }
 .app-shell[data-skin="skyspine"] .cheat-control-title { color: #f4bf60; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
 
-.app-shell[data-skin="skyspine"] .page-host { position: relative; z-index: 2; padding: 54px 62px 66px; overflow: hidden; }
-.app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 24px; }
-.app-shell[data-skin="skyspine"] .page-host > .settings-workspace,
-.app-shell[data-skin="skyspine"] .page-host > .saves-workspace { padding-top: 30px; }
+.app-shell[data-skin="skyspine"] .page-host { position: relative; z-index: 2; padding: 118px 62px 72px; overflow: hidden; }
+.app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 18px; }
 .app-shell[data-skin="skyspine"] .page-grid { gap: 14px; }
 
 .app-shell[data-skin="skyspine"] .page-heading {
@@ -291,12 +306,13 @@
   min-height: 68px;
   padding: 7px 18px 7px 76px;
   clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 14px), 0 14px);
-  border: 3px solid #0b0704;
-  outline: 2px solid #9e632e;
-  outline-offset: -5px;
-  background: linear-gradient(180deg, #51301a, #24150c 34%, #0b0907 35% 78%, #29180e 79%);
-  box-shadow: inset 0 2px #d1914d, 0 7px 0 #070503, 0 10px 18px #0008;
+  isolation: isolate;
+  border: 0;
+  background: #9e632e;
+  box-shadow: 0 7px 0 #070503, 0 10px 18px #0008;
 }
+
+.app-shell[data-skin="skyspine"] .page-heading::after { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, #51301a, #24150c 34%, #0b0907 35% 78%, #29180e 79%); box-shadow: inset 0 2px #d1914d, inset 0 0 0 2px #180d07; }
 
 .app-shell[data-skin="skyspine"] .page-heading::before {
   content: "";
@@ -312,23 +328,26 @@
 .app-shell[data-skin="skyspine"] .page-heading h1 { margin: 1px 0 0; color: #ffd266; font-size: 27px; text-shadow: 0 3px #4a230b, 0 0 7px #d786273b; }
 .app-shell[data-skin="skyspine"] .page-heading .eyebrow { color: #7fe74e; font-family: "Skyspine Data", Consolas, monospace; font-size: 11px; text-shadow: 0 0 6px #6cd53f; }
 
+.app-shell[data-skin="skyspine"][data-route="game"] .page-heading,
+.app-shell[data-skin="skyspine"][data-route="autoplay"] .page-heading { min-height: 48px; justify-content: flex-end; padding: 0; clip-path: none; background: transparent; box-shadow: none; }
+.app-shell[data-skin="skyspine"][data-route="game"] .page-heading::before,
+.app-shell[data-skin="skyspine"][data-route="game"] .page-heading::after,
+.app-shell[data-skin="skyspine"][data-route="autoplay"] .page-heading::before,
+.app-shell[data-skin="skyspine"][data-route="autoplay"] .page-heading::after { display: none; }
+.app-shell[data-skin="skyspine"][data-route="game"] .page-heading > div:first-child,
+.app-shell[data-skin="skyspine"][data-route="autoplay"] .page-heading > div:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 .app-shell[data-skin="skyspine"] .mechanical-section {
   position: relative;
   padding: 17px 18px 19px;
   clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
-  border: 4px solid #1a1009;
+  isolation: isolate;
+  border: 0;
   border-radius: 0;
-  outline: 2px solid #875127;
-  outline-offset: -6px;
-  background:
-    radial-gradient(circle at 11px 11px, #c39155 0 2px, #17100b 3px 5px, transparent 6px),
-    radial-gradient(circle at calc(100% - 11px) 11px, #c39155 0 2px, #17100b 3px 5px, transparent 6px),
-    radial-gradient(circle at 11px calc(100% - 11px), #c39155 0 2px, #17100b 3px 5px, transparent 6px),
-    radial-gradient(circle at calc(100% - 11px) calc(100% - 11px), #c39155 0 2px, #17100b 3px 5px, transparent 6px),
-    linear-gradient(180deg, #21160f, #0d0c0a 18%, #090a09 82%, #21150e);
-  box-shadow: inset 0 0 0 2px #4a2d19, inset 0 2px #b77638, 0 7px 0 #060403, 0 12px 20px #0009;
+  background: #875127;
+  box-shadow: 0 7px 0 #060403, 0 12px 20px #0009;
 }
-.app-shell[data-skin="skyspine"] .mechanical-section::before { inset: 7px; opacity: .38; border: 1px solid #8e5c2e; border-radius: 0; background: repeating-linear-gradient(0deg, transparent 0 8px, #91d45b08 9px 10px); }
+.app-shell[data-skin="skyspine"] .mechanical-section::before { inset: 3px; z-index: -1; opacity: 1; clip-path: inherit; border: 0; border-radius: 0; background: radial-gradient(circle at 8px 8px, #c39155 0 2px, #17100b 3px 5px, transparent 6px), radial-gradient(circle at calc(100% - 8px) 8px, #c39155 0 2px, #17100b 3px 5px, transparent 6px), radial-gradient(circle at 8px calc(100% - 8px), #c39155 0 2px, #17100b 3px 5px, transparent 6px), radial-gradient(circle at calc(100% - 8px) calc(100% - 8px), #c39155 0 2px, #17100b 3px 5px, transparent 6px), repeating-linear-gradient(0deg, transparent 0 8px, #91d45b08 9px 10px), linear-gradient(180deg, #21160f, #0d0c0a 18%, #090a09 82%, #21150e); box-shadow: inset 0 0 0 2px #2b1a0f, inset 0 2px #b77638; }
 .app-shell[data-skin="skyspine"] .section-heading { min-height: 47px; margin: 0 0 14px; padding: 0 0 10px; border-bottom: 4px double #6c4324; }
 .app-shell[data-skin="skyspine"] .section-heading h2,
 .app-shell[data-skin="skyspine"] .spawn-point-heading h3,
@@ -337,27 +356,33 @@
 .app-shell[data-skin="skyspine"] .heading-with-icon { color: #6fce43; }
 
 .app-shell[data-skin="skyspine"] .button {
+  --button-edge: #9a6230;
+  --button-top: #55341d;
+  --button-mid: #28170d;
+  --button-bottom: #160d08;
+  --button-highlight: #c78646;
+  position: relative;
+  isolation: isolate;
   min-height: 40px;
   padding: 0 18px;
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  border: 3px solid #160e08;
+  border: 0;
   border-radius: 0;
-  outline: 1px solid #9a6230;
-  outline-offset: -4px;
-  background: linear-gradient(180deg, #55341d, #28170d 52%, #160d08 53%);
+  background: var(--button-edge);
   color: #f4c96d;
-  box-shadow: inset 0 2px #c78646, 0 4px 0 #070402, 0 6px 10px #0007;
+  box-shadow: 0 4px 0 #070402, 0 6px 10px #0007;
   font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif;
   font-size: 14px;
   text-shadow: 0 2px #321707;
+  transition: color 120ms ease, filter 120ms ease, transform 80ms ease, box-shadow 80ms ease;
 }
-.app-shell[data-skin="skyspine"] .button:hover:not(:disabled) { border-color: #2b1609; outline-color: #efb14e; background: linear-gradient(180deg, #74451f, #3b210f 52%, #221209 53%); color: #ffe29a; transform: translateY(-1px); }
-.app-shell[data-skin="skyspine"] .button:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px #8e5b30, 0 1px 0 #070402; }
-.app-shell[data-skin="skyspine"] .button.primary { border-color: #241206; outline-color: #ffe18b; background: linear-gradient(180deg, #e7b866, #9f6e2d 52%, #6d421b 53%); color: #1d1107; text-shadow: 0 1px #f7db9b; }
-.app-shell[data-skin="skyspine"] .button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #f4d184, #b68237 52%, #815120 53%); color: #140c05; }
-.app-shell[data-skin="skyspine"] .button.secondary { border-color: #120c08; outline-color: #7d5b34; background: linear-gradient(180deg, #3b2b1f, #18120e 54%, #0c0a08 55%); color: #e2c893; }
-.app-shell[data-skin="skyspine"] .button.danger { outline-color: #b95435; background: linear-gradient(180deg, #63291d, #32150f 54%, #170a07 55%); color: #ffb098; }
-.app-shell[data-skin="skyspine"] .button.launch { min-width: 175px; min-height: 52px; outline-color: #8be85b; background: linear-gradient(180deg, #608f3c, #305b25 52%, #193914 53%); color: #efffdd; text-shadow: 0 2px #17320f; }
+.app-shell[data-skin="skyspine"] .button::before { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, var(--button-top), var(--button-mid) 52%, var(--button-bottom) 53%); box-shadow: inset 0 2px var(--button-highlight), inset 0 0 0 2px #160e08; }
+.app-shell[data-skin="skyspine"] .button:hover:not(:disabled) { --button-edge: #efb14e; color: #ffe29a; filter: brightness(1.14) saturate(1.08); transform: translateY(-1px); }
+.app-shell[data-skin="skyspine"] .button:active:not(:disabled) { filter: brightness(.9); transform: translateY(3px); box-shadow: 0 1px 0 #070402; }
+.app-shell[data-skin="skyspine"] .button.primary { --button-edge: #ffe18b; --button-top: #e7b866; --button-mid: #9f6e2d; --button-bottom: #6d421b; --button-highlight: #f7db9b; color: #1d1107; text-shadow: 0 1px #f7db9b; }
+.app-shell[data-skin="skyspine"] .button.secondary { --button-edge: #7d5b34; --button-top: #3b2b1f; --button-mid: #18120e; --button-bottom: #0c0a08; --button-highlight: #8c6740; color: #e2c893; }
+.app-shell[data-skin="skyspine"] .button.danger { --button-edge: #b95435; --button-top: #63291d; --button-mid: #32150f; --button-bottom: #170a07; --button-highlight: #c9694c; color: #ffb098; }
+.app-shell[data-skin="skyspine"] .button.launch { --button-edge: #8be85b; --button-top: #608f3c; --button-mid: #305b25; --button-bottom: #193914; --button-highlight: #97cf70; min-width: 175px; min-height: 52px; color: #efffdd; text-shadow: 0 2px #17320f; }
 
 .app-shell[data-skin="skyspine"] .icon-button {
   width: 43px;
@@ -372,11 +397,12 @@
 }
 .app-shell[data-skin="skyspine"] .icon-button:hover:not(:disabled) { border: 0; background-color: #422715; color: #fff1bd; transform: rotate(7deg) scale(1.04); }
 .app-shell[data-skin="skyspine"] button:disabled,
-.app-shell[data-skin="skyspine"] .disabled { opacity: .56; filter: grayscale(.45); }
+.app-shell[data-skin="skyspine"] .disabled { opacity: .56; color: #817667; filter: grayscale(.55) brightness(.72); }
+.app-shell[data-skin="skyspine"] .icon-button:disabled { filter: sepia(.2) grayscale(.65) brightness(.62) drop-shadow(0 3px 2px #000b); }
 
-.app-shell[data-skin="skyspine"] .status-badge { min-height: 28px; padding: 0 12px; clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 2px solid #24160d; border-radius: 0; outline: 1px solid #77502e; background: #0b0a08; color: #d0b98e; font-family: "Skyspine Data", Consolas, monospace; }
-.app-shell[data-skin="skyspine"] .status-badge.online { outline-color: #6ab145; background: #10200d; color: #99f065; box-shadow: inset 0 0 8px #6ad63c22; }
-.app-shell[data-skin="skyspine"] .status-badge.warning { outline-color: #be782f; background: #241408; color: #ffc060; }
+.app-shell[data-skin="skyspine"] .status-badge { min-height: 28px; padding: 0 12px; clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 0; border-radius: 0; background: #0b0a08; color: #d0b98e; box-shadow: inset 0 0 0 2px #24160d, inset 0 0 0 3px #77502e; font-family: "Skyspine Data", Consolas, monospace; }
+.app-shell[data-skin="skyspine"] .status-badge.online { background: #10200d; color: #99f065; box-shadow: inset 0 0 0 2px #193212, inset 0 0 0 3px #6ab145, inset 0 0 8px #6ad63c22; }
+.app-shell[data-skin="skyspine"] .status-badge.warning { background: #241408; color: #ffc060; box-shadow: inset 0 0 0 2px #2f1809, inset 0 0 0 3px #be782f; }
 
 .app-shell[data-skin="skyspine"] .path-display,
 .app-shell[data-skin="skyspine"] input[type="number"],
@@ -385,17 +411,15 @@
 .app-shell[data-skin="skyspine"] .number-suffix input {
   border: 3px solid #160f0a;
   border-radius: 0;
-  outline: 1px solid #7d532c;
-  outline-offset: -4px;
   background: linear-gradient(180deg, #0e100d, #080907);
   color: #8ee252;
-  box-shadow: inset 0 4px 8px #000b, 0 1px #a06a35;
+  box-shadow: inset 0 4px 8px #000b, inset 0 0 0 1px #7d532c, 0 1px #a06a35;
   font-family: "Skyspine Data", "Microsoft YaHei UI", monospace;
 }
 .app-shell[data-skin="skyspine"] select { color: #f0d28d; }
 .app-shell[data-skin="skyspine"] .search-box:focus-within,
-.app-shell[data-skin="skyspine"] input[type="number"]:focus,
-.app-shell[data-skin="skyspine"] select:focus { outline-color: #80da4d; box-shadow: inset 0 4px 8px #000b, 0 0 9px #79da455c; }
+.app-shell[data-skin="skyspine"] input[type="number"]:focus-visible,
+.app-shell[data-skin="skyspine"] select:focus-visible { border-color: #80da4d; outline: 0; box-shadow: inset 0 4px 8px #000b, inset 0 0 0 1px #80da4d, 0 0 9px #79da455c; }
 .app-shell[data-skin="skyspine"] .search-box input { color: #8ee252; font-family: "Skyspine Data", "Microsoft YaHei UI", monospace; }
 .app-shell[data-skin="skyspine"] .search-box input::placeholder { color: #68835a; }
 
@@ -404,17 +428,37 @@
 .app-shell[data-skin="skyspine"] .switch-row,
 .app-shell[data-skin="skyspine"] .action-toggle,
 .app-shell[data-skin="skyspine"] .command-button {
+  --field-edge: #5f3b21;
+  --field-top: #18130e;
+  --field-bottom: #0a0a08;
+  position: relative;
+  isolation: isolate;
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  border: 2px solid #5f3b21;
+  border: 0;
   border-radius: 0;
-  background: linear-gradient(180deg, #18130e, #0a0a08);
-  box-shadow: inset 0 0 0 2px #160e09;
+  background: var(--field-edge);
+  box-shadow: none;
+  transition: color 120ms ease, filter 120ms ease;
 }
+.app-shell[data-skin="skyspine"] .radio-card::before,
+.app-shell[data-skin="skyspine"] .range-field::before,
+.app-shell[data-skin="skyspine"] .switch-row::before,
+.app-shell[data-skin="skyspine"] .action-toggle::before,
+.app-shell[data-skin="skyspine"] .command-button::before { content: ""; position: absolute; inset: 2px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, var(--field-top), var(--field-bottom)); box-shadow: inset 0 0 0 2px #160e09; }
+.app-shell[data-skin="skyspine"] .radio-card:hover,
+.app-shell[data-skin="skyspine"] .range-field:hover,
+.app-shell[data-skin="skyspine"] .switch-row:hover,
+.app-shell[data-skin="skyspine"] .action-toggle:hover,
+.app-shell[data-skin="skyspine"] .command-button:hover:not(:disabled) { --field-edge: #b57634; --field-top: #2b1b10; --field-bottom: #0d0b08; color: #ffe0a0; filter: brightness(1.08); }
 .app-shell[data-skin="skyspine"] .radio-card:has(input:checked),
-.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked) { border-color: #82d64e; background: linear-gradient(180deg, #203018, #0c130a); box-shadow: inset 5px 0 #6bd83e; }
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked) { --field-edge: #82d64e; --field-top: #203018; --field-bottom: #0c130a; }
+.app-shell[data-skin="skyspine"] .radio-card:has(input:checked)::before,
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked)::before { box-shadow: inset 5px 0 #6bd83e, inset 0 0 0 2px #14220f; }
+.app-shell[data-skin="skyspine"] .radio-card:has(input:checked):hover,
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked):hover { --field-edge: #9bef69; --field-top: #294020; --field-bottom: #10190d; }
 .app-shell[data-skin="skyspine"] input[type="checkbox"],
 .app-shell[data-skin="skyspine"] input[type="radio"] { accent-color: #76d845; }
-.app-shell[data-skin="skyspine"] .switch-track { width: 43px; height: 24px; padding: 3px; border: 2px solid #24170e; outline: 1px solid #8d6035; background: #0b0907; box-shadow: inset 0 3px 5px #000; }
+.app-shell[data-skin="skyspine"] .switch-track { width: 43px; height: 24px; padding: 3px; border: 2px solid #24170e; background: #0b0907; box-shadow: inset 0 3px 5px #000, 0 0 0 1px #8d6035; }
 .app-shell[data-skin="skyspine"] .switch-track span { width: 14px; height: 14px; border-radius: 50%; background: #706452; box-shadow: 0 0 0 2px #19120d; }
 .app-shell[data-skin="skyspine"] .switch-control input:checked + .switch-track span,
 .app-shell[data-skin="skyspine"] .field-delete-toggle > input:checked + .switch-track span,
@@ -431,50 +475,73 @@
 .app-shell[data-skin="skyspine"] .automation-facts strong,
 .app-shell[data-skin="skyspine"] .update-panel strong { color: #8ee450; font-family: "Skyspine Data", "Microsoft YaHei UI", monospace; }
 .app-shell[data-skin="skyspine"] .validation-strip,
-.app-shell[data-skin="skyspine"] .launch-band { clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px); border: 3px solid #23160d; border-radius: 0; outline: 1px solid #724725; background: #0a0a08e8; }
-.app-shell[data-skin="skyspine"] .launch-band.ready { outline-color: #6fc044; box-shadow: inset 7px 0 #6ddc40, 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .launch-band { clip-path: none; border: 2px solid #724725; border-radius: 0; background: #0a0a08e8; box-shadow: inset 0 0 0 3px #23160d; }
+.app-shell[data-skin="skyspine"] .launch-band.ready { border-color: #6fc044; box-shadow: inset 7px 0 #6ddc40, inset 0 0 0 3px #1e2d16, 0 5px 0 #060403; }
 
 .app-shell[data-skin="skyspine"] .type-switcher,
-.app-shell[data-skin="skyspine"] .segmented-control { border: 3px solid #160e09; border-radius: 0; outline: 1px solid #81532c; background: #090806; }
+.app-shell[data-skin="skyspine"] .segmented-control { border: 3px solid #160e09; border-radius: 0; background: #090806; box-shadow: 0 0 0 1px #81532c; }
 .app-shell[data-skin="skyspine"] .type-switcher button,
 .app-shell[data-skin="skyspine"] .segmented-control button { border-right: 2px solid #4b2e1a; background: #120e0a; color: #b9a27e; }
 .app-shell[data-skin="skyspine"] .type-switcher button.active,
 .app-shell[data-skin="skyspine"] .segmented-control button.active { background: #402413; color: #ffd475; box-shadow: inset 0 -4px #78df45; }
+.app-shell[data-skin="skyspine"] .type-switcher button:hover,
+.app-shell[data-skin="skyspine"] .segmented-control button:hover { background: #2c1b10; color: #ffe0a0; }
+.app-shell[data-skin="skyspine"] .type-switcher button.active:hover,
+.app-shell[data-skin="skyspine"] .segmented-control button.active:hover { background: #573019; color: #fff0b3; box-shadow: inset 0 -4px #8bf05a; }
 
 .app-shell[data-skin="skyspine"] .catalog-card,
 .app-shell[data-skin="skyspine"] .vehicle-family,
-.app-shell[data-skin="skyspine"] .entity-table > button,
-.app-shell[data-skin="skyspine"] .save-history-row {
+.app-shell[data-skin="skyspine"] .entity-table > button {
+  --row-edge: #54341e;
+  --row-top: #17120e;
+  --row-bottom: #090907;
+  isolation: isolate;
   clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
-  border: 2px solid #54341e;
+  border: 0;
   border-radius: 0;
-  background: linear-gradient(180deg, #17120e, #090907);
-  box-shadow: inset 0 0 0 2px #120d09;
+  background: var(--row-edge);
+  box-shadow: none;
+  transition: color 120ms ease, filter 120ms ease;
 }
+.app-shell[data-skin="skyspine"] .catalog-card::before,
+.app-shell[data-skin="skyspine"] .vehicle-family::before,
+.app-shell[data-skin="skyspine"] .entity-table > button::before { content: ""; position: absolute; inset: 2px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, var(--row-top), var(--row-bottom)); box-shadow: inset 0 0 0 2px #120d09; }
+.app-shell[data-skin="skyspine"] .save-history-row { clip-path: none; border: 2px solid #54341e; border-radius: 0; background: linear-gradient(180deg, #17120e, #090907); box-shadow: inset 0 0 0 2px #120d09; }
 .app-shell[data-skin="skyspine"] .catalog-card:hover:not(:disabled),
 .app-shell[data-skin="skyspine"] .vehicle-family:hover,
-.app-shell[data-skin="skyspine"] .entity-table > button:hover { border-color: #b87731; background: linear-gradient(180deg, #2b1b10, #0d0b08); }
+.app-shell[data-skin="skyspine"] .entity-table > button:hover { --row-edge: #b87731; --row-top: #2b1b10; --row-bottom: #0d0b08; filter: brightness(1.08); }
 .app-shell[data-skin="skyspine"] .catalog-card.selected,
 .app-shell[data-skin="skyspine"] .vehicle-family.selected,
-.app-shell[data-skin="skyspine"] .entity-table > button.active { border-color: #79db45; background: linear-gradient(90deg, #182714, #0a0b08); box-shadow: inset 6px 0 #72d941; }
+.app-shell[data-skin="skyspine"] .entity-table > button.active { --row-edge: #79db45; --row-top: #182714; --row-bottom: #0a0b08; }
+.app-shell[data-skin="skyspine"] .catalog-card.selected::before,
+.app-shell[data-skin="skyspine"] .vehicle-family.selected::before,
+.app-shell[data-skin="skyspine"] .entity-table > button.active::before { box-shadow: inset 6px 0 #72d941, inset 0 0 0 2px #12210e; }
+.app-shell[data-skin="skyspine"] .catalog-card.selected:hover,
+.app-shell[data-skin="skyspine"] .vehicle-family.selected:hover,
+.app-shell[data-skin="skyspine"] .entity-table > button.active:hover { --row-edge: #91ef5d; --row-top: #20351a; --row-bottom: #0c1209; }
 .app-shell[data-skin="skyspine"] .catalog-icon,
-.app-shell[data-skin="skyspine"] .vehicle-game-icon { border: 3px solid #1c120c; border-radius: 50%; outline: 2px solid #9d6431; background: radial-gradient(circle, #21170f, #060504); box-shadow: inset 0 0 8px #000, 0 3px 0 #050302; }
+.app-shell[data-skin="skyspine"] .vehicle-game-icon { border: 3px solid #1c120c; border-radius: 50%; background: radial-gradient(circle, #21170f, #060504); box-shadow: inset 0 0 8px #000, 0 0 0 2px #9d6431, 0 3px 0 #050302; }
 .app-shell[data-skin="skyspine"] .catalog-copy strong,
 .app-shell[data-skin="skyspine"] .entity-table strong { color: #f1cc78; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; }
 .app-shell[data-skin="skyspine"] .count-badge,
-.app-shell[data-skin="skyspine"] .selected-badge { border: 2px solid #140c07; border-radius: 50%; outline: 1px solid #c8873c; background: #28170d; color: #ffd87c; }
+.app-shell[data-skin="skyspine"] .selected-badge { border: 2px solid #140c07; border-radius: 50%; background: #28170d; color: #ffd87c; box-shadow: 0 0 0 1px #c8873c; }
 
-.app-shell[data-skin="skyspine"] .automation-warning { clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 3px solid #2a1709; outline: 2px solid #c47a25; background: linear-gradient(90deg, #552608, #211006); color: #ffd078; box-shadow: inset 7px 0 #e18d2b, 0 5px 0 #060403; }
-.app-shell[data-skin="skyspine"] .automation-timeline article { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px); border: 2px solid #4f321c; border-left: 6px solid #48a7d4; border-radius: 0; background: #090907; }
+.app-shell[data-skin="skyspine"] .automation-warning { position: relative; isolation: isolate; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 0; background: #c47a25; color: #ffd078; box-shadow: 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .automation-warning::before { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(90deg, #552608, #211006); box-shadow: inset 7px 0 #e18d2b, inset 0 0 0 2px #2a1709; }
+.app-shell[data-skin="skyspine"] .automation-timeline article { clip-path: none; border: 2px solid #4f321c; border-left: 6px solid #48a7d4; border-radius: 0; background: #090907; box-shadow: inset 0 0 0 1px #160e09; }
 
 .app-shell[data-skin="skyspine"] .skin-settings { grid-column: 1 / -1; }
-.app-shell[data-skin="skyspine"] .skin-option { min-height: 82px; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 3px solid #1b110a; border-radius: 0; outline: 1px solid #895427; background: linear-gradient(180deg, #21150d, #0a0907); }
-.app-shell[data-skin="skyspine"] .skin-option.selected { outline-color: #86df50; box-shadow: inset 7px 0 #77dd45, 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .skin-option { --skin-edge: #895427; position: relative; isolation: isolate; min-height: 82px; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 0; border-radius: 0; background: var(--skin-edge); box-shadow: 0 5px 0 #060403; transition: color 120ms ease, filter 120ms ease; }
+.app-shell[data-skin="skyspine"] .skin-option::before { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, #21150d, #0a0907); box-shadow: inset 0 0 0 2px #1b110a; }
+.app-shell[data-skin="skyspine"] .skin-option:hover { --skin-edge: #c9853c; color: #ffe0a0; filter: brightness(1.08); }
+.app-shell[data-skin="skyspine"] .skin-option.selected { --skin-edge: #86df50; }
+.app-shell[data-skin="skyspine"] .skin-option.selected::before { box-shadow: inset 7px 0 #77dd45, inset 0 0 0 2px #183010; }
+.app-shell[data-skin="skyspine"] .skin-option.selected:hover { --skin-edge: #a0f36f; filter: brightness(1.08); }
 .app-shell[data-skin="skyspine"] .skin-option strong { color: #f1bf5b; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
-.app-shell[data-skin="skyspine"] .skin-swatch { border: 4px solid #140c07; border-radius: 0; outline: 1px solid #a56d35; }
+.app-shell[data-skin="skyspine"] .skin-swatch { border: 4px solid #140c07; border-radius: 0; box-shadow: 0 0 0 1px #a56d35; }
 
 .app-shell[data-skin="skyspine"] .mechanical-tooltip,
-.app-shell[data-skin="skyspine"] .app-toast { clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px); border: 3px solid #160e08; border-radius: 0; outline: 1px solid #bd7a35; background: linear-gradient(180deg, #28180e, #0b0907); color: #f4ddaf; box-shadow: inset 0 0 0 2px #4a2b16, 0 8px 0 #050302, 0 14px 28px #000b; }
+.app-shell[data-skin="skyspine"] .app-toast { border: 3px solid #160e08; border-radius: 0; background: linear-gradient(180deg, #28180e, #0b0907); color: #f4ddaf; box-shadow: inset 0 0 0 2px #4a2b16, 0 0 0 1px #bd7a35, 0 8px 0 #050302, 0 14px 28px #000b; }
 .app-shell[data-skin="skyspine"] .modal-backdrop { background: #050301d9; backdrop-filter: blur(3px); }
 .app-shell[data-skin="skyspine"] .mechanical-modal { width: min(700px, calc(100vw - 36px)); min-height: 420px; padding: 72px 76px 86px; border: 0; border-radius: 0; background: url("./assets/skins/skyspine/setting-frame.png") center / 100% 100% no-repeat; box-shadow: 0 18px 60px #000e; }
 .app-shell[data-skin="skyspine"] .mechanical-modal header { border-bottom: 3px double #71451f; }
@@ -483,14 +550,32 @@
 
 .app-shell[data-skin="skyspine"] .updater-shell { position: relative; isolation: isolate; background: linear-gradient(#070604b8, #060503de), url("./assets/skins/skyspine/map-background.jpg") center / cover no-repeat; }
 .app-shell[data-skin="skyspine"] .updater-shell::before { content: ""; position: absolute; inset: 10px; z-index: 0; pointer-events: none; background: url("./assets/skins/skyspine/console-frame.png") center / 100% 100% no-repeat; opacity: .94; }
-.app-shell[data-skin="skyspine"] .updater-card { position: relative; z-index: 1; width: min(640px, calc(100% - 92px)); padding: 22px 24px; border: 5px solid #160d07; border-radius: 0; outline: 2px solid #a66a31; background: linear-gradient(180deg, #17130eec, #070806f5); box-shadow: inset 0 0 0 3px #3f2817, 0 8px 0 #040302, 0 18px 36px #000c; }
+.app-shell[data-skin="skyspine"] .updater-card { position: relative; z-index: 1; width: min(640px, calc(100% - 92px)); padding: 22px 24px; border: 5px solid #160d07; border-radius: 0; background: linear-gradient(180deg, #17130eec, #070806f5); box-shadow: inset 0 0 0 2px #a66a31, inset 0 0 0 5px #3f2817, 0 8px 0 #040302, 0 18px 36px #000c; }
 .app-shell[data-skin="skyspine"] .updater-heading { border-bottom: 4px double #70451f; }
 .app-shell[data-skin="skyspine"] .updater-heading h1 { color: #f3be58; font-size: 25px; text-shadow: 0 3px #3f1e09; }
-.app-shell[data-skin="skyspine"] .updater-stage { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 0; border-radius: 0; outline: 1px solid #9e622c; background: #0b0907; color: #86e44f; }
-.app-shell[data-skin="skyspine"] .updater-progress-track { height: 21px; border: 4px solid #130c07; border-radius: 0; outline: 1px solid #8b592d; background: #050604; box-shadow: inset 0 5px 8px #000; }
+.app-shell[data-skin="skyspine"] .updater-stage { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 0; border-radius: 0; background: #0b0907; color: #86e44f; box-shadow: inset 0 0 0 1px #9e622c; }
+.app-shell[data-skin="skyspine"] .updater-progress-track { height: 21px; border: 4px solid #130c07; border-radius: 0; background: #050604; box-shadow: inset 0 5px 8px #000, 0 0 0 1px #8b592d; }
 .app-shell[data-skin="skyspine"] .updater-progress-fill { border-radius: 0; background: repeating-linear-gradient(90deg, #4f9b32 0 14px, #7fe44a 15px 24px, #397b27 25px 28px); box-shadow: 0 0 12px #6ee03f; }
-.app-shell[data-skin="skyspine"] .updater-log { border: 3px solid #24170e; border-radius: 0; outline: 1px solid #6f4523; background: #060705; color: #85d958; font-family: "Skyspine Data", Consolas, monospace; }
-.app-shell[data-skin="skyspine"] .busy-indicator { right: 28px; bottom: 25px; padding: 10px 13px; border: 4px solid #160d08; border-radius: 0; outline: 1px solid #a66c34; background: #0b0907; box-shadow: 0 5px 0 #030201; }
+.app-shell[data-skin="skyspine"] .updater-log { border: 3px solid #24170e; border-radius: 0; background: #060705; color: #85d958; box-shadow: inset 0 0 0 1px #6f4523; font-family: "Skyspine Data", Consolas, monospace; }
+.app-shell[data-skin="skyspine"] .busy-indicator { right: 28px; bottom: 25px; padding: 10px 13px; border: 4px solid #160d08; border-radius: 0; background: #0b0907; box-shadow: inset 0 0 0 1px #a66c34, 0 5px 0 #030201; }
+
+.app-shell[data-skin="skyspine"] .button:focus-visible { --button-edge: #78df45; outline: 0; filter: brightness(1.1) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .button:hover:focus-visible:not(:disabled) { --button-edge: #78df45; filter: brightness(1.12) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .nav-item:focus-visible { --nav-edge: #78df45; outline: 0; filter: brightness(1.08) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .catalog-card:focus-visible,
+.app-shell[data-skin="skyspine"] .entity-table > button:focus-visible { --row-edge: #78df45; outline: 0; filter: brightness(1.08) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .command-button:focus-visible { --field-edge: #78df45; outline: 0; filter: brightness(1.08) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .skin-option:focus-visible { --skin-edge: #78df45; outline: 0; filter: brightness(1.08) drop-shadow(0 0 4px #71df4699); }
+.app-shell[data-skin="skyspine"] .type-switcher button:focus-visible,
+.app-shell[data-skin="skyspine"] .segmented-control button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px #78df45, inset 0 -4px #78df45; }
+.app-shell[data-skin="skyspine"] .icon-button:focus-visible,
+.app-shell[data-skin="skyspine"] .window-controls button:focus-visible,
+.app-shell[data-skin="skyspine"] .collapse-button:focus-visible { outline: 3px solid #78df45; outline-offset: 2px; }
+.app-shell[data-skin="skyspine"] .radio-card:has(input:focus-visible),
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:focus-visible),
+.app-shell[data-skin="skyspine"] .automation-toggle:has(input:focus-visible),
+.app-shell[data-skin="skyspine"] .switch-row:has(input:focus-visible),
+.app-shell[data-skin="skyspine"] .field-delete-toggle:has(input:focus-visible) { box-shadow: inset 0 0 0 3px #78df45, 0 0 9px #71df4677; }
 
 @container app (max-width: 1180px) {
   .app-shell[data-skin="skyspine"] .app-body { grid-template-columns: 82px minmax(0, 1fr); }
@@ -501,9 +586,9 @@
   .app-shell[data-skin="skyspine"] .rail-sidebar .nav-item { grid-template-columns: 1fr; padding: 0; clip-path: none; background: transparent; border: 0; }
   .app-shell[data-skin="skyspine"] .rail-sidebar .rail-line { left: 35px; }
   .app-shell[data-skin="skyspine"] .rail-sidebar .collapse-button { display: none; }
-  .app-shell[data-skin="skyspine"] .page-host { padding: 48px 50px 58px; }
+  .app-shell[data-skin="skyspine"] .page-host { padding: 108px 50px 58px; }
   .app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 20px; }
-  .app-shell[data-skin="skyspine"] .cheat-control-bar { margin-inline: 42px; }
+  .app-shell[data-skin="skyspine"] .cheat-control-bar { margin: 96px 42px 0; }
   .app-shell[data-skin="skyspine"] .settings-workspace { grid-template-columns: 1fr; }
   .app-shell[data-skin="skyspine"] .skin-settings { grid-column: auto; }
   .app-shell[data-skin="skyspine"] .workbench-caption { display: none; }
@@ -518,6 +603,17 @@
   .app-shell[data-skin="skyspine"] .window-controls { gap: 0; padding-right: 0; }
   .app-shell[data-skin="skyspine"] .window-controls button { width: 40px; height: 40px; background-size: 40px; }
   .app-shell[data-skin="skyspine"] .updater-card { width: calc(100% - 70px); padding: 17px 18px; }
+}
+
+@media (max-height: 760px) {
+  .app-shell[data-skin="skyspine"] .rail-sidebar { padding-top: 8px; }
+  .app-shell[data-skin="skyspine"] .rail-sidebar nav { padding-bottom: 54px; scroll-padding-block: 8px 54px; }
+  .app-shell[data-skin="skyspine"] .nav-group { margin-bottom: 4px; }
+  .app-shell[data-skin="skyspine"] .nav-group h2 { display: none; }
+  .app-shell[data-skin="skyspine"] .nav-item { height: 39px; margin: 0; }
+  .app-shell[data-skin="skyspine"] .rail-node { width: 35px; height: 35px; }
+  .app-shell[data-skin="skyspine"] .nav-label { font-size: 13px; }
+  .app-shell[data-skin="skyspine"] .collapse-button { width: 38px; height: 38px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

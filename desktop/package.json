@@ -1,6 +1,6 @@
 {
   "name": "loopstructor-autoplayer-desktop",
-  "version": "0.6.59",
+  "version": "0.6.60",
   "private": true,
   "description": "Loopstructor AutoPlayer unified Electron desktop client",
   "author": "yingyu4451",
