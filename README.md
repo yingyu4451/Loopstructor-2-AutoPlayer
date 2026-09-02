@@ -1,6 +1,6 @@
 # Loopstructor 2 AutoPlayer
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.61` 修复 Electron 更新运行时在 Windows 上复制当前 Manager 文件时中途失败的问题，改为独立复制启动 EXE、同卷硬链接暂存其余运行时，并保留跨卷复制回退；同时把 Skyspine 皮肤中所有亮黄实心主按钮统一改为深铜铭牌与浅金文字，并稳定 hover、焦点与禁用状态的可读性。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
+Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.62` 是用于验证从 `v0.6.61` 升级链路的纯版本发布，不包含功能、UI、依赖或业务逻辑变更。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.61 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.62 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.61
+.\scripts\package.ps1 -Version 0.6.62
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.61-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.62-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。

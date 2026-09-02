@@ -88,7 +88,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
 ```
 
-预期版本面均为 `0.6.61`：
+预期版本面均为 `0.6.62`：
 
 - `Directory.Build.props` 的 `VersionPrefix`；
 - `src/Loopstructor.AutoPlayer.Plugin/PluginInfo.cs`；

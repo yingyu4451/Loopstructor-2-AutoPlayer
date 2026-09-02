@@ -36,6 +36,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.62 升级链路验证版
+
+`0.6.62` 仅递增产品版本号，用于验证从 `v0.6.61` 检查、下载、安装并重启到新版本的完整升级链路。本版本不包含功能、UI、依赖、协议、目录格式或更新清单 schema 变更。
+
 ## 0.6.61 更新运行时暂存与主按钮可读性
 
 `0.6.61` 修复 Electron 更新入口在 Windows 上复制当前运行中的 Manager 目录时可能于大文件或共享运行时文件中途失败、最终只留下不完整 `electron-*` 临时目录并显示“无法准备独立的更新运行环境”的问题。暂存器现在将 Electron 启动 EXE 独立复制，确保新进程与当前运行中的 Manager 不共用同一映像文件；其余同卷运行时优先创建硬链接，避免重新读取大文件。更新器通过目录移动完成事务替换，不会就地改写硬链接内容。临时目录位于不同卷、硬链接权限不足或达到链接数量限制时，才逐文件回退到排他复制。失败会立即清理本次不完整目录，不再积累半成品。
