@@ -49,7 +49,7 @@ async function toggle() {
           :aria-current="store.route === item.key ? 'page' : undefined"
           @click="store.setRoute(item.key)"
         >
-          <span class="rail-node"><component :is="item.icon" :size="19" /></span>
+          <span class="rail-node"><span class="rail-cog" aria-hidden="true" /><component :is="item.icon" class="rail-symbol" :size="18" /></span>
           <span class="nav-label">{{ item.label }}</span>
           <span v-if="item.key === 'autoplay'" class="tiny-status">尚未完成</span>
         </button>

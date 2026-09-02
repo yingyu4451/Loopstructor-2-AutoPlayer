@@ -125,7 +125,7 @@ public sealed class ManagerSettings
     public int MaximumSaveBackups { get; set; } = 20;
     public string ActiveRoute { get; set; } = "game";
     public bool SidebarCollapsed { get; set; }
-    public string SkinId { get; set; } = "mechanical";
+    public string SkinId { get; set; } = "skyspine";
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
 
@@ -160,10 +160,7 @@ public sealed class ManagerSettings
             : "game";
     }
 
-    private static string NormalizeSkin(string? value) =>
-        string.Equals(value?.Trim(), "signal", StringComparison.OrdinalIgnoreCase)
-            ? "signal"
-            : "mechanical";
+    private static string NormalizeSkin(string? value) => "skyspine";
 }
 
 public enum UiScaleMode

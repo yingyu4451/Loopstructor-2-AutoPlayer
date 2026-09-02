@@ -58,14 +58,14 @@ async function save() {
           v-for="skin in skinOptions"
           :key="skin.id"
           class="skin-option"
-          :class="{ selected: (draft.skinId ?? 'mechanical') === skin.id }"
+          :class="{ selected: (draft.skinId ?? 'skyspine') === skin.id }"
           role="radio"
-          :aria-checked="(draft.skinId ?? 'mechanical') === skin.id"
+          :aria-checked="(draft.skinId ?? 'skyspine') === skin.id"
           @click="draft.skinId = skin.id; markDirty()"
         >
           <span class="skin-swatch" aria-hidden="true"><i v-for="color in skin.swatches" :key="color" :style="{ backgroundColor: color }" /></span>
           <span><strong>{{ skin.label }}</strong><small>{{ skin.description }}</small></span>
-          <Check v-if="(draft.skinId ?? 'mechanical') === skin.id" :size="18" />
+          <Check v-if="(draft.skinId ?? 'skyspine') === skin.id" :size="18" />
         </button>
       </div>
       <p class="setting-note">皮肤设置会随 Manager 配置保存，更新后仍保留。</p>

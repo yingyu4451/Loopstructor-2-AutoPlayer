@@ -88,7 +88,7 @@ app.whenReady().then(() => {
     minHeight: 680,
     frame: false,
     show: false,
-    backgroundColor: '#12110E',
+    backgroundColor: '#080706',
     icon: nativeImage.createFromPath(iconPath),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -157,7 +157,7 @@ function createUpdaterWindow(): void {
     minHeight: 520,
     frame: false,
     show: false,
-    backgroundColor: '#12110E',
+    backgroundColor: '#080706',
     icon: nativeImage.createFromPath(iconPath),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

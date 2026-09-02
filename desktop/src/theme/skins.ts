@@ -1,4 +1,4 @@
-export type SkinId = 'mechanical' | 'signal'
+export type SkinId = 'skyspine'
 
 export interface SkinDefinition {
   id: SkinId
@@ -9,23 +9,17 @@ export interface SkinDefinition {
 
 export const skinOptions: readonly SkinDefinition[] = [
   {
-    id: 'mechanical',
-    label: '齿轨工坊',
-    description: '铜框、蓝钢与暖色仪表灯。',
-    swatches: ['#0b1220', '#203448', '#d39a50', '#7fe16d'],
-  },
-  {
-    id: 'signal',
-    label: '信号夜航',
-    description: '深海底板与青紫信号层。',
-    swatches: ['#080c18', '#1c2744', '#68d8f2', '#d66bb0'],
+    id: 'skyspine',
+    label: '天穹机械终端',
+    description: '游戏原生铜木机壳、齿轨与荧光仪表。',
+    swatches: ['#100c08', '#3b2416', '#d89b46', '#70d84b'],
   },
 ]
 
 export function isSkinId(value: unknown): value is SkinId {
-  return value === 'mechanical' || value === 'signal'
+  return value === 'skyspine'
 }
 
 export function normalizeSkinId(value: unknown): SkinId {
-  return isSkinId(value) ? value : 'mechanical'
+  return isSkinId(value) ? value : 'skyspine'
 }

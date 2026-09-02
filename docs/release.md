@@ -36,6 +36,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.59 游戏原生机械终端 UI
+
+`0.6.59` 纠正 `0.6.58` 只改主题令牌、但组件剪影和材质变化不足的问题。标题栏、左侧导航、主内容区、作弊控制条、11 个路由及各页面原有功能分组保持原位；可见组件全部重做为游戏原生机械终端：标题栏贯穿齿轴和驱动齿轮、导航齿轮座和推出铭牌、主工作台机械管线外框、铆钉切角面板、金属压入按钮、荧光数据槽、齿轮窗口控制和机械更新终端。
+
+默认 `skyspine` 皮肤直接复用 Unity 工程中的原生地图背景、机械框、车站装饰、齿轮和游戏字体。皮肤注册表、`data-skin` 作用域、Host 持久化字段和 GSAP 动效接口继续保留，后续皮肤可替换整套资产、轮廓、布局令牌和动效；旧 `mechanical`/`signal` 设置会迁移到 `skyspine`。插件协议、Desktop Host 协议、目录格式和更新清单 schema 未改变。本版本以 `v0.6.58` 作为相邻增量更新基线。
+
+CI 与 Release workflow 同步升级到 Node 24 action：`actions/checkout@v7`、`actions/setup-node@v7`、`actions/cache@v5`、`pnpm/action-setup@v6`、`actions/upload-artifact@v7` 和 `actions/download-artifact@v8`。重新下载发布产物后的结构验证也不再要求已经移除的 WPF 运行时 DLL，因此 `v0.6.59` 及后续版本可以继续完成构建、打包、产物回读验证和 GitHub Release 发布。
+
 ## 0.6.58 可换皮机械仪表盘与 GSAP 动效
 
 `0.6.58` 保留现有标题栏、分组导航、作弊控制条、11 个路由、IPC 和数据绑定，重构可见层为更接近游戏参考图的机械仪表盘：深蓝钢底板、铜轨、黄铜铭牌、信号灯、纹理面板和更清晰的操作层级。首版内置“齿轨工坊”和“信号夜航”两套皮肤；皮肤契约可同时切换颜色、材质、边框、圆角、间距、导航宽度和组件形状，不是单纯换色。

@@ -16,16 +16,22 @@ function systemMenu(event: MouseEvent) {
 
 <template>
   <header class="titlebar" @contextmenu.prevent="systemMenu">
+    <div class="title-drive" aria-hidden="true">
+      <span class="title-cog cog-large" />
+      <span class="title-cog cog-small" />
+      <span class="drive-shaft" />
+    </div>
     <div class="titlebar-brand">
       <img :src="managerLogo" alt="" width="42" height="42" class="brand-logo" fetchpriority="high" />
       <div>
         <strong>Loopstructor AutoPlayer</strong>
-        <span>v{{ store.snapshot?.version ?? '0.6.58' }}</span>
+        <span>v{{ store.snapshot?.version ?? '0.6.59' }}</span>
       </div>
     </div>
     <div class="titlebar-status">
+      <span class="plaque-bolt" aria-hidden="true" />
       <span class="signal-dot" :class="connectionClass" />
-      <span>{{ props.updaterMode ? '更新事务' : (store.snapshot?.connection.label ?? '正在启动 Host') }}</span>
+      <span class="status-copy">{{ props.updaterMode ? '更新事务' : (store.snapshot?.connection.label ?? '正在启动 Host') }}</span>
       <button
         v-if="store.snapshot?.update?.updateAvailable"
         v-tooltip="'点击安装更新'"
@@ -35,6 +41,7 @@ function systemMenu(event: MouseEvent) {
       >
         <Download :size="14" /> v{{ store.snapshot.update.latestVersion }} 可用
       </button>
+      <span class="plaque-bolt" aria-hidden="true" />
     </div>
     <div class="window-controls">
       <button v-tooltip="'最小化'" aria-label="最小化" @click="api.minimize()"><Minus :size="18" /></button>

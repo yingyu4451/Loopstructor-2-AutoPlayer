@@ -35,7 +35,7 @@ flowchart LR
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
-皮肤契约位于 `desktop/src/theme/skins.ts` 与 `styles.css` 的 `data-skin` 作用域。组件只消费语义化令牌和稳定 variant class；皮肤可覆盖颜色、材质、边框、圆角、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知值回退到 `mechanical`。GSAP 只用于可中断的 transform/opacity 过渡和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
+皮肤契约位于 `desktop/src/theme/skins.ts`，共享令牌位于 `styles.css`，游戏原生皮肤实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。组件只消费语义化令牌和稳定 variant class；皮肤可覆盖整套图片资产、颜色、材质、边框、圆角、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
 
 ## 启动与激活
 

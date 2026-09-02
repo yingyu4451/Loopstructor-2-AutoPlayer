@@ -1,0 +1,526 @@
+@font-face {
+  font-family: "Skyspine Display";
+  src: url("./assets/fonts/skyspine-data.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Skyspine Data";
+  src: url("./assets/fonts/skyspine-data.ttf") format("truetype");
+  font-display: swap;
+}
+
+.app-shell[data-skin="skyspine"] {
+  --theme-canvas: #080706;
+  --theme-surface: #15110d;
+  --theme-surface-raised: #261a11;
+  --theme-surface-deep: #0b0b09;
+  --theme-line: #5b3b22;
+  --theme-line-strong: #a16b34;
+  --theme-copper: #8e5528;
+  --theme-copper-dark: #3a2113;
+  --theme-brass: #efb64f;
+  --theme-brass-soft: #b57b35;
+  --theme-signal: #76d845;
+  --theme-blue: #49aee2;
+  --theme-danger: #e0553e;
+  --theme-amber: #f09e37;
+  --theme-text: #f4ead7;
+  --theme-muted: #baa58a;
+  --theme-disabled: #766b5d;
+  --theme-radius-sm: 0;
+  --theme-radius-md: 0;
+  --theme-radius-lg: 0;
+  --theme-sidebar-width: 270px;
+  --theme-titlebar-height: 76px;
+  border: 5px solid #110d09;
+  outline: 2px solid #8c592c;
+  outline-offset: -4px;
+  background: #080706;
+  color: var(--theme-text);
+  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  box-shadow: inset 0 0 0 2px #d091463d, inset 0 0 52px #000;
+}
+
+.app-shell[data-skin="skyspine"]::before {
+  inset: var(--theme-titlebar-height) 0 0;
+  opacity: .2;
+  background-image: radial-gradient(circle at 20% 10%, #b84d1820, transparent 34%), repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 5px);
+  background-size: auto;
+}
+
+.app-shell[data-skin="skyspine"] ::-webkit-scrollbar { width: 12px; height: 12px; }
+.app-shell[data-skin="skyspine"] ::-webkit-scrollbar-track { background: #090806; border: 2px solid #2f1d12; }
+.app-shell[data-skin="skyspine"] ::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #513019, #b07032 48%, #4a2b18); border: 2px solid #160e09; }
+.app-shell[data-skin="skyspine"] ::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #74431f, #d79840 48%, #65391c); }
+
+.app-shell[data-skin="skyspine"] .titlebar {
+  position: relative;
+  z-index: 20;
+  height: 76px;
+  grid-template-columns: minmax(285px, 340px) minmax(320px, 1fr) 168px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, #7b4a27 0 4px, #2a190f 4px 10px, transparent 10px),
+    linear-gradient(180deg, #3c2818, #160f0a 54%, #080706);
+  border: 0;
+  border-bottom: 6px solid #1b100a;
+  box-shadow: inset 0 -2px #ad6d33, inset 0 2px #ba7e45, 0 7px 20px #000c;
+}
+
+.app-shell[data-skin="skyspine"] .title-drive {
+  position: absolute;
+  inset: 0 158px 0 250px;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-shell[data-skin="skyspine"] .drive-shaft {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  left: 0;
+  height: 18px;
+  background: repeating-linear-gradient(90deg, #20150e 0 15px, #9b6332 15px 20px, #302016 20px 36px);
+  border: 4px solid #090705;
+  box-shadow: inset 0 2px #c58745, 0 2px #7c4e29;
+}
+
+.app-shell[data-skin="skyspine"] .title-cog {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  background: url("./assets/skins/skyspine/gear.png") center / contain no-repeat;
+  transform-origin: center;
+  border-radius: 50%;
+  filter: sepia(.35) brightness(.78) drop-shadow(0 3px 2px #000b);
+}
+
+.app-shell[data-skin="skyspine"] .cog-large { top: 4px; left: 4px; width: 68px; height: 68px; }
+.app-shell[data-skin="skyspine"] .cog-small { top: 17px; right: 8px; width: 45px; height: 45px; transform: rotate(18deg); }
+
+.app-shell[data-skin="skyspine"] .titlebar-brand,
+.app-shell[data-skin="skyspine"] .titlebar-status,
+.app-shell[data-skin="skyspine"] .window-controls { position: relative; z-index: 3; }
+
+.app-shell[data-skin="skyspine"] .titlebar-brand { align-self: stretch; gap: 12px; padding-left: 15px; background: linear-gradient(90deg, #0d0a07f2 0 78%, transparent); }
+.app-shell[data-skin="skyspine"] .brand-logo {
+  width: 58px;
+  height: 58px;
+  padding: 5px;
+  object-fit: contain;
+  border: 4px solid #22140c;
+  border-radius: 50%;
+  outline: 2px solid #a26930;
+  background: radial-gradient(circle, #372313 0 56%, #0a0806 57%);
+  filter: drop-shadow(0 4px 4px #000c);
+}
+
+.app-shell[data-skin="skyspine"] .titlebar-brand strong,
+.app-shell[data-skin="skyspine"] .page-heading h1,
+.app-shell[data-skin="skyspine"] .section-heading h2,
+.app-shell[data-skin="skyspine"] .spawn-point-heading h3,
+.app-shell[data-skin="skyspine"] .enchantment-readout h3,
+.app-shell[data-skin="skyspine"] .mechanical-modal h2,
+.app-shell[data-skin="skyspine"] .updater-heading h1 {
+  font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif;
+}
+
+.app-shell[data-skin="skyspine"] .titlebar-brand strong { color: #ffd36b; font-size: 18px; text-shadow: 0 2px #4b250d, 0 0 7px #f5a72b4d; }
+.app-shell[data-skin="skyspine"] .titlebar-brand span { color: #d0ad72; font-family: "Skyspine Data", Consolas, monospace; font-size: 12px; }
+
+.app-shell[data-skin="skyspine"] .titlebar-status {
+  justify-self: center;
+  min-width: min(390px, 78%);
+  min-height: 50px;
+  padding: 0 22px;
+  gap: 10px;
+  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 50%, calc(100% - 18px) 100%, 18px 100%, 0 50%);
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #3f3b36 0 8%, #121311 9% 88%, #020302 89%);
+  box-shadow: inset 0 0 0 4px #080806, inset 0 0 0 6px #777066, 0 5px 0 #050403;
+  color: #91f05c;
+  font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif;
+  font-size: 16px;
+  text-shadow: 0 0 8px #70db3b66;
+}
+
+.app-shell[data-skin="skyspine"] .plaque-bolt { width: 9px; height: 9px; flex: none; border: 2px solid #14110e; border-radius: 50%; background: #928a7c; box-shadow: inset 1px 1px #d7cec0; }
+.app-shell[data-skin="skyspine"] .signal-dot { width: 15px; height: 15px; border: 3px solid #11100e; border-radius: 50%; background: #796c59; box-shadow: 0 0 0 2px #7b6447; }
+.app-shell[data-skin="skyspine"] .signal-dot.is-online { background: #74dd42; box-shadow: 0 0 0 2px #486b35, 0 0 14px #7bf34d; }
+.app-shell[data-skin="skyspine"] .signal-dot.is-waiting { background: #e49b38; box-shadow: 0 0 0 2px #70542d, 0 0 12px #f6a73180; }
+.app-shell[data-skin="skyspine"] .status-copy { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.app-shell[data-skin="skyspine"] .window-controls { height: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding-right: 10px; }
+.app-shell[data-skin="skyspine"] .window-controls button {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #2b2118 0 34%, #9c6632 36% 41%, #17100a 43% 55%, transparent 57%), url("./assets/skins/skyspine/gear.png") center / 48px no-repeat;
+  color: #f5d28a;
+  filter: sepia(.2) drop-shadow(0 3px 2px #000b);
+}
+.app-shell[data-skin="skyspine"] .window-controls button:hover { background-color: #4b311b; color: white; transform: rotate(6deg) scale(1.04); }
+.app-shell[data-skin="skyspine"] .window-controls .close:hover { background-color: #7d2419; color: #fff1e8; }
+
+.app-shell[data-skin="skyspine"] .app-body { grid-template-columns: 270px minmax(0, 1fr); background: #080706; }
+.app-shell[data-skin="skyspine"] .app-body.sidebar-collapsed { grid-template-columns: 82px minmax(0, 1fr); }
+
+.app-shell[data-skin="skyspine"] .rail-sidebar {
+  position: relative;
+  z-index: 8;
+  padding: 18px 12px 12px;
+  border: 0;
+  border-right: 8px solid #160e08;
+  background:
+    linear-gradient(90deg, #0a0806, transparent 10%, transparent 90%, #080604),
+    repeating-linear-gradient(0deg, #2c1b10 0 8px, #3c2515 9px 10px, #24170f 11px 18px);
+  box-shadow: inset -2px 0 #b06f34, 7px 0 22px #000c;
+}
+
+.app-shell[data-skin="skyspine"] .rail-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 5px 5px 5px 4px;
+  z-index: 0;
+  border: 2px solid #1a100a;
+  outline: 1px solid #83502a;
+  background: linear-gradient(90deg, #070706d9, #1a110bd9), repeating-linear-gradient(135deg, transparent 0 12px, #e0a95b0a 13px 14px);
+  pointer-events: none;
+}
+
+.app-shell[data-skin="skyspine"] .rail-sidebar::after { display: none; }
+.app-shell[data-skin="skyspine"] .rail-sidebar nav,
+.app-shell[data-skin="skyspine"] .rail-sidebar .collapse-button { position: relative; z-index: 3; }
+.app-shell[data-skin="skyspine"] .rail-line { top: 35px; bottom: 55px; left: 34px; width: 10px; border: 3px solid #0b0704; background: repeating-linear-gradient(0deg, #b27636 0 7px, #382111 7px 13px); box-shadow: inset 2px 0 #e0a058, inset -2px 0 #41210e, 2px 0 #7a4822; }
+.app-shell[data-skin="skyspine"] .nav-group { margin-bottom: 13px; }
+.app-shell[data-skin="skyspine"] .nav-group h2 {
+  width: fit-content;
+  margin: 0 0 5px 54px;
+  padding: 3px 12px 4px;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0 50%);
+  background: #0b0907;
+  color: #c18c4c;
+  font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif;
+  font-size: 11px;
+}
+
+.app-shell[data-skin="skyspine"] .nav-item {
+  height: 49px;
+  margin: 1px 0;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  padding: 0 10px 0 0;
+  overflow: visible;
+  clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 8px 100%, 0 calc(100% - 8px));
+  border: 2px solid transparent;
+  border-radius: 0;
+  background: linear-gradient(90deg, transparent 34px, #170f0a 34px, #27170d 100%);
+  color: #c8ad7b;
+}
+.app-shell[data-skin="skyspine"] .nav-item:hover { border-color: #70411d; background: linear-gradient(90deg, transparent 34px, #27170e 34px, #432511 100%); color: #ffe0a0; transform: translateX(2px); }
+.app-shell[data-skin="skyspine"] .nav-item.active { border-color: #c7852e; background: linear-gradient(90deg, transparent 34px, #2b1609 34px, #513018 100%); color: #ffe38d; box-shadow: inset 0 -3px #140b06, inset -5px 0 #e1a13f, 5px 4px 0 #070503; }
+.app-shell[data-skin="skyspine"] .rail-node { position: relative; width: 43px; height: 43px; overflow: hidden; border: 0; border-radius: 50%; background: #100b07; transform: none; }
+.app-shell[data-skin="skyspine"] .rail-cog { position: absolute; inset: -2px; z-index: 0; background: url("./assets/skins/skyspine/gear.png") center / contain no-repeat; filter: sepia(.35) brightness(.64); transform-origin: center; }
+.app-shell[data-skin="skyspine"] .rail-symbol { position: relative; z-index: 2; color: #d2c3aa; filter: drop-shadow(0 2px #000); }
+.app-shell[data-skin="skyspine"] .nav-item.active .rail-cog { filter: sepia(.25) brightness(1.04) drop-shadow(0 0 6px #e5a12e99); }
+.app-shell[data-skin="skyspine"] .nav-item.active .rail-symbol { color: #86f055; filter: drop-shadow(0 0 5px #6cf33e); }
+.app-shell[data-skin="skyspine"] .nav-label { color: inherit; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 15px; text-shadow: 0 2px #000; }
+.app-shell[data-skin="skyspine"] .tiny-status { color: #85ed53; font-size: 10px; text-shadow: 0 0 5px #73df44; }
+
+.app-shell[data-skin="skyspine"] .collapse-button {
+  width: 44px;
+  height: 44px;
+  align-self: flex-start;
+  margin-left: 7px;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #1a120d 0 35%, transparent 38%), url("./assets/skins/skyspine/gear.png") center / contain no-repeat;
+  color: #f1c775;
+  filter: sepia(.25) drop-shadow(0 3px 2px #000b);
+}
+
+.app-shell[data-skin="skyspine"] .content-shell {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(#070706b2, #070706d9),
+    url("./assets/skins/skyspine/map-background.jpg") center / cover no-repeat;
+}
+
+.app-shell[data-skin="skyspine"] .content-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: url("./assets/skins/skyspine/console-frame.png") center / 100% 100% no-repeat;
+  opacity: .88;
+  filter: saturate(.88) brightness(1.12);
+}
+
+.app-shell[data-skin="skyspine"] .content-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 56% 42%, #15395e4f, transparent 45%), radial-gradient(circle at 50% 50%, transparent 58%, #000 100%);
+}
+
+.app-shell[data-skin="skyspine"] .workspace-station { position: absolute; right: 32px; bottom: 24px; z-index: 1; width: 200px; height: 200px; object-fit: contain; opacity: .18; filter: drop-shadow(0 12px 12px #000); pointer-events: none; }
+.app-shell[data-skin="skyspine"][data-route="game"] .workspace-station,
+.app-shell[data-skin="skyspine"][data-route="autoplay"] .workspace-station { opacity: .34; }
+.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 43px; left: 50%; z-index: 3; width: min(360px, 34%); transform: translateX(-50%); overflow: hidden; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
+
+.app-shell[data-skin="skyspine"] .cheat-control-bar { position: relative; z-index: 4; min-height: 68px; margin: 18px 52px 0; padding: 10px 22px; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 14px); border: 4px solid #140c07; outline: 2px solid #9a5e2d; background: linear-gradient(180deg, #4b2b16, #1d120b 44%, #0b0907); box-shadow: inset 0 2px #c18042, 0 6px 14px #0009; }
+.app-shell[data-skin="skyspine"] .cheat-control-title { color: #f4bf60; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
+
+.app-shell[data-skin="skyspine"] .page-host { position: relative; z-index: 2; padding: 54px 62px 66px; overflow: hidden; }
+.app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 24px; }
+.app-shell[data-skin="skyspine"] .page-host > .settings-workspace,
+.app-shell[data-skin="skyspine"] .page-host > .saves-workspace { padding-top: 30px; }
+.app-shell[data-skin="skyspine"] .page-grid { gap: 14px; }
+
+.app-shell[data-skin="skyspine"] .page-heading {
+  position: relative;
+  min-height: 68px;
+  padding: 7px 18px 7px 76px;
+  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 14px), 0 14px);
+  border: 3px solid #0b0704;
+  outline: 2px solid #9e632e;
+  outline-offset: -5px;
+  background: linear-gradient(180deg, #51301a, #24150c 34%, #0b0907 35% 78%, #29180e 79%);
+  box-shadow: inset 0 2px #d1914d, 0 7px 0 #070503, 0 10px 18px #0008;
+}
+
+.app-shell[data-skin="skyspine"] .page-heading::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 6px;
+  width: 56px;
+  height: 56px;
+  background: url("./assets/skins/skyspine/gear.png") center / contain no-repeat;
+  filter: sepia(.25) brightness(.9) drop-shadow(0 3px 2px #000a);
+}
+
+.app-shell[data-skin="skyspine"] .page-heading h1 { margin: 1px 0 0; color: #ffd266; font-size: 27px; text-shadow: 0 3px #4a230b, 0 0 7px #d786273b; }
+.app-shell[data-skin="skyspine"] .page-heading .eyebrow { color: #7fe74e; font-family: "Skyspine Data", Consolas, monospace; font-size: 11px; text-shadow: 0 0 6px #6cd53f; }
+
+.app-shell[data-skin="skyspine"] .mechanical-section {
+  position: relative;
+  padding: 17px 18px 19px;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  border: 4px solid #1a1009;
+  border-radius: 0;
+  outline: 2px solid #875127;
+  outline-offset: -6px;
+  background:
+    radial-gradient(circle at 11px 11px, #c39155 0 2px, #17100b 3px 5px, transparent 6px),
+    radial-gradient(circle at calc(100% - 11px) 11px, #c39155 0 2px, #17100b 3px 5px, transparent 6px),
+    radial-gradient(circle at 11px calc(100% - 11px), #c39155 0 2px, #17100b 3px 5px, transparent 6px),
+    radial-gradient(circle at calc(100% - 11px) calc(100% - 11px), #c39155 0 2px, #17100b 3px 5px, transparent 6px),
+    linear-gradient(180deg, #21160f, #0d0c0a 18%, #090a09 82%, #21150e);
+  box-shadow: inset 0 0 0 2px #4a2d19, inset 0 2px #b77638, 0 7px 0 #060403, 0 12px 20px #0009;
+}
+.app-shell[data-skin="skyspine"] .mechanical-section::before { inset: 7px; opacity: .38; border: 1px solid #8e5c2e; border-radius: 0; background: repeating-linear-gradient(0deg, transparent 0 8px, #91d45b08 9px 10px); }
+.app-shell[data-skin="skyspine"] .section-heading { min-height: 47px; margin: 0 0 14px; padding: 0 0 10px; border-bottom: 4px double #6c4324; }
+.app-shell[data-skin="skyspine"] .section-heading h2,
+.app-shell[data-skin="skyspine"] .spawn-point-heading h3,
+.app-shell[data-skin="skyspine"] .enchantment-readout h3 { color: #efb654; font-size: 19px; text-shadow: 0 2px #3d1e0b; }
+.app-shell[data-skin="skyspine"] .section-heading p { color: #b6a284; }
+.app-shell[data-skin="skyspine"] .heading-with-icon { color: #6fce43; }
+
+.app-shell[data-skin="skyspine"] .button {
+  min-height: 40px;
+  padding: 0 18px;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  border: 3px solid #160e08;
+  border-radius: 0;
+  outline: 1px solid #9a6230;
+  outline-offset: -4px;
+  background: linear-gradient(180deg, #55341d, #28170d 52%, #160d08 53%);
+  color: #f4c96d;
+  box-shadow: inset 0 2px #c78646, 0 4px 0 #070402, 0 6px 10px #0007;
+  font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif;
+  font-size: 14px;
+  text-shadow: 0 2px #321707;
+}
+.app-shell[data-skin="skyspine"] .button:hover:not(:disabled) { border-color: #2b1609; outline-color: #efb14e; background: linear-gradient(180deg, #74451f, #3b210f 52%, #221209 53%); color: #ffe29a; transform: translateY(-1px); }
+.app-shell[data-skin="skyspine"] .button:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px #8e5b30, 0 1px 0 #070402; }
+.app-shell[data-skin="skyspine"] .button.primary { border-color: #241206; outline-color: #ffe18b; background: linear-gradient(180deg, #e7b866, #9f6e2d 52%, #6d421b 53%); color: #1d1107; text-shadow: 0 1px #f7db9b; }
+.app-shell[data-skin="skyspine"] .button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #f4d184, #b68237 52%, #815120 53%); color: #140c05; }
+.app-shell[data-skin="skyspine"] .button.secondary { border-color: #120c08; outline-color: #7d5b34; background: linear-gradient(180deg, #3b2b1f, #18120e 54%, #0c0a08 55%); color: #e2c893; }
+.app-shell[data-skin="skyspine"] .button.danger { outline-color: #b95435; background: linear-gradient(180deg, #63291d, #32150f 54%, #170a07 55%); color: #ffb098; }
+.app-shell[data-skin="skyspine"] .button.launch { min-width: 175px; min-height: 52px; outline-color: #8be85b; background: linear-gradient(180deg, #608f3c, #305b25 52%, #193914 53%); color: #efffdd; text-shadow: 0 2px #17320f; }
+
+.app-shell[data-skin="skyspine"] .icon-button {
+  width: 43px;
+  height: 43px;
+  min-height: 43px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #20150e 0 34%, transparent 36%), url("./assets/skins/skyspine/gear.png") center / contain no-repeat;
+  color: #f5ce7d;
+  filter: sepia(.2) drop-shadow(0 3px 2px #000a);
+}
+.app-shell[data-skin="skyspine"] .icon-button:hover:not(:disabled) { border: 0; background-color: #422715; color: #fff1bd; transform: rotate(7deg) scale(1.04); }
+.app-shell[data-skin="skyspine"] button:disabled,
+.app-shell[data-skin="skyspine"] .disabled { opacity: .56; filter: grayscale(.45); }
+
+.app-shell[data-skin="skyspine"] .status-badge { min-height: 28px; padding: 0 12px; clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 2px solid #24160d; border-radius: 0; outline: 1px solid #77502e; background: #0b0a08; color: #d0b98e; font-family: "Skyspine Data", Consolas, monospace; }
+.app-shell[data-skin="skyspine"] .status-badge.online { outline-color: #6ab145; background: #10200d; color: #99f065; box-shadow: inset 0 0 8px #6ad63c22; }
+.app-shell[data-skin="skyspine"] .status-badge.warning { outline-color: #be782f; background: #241408; color: #ffc060; }
+
+.app-shell[data-skin="skyspine"] .path-display,
+.app-shell[data-skin="skyspine"] input[type="number"],
+.app-shell[data-skin="skyspine"] select,
+.app-shell[data-skin="skyspine"] .search-box,
+.app-shell[data-skin="skyspine"] .number-suffix input {
+  border: 3px solid #160f0a;
+  border-radius: 0;
+  outline: 1px solid #7d532c;
+  outline-offset: -4px;
+  background: linear-gradient(180deg, #0e100d, #080907);
+  color: #8ee252;
+  box-shadow: inset 0 4px 8px #000b, 0 1px #a06a35;
+  font-family: "Skyspine Data", "Microsoft YaHei UI", monospace;
+}
+.app-shell[data-skin="skyspine"] select { color: #f0d28d; }
+.app-shell[data-skin="skyspine"] .search-box:focus-within,
+.app-shell[data-skin="skyspine"] input[type="number"]:focus,
+.app-shell[data-skin="skyspine"] select:focus { outline-color: #80da4d; box-shadow: inset 0 4px 8px #000b, 0 0 9px #79da455c; }
+.app-shell[data-skin="skyspine"] .search-box input { color: #8ee252; font-family: "Skyspine Data", "Microsoft YaHei UI", monospace; }
+.app-shell[data-skin="skyspine"] .search-box input::placeholder { color: #68835a; }
+
+.app-shell[data-skin="skyspine"] .radio-card,
+.app-shell[data-skin="skyspine"] .range-field,
+.app-shell[data-skin="skyspine"] .switch-row,
+.app-shell[data-skin="skyspine"] .action-toggle,
+.app-shell[data-skin="skyspine"] .command-button {
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  border: 2px solid #5f3b21;
+  border-radius: 0;
+  background: linear-gradient(180deg, #18130e, #0a0a08);
+  box-shadow: inset 0 0 0 2px #160e09;
+}
+.app-shell[data-skin="skyspine"] .radio-card:has(input:checked),
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked) { border-color: #82d64e; background: linear-gradient(180deg, #203018, #0c130a); box-shadow: inset 5px 0 #6bd83e; }
+.app-shell[data-skin="skyspine"] input[type="checkbox"],
+.app-shell[data-skin="skyspine"] input[type="radio"] { accent-color: #76d845; }
+.app-shell[data-skin="skyspine"] .switch-track { width: 43px; height: 24px; padding: 3px; border: 2px solid #24170e; outline: 1px solid #8d6035; background: #0b0907; box-shadow: inset 0 3px 5px #000; }
+.app-shell[data-skin="skyspine"] .switch-track span { width: 14px; height: 14px; border-radius: 50%; background: #706452; box-shadow: 0 0 0 2px #19120d; }
+.app-shell[data-skin="skyspine"] .switch-control input:checked + .switch-track span,
+.app-shell[data-skin="skyspine"] .field-delete-toggle > input:checked + .switch-track span,
+.app-shell[data-skin="skyspine"] .automation-toggle input:checked + .switch-track span { transform: translateX(19px); background: #7be74a; box-shadow: 0 0 8px #6fe53c; }
+
+.app-shell[data-skin="skyspine"] .plugin-facts div,
+.app-shell[data-skin="skyspine"] .entity-summary div,
+.app-shell[data-skin="skyspine"] .status-grid div,
+.app-shell[data-skin="skyspine"] .automation-facts div,
+.app-shell[data-skin="skyspine"] .update-panel > div:not(.action-bar) { border: 2px solid #2f1e12; border-left: 7px solid #9d5d2a; border-radius: 0; background: linear-gradient(90deg, #100d0a, #080907); box-shadow: inset 0 0 0 1px #69401f; }
+.app-shell[data-skin="skyspine"] .plugin-facts strong,
+.app-shell[data-skin="skyspine"] .entity-summary strong,
+.app-shell[data-skin="skyspine"] .status-grid strong,
+.app-shell[data-skin="skyspine"] .automation-facts strong,
+.app-shell[data-skin="skyspine"] .update-panel strong { color: #8ee450; font-family: "Skyspine Data", "Microsoft YaHei UI", monospace; }
+.app-shell[data-skin="skyspine"] .validation-strip,
+.app-shell[data-skin="skyspine"] .launch-band { clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px); border: 3px solid #23160d; border-radius: 0; outline: 1px solid #724725; background: #0a0a08e8; }
+.app-shell[data-skin="skyspine"] .launch-band.ready { outline-color: #6fc044; box-shadow: inset 7px 0 #6ddc40, 0 5px 0 #060403; }
+
+.app-shell[data-skin="skyspine"] .type-switcher,
+.app-shell[data-skin="skyspine"] .segmented-control { border: 3px solid #160e09; border-radius: 0; outline: 1px solid #81532c; background: #090806; }
+.app-shell[data-skin="skyspine"] .type-switcher button,
+.app-shell[data-skin="skyspine"] .segmented-control button { border-right: 2px solid #4b2e1a; background: #120e0a; color: #b9a27e; }
+.app-shell[data-skin="skyspine"] .type-switcher button.active,
+.app-shell[data-skin="skyspine"] .segmented-control button.active { background: #402413; color: #ffd475; box-shadow: inset 0 -4px #78df45; }
+
+.app-shell[data-skin="skyspine"] .catalog-card,
+.app-shell[data-skin="skyspine"] .vehicle-family,
+.app-shell[data-skin="skyspine"] .entity-table > button,
+.app-shell[data-skin="skyspine"] .save-history-row {
+  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
+  border: 2px solid #54341e;
+  border-radius: 0;
+  background: linear-gradient(180deg, #17120e, #090907);
+  box-shadow: inset 0 0 0 2px #120d09;
+}
+.app-shell[data-skin="skyspine"] .catalog-card:hover:not(:disabled),
+.app-shell[data-skin="skyspine"] .vehicle-family:hover,
+.app-shell[data-skin="skyspine"] .entity-table > button:hover { border-color: #b87731; background: linear-gradient(180deg, #2b1b10, #0d0b08); }
+.app-shell[data-skin="skyspine"] .catalog-card.selected,
+.app-shell[data-skin="skyspine"] .vehicle-family.selected,
+.app-shell[data-skin="skyspine"] .entity-table > button.active { border-color: #79db45; background: linear-gradient(90deg, #182714, #0a0b08); box-shadow: inset 6px 0 #72d941; }
+.app-shell[data-skin="skyspine"] .catalog-icon,
+.app-shell[data-skin="skyspine"] .vehicle-game-icon { border: 3px solid #1c120c; border-radius: 50%; outline: 2px solid #9d6431; background: radial-gradient(circle, #21170f, #060504); box-shadow: inset 0 0 8px #000, 0 3px 0 #050302; }
+.app-shell[data-skin="skyspine"] .catalog-copy strong,
+.app-shell[data-skin="skyspine"] .entity-table strong { color: #f1cc78; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; }
+.app-shell[data-skin="skyspine"] .count-badge,
+.app-shell[data-skin="skyspine"] .selected-badge { border: 2px solid #140c07; border-radius: 50%; outline: 1px solid #c8873c; background: #28170d; color: #ffd87c; }
+
+.app-shell[data-skin="skyspine"] .automation-warning { clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 3px solid #2a1709; outline: 2px solid #c47a25; background: linear-gradient(90deg, #552608, #211006); color: #ffd078; box-shadow: inset 7px 0 #e18d2b, 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .automation-timeline article { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px); border: 2px solid #4f321c; border-left: 6px solid #48a7d4; border-radius: 0; background: #090907; }
+
+.app-shell[data-skin="skyspine"] .skin-settings { grid-column: 1 / -1; }
+.app-shell[data-skin="skyspine"] .skin-option { min-height: 82px; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); border: 3px solid #1b110a; border-radius: 0; outline: 1px solid #895427; background: linear-gradient(180deg, #21150d, #0a0907); }
+.app-shell[data-skin="skyspine"] .skin-option.selected { outline-color: #86df50; box-shadow: inset 7px 0 #77dd45, 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .skin-option strong { color: #f1bf5b; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
+.app-shell[data-skin="skyspine"] .skin-swatch { border: 4px solid #140c07; border-radius: 0; outline: 1px solid #a56d35; }
+
+.app-shell[data-skin="skyspine"] .mechanical-tooltip,
+.app-shell[data-skin="skyspine"] .app-toast { clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px); border: 3px solid #160e08; border-radius: 0; outline: 1px solid #bd7a35; background: linear-gradient(180deg, #28180e, #0b0907); color: #f4ddaf; box-shadow: inset 0 0 0 2px #4a2b16, 0 8px 0 #050302, 0 14px 28px #000b; }
+.app-shell[data-skin="skyspine"] .modal-backdrop { background: #050301d9; backdrop-filter: blur(3px); }
+.app-shell[data-skin="skyspine"] .mechanical-modal { width: min(700px, calc(100vw - 36px)); min-height: 420px; padding: 72px 76px 86px; border: 0; border-radius: 0; background: url("./assets/skins/skyspine/setting-frame.png") center / 100% 100% no-repeat; box-shadow: 0 18px 60px #000e; }
+.app-shell[data-skin="skyspine"] .mechanical-modal header { border-bottom: 3px double #71451f; }
+.app-shell[data-skin="skyspine"] .mechanical-modal h2 { color: #f1bd57; font-size: 21px; text-shadow: 0 2px #3a1b09; }
+.app-shell[data-skin="skyspine"] .mechanical-modal p { color: #d5c5a6; }
+
+.app-shell[data-skin="skyspine"] .updater-shell { position: relative; isolation: isolate; background: linear-gradient(#070604b8, #060503de), url("./assets/skins/skyspine/map-background.jpg") center / cover no-repeat; }
+.app-shell[data-skin="skyspine"] .updater-shell::before { content: ""; position: absolute; inset: 10px; z-index: 0; pointer-events: none; background: url("./assets/skins/skyspine/console-frame.png") center / 100% 100% no-repeat; opacity: .94; }
+.app-shell[data-skin="skyspine"] .updater-card { position: relative; z-index: 1; width: min(640px, calc(100% - 92px)); padding: 22px 24px; border: 5px solid #160d07; border-radius: 0; outline: 2px solid #a66a31; background: linear-gradient(180deg, #17130eec, #070806f5); box-shadow: inset 0 0 0 3px #3f2817, 0 8px 0 #040302, 0 18px 36px #000c; }
+.app-shell[data-skin="skyspine"] .updater-heading { border-bottom: 4px double #70451f; }
+.app-shell[data-skin="skyspine"] .updater-heading h1 { color: #f3be58; font-size: 25px; text-shadow: 0 3px #3f1e09; }
+.app-shell[data-skin="skyspine"] .updater-stage { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); border: 0; border-radius: 0; outline: 1px solid #9e622c; background: #0b0907; color: #86e44f; }
+.app-shell[data-skin="skyspine"] .updater-progress-track { height: 21px; border: 4px solid #130c07; border-radius: 0; outline: 1px solid #8b592d; background: #050604; box-shadow: inset 0 5px 8px #000; }
+.app-shell[data-skin="skyspine"] .updater-progress-fill { border-radius: 0; background: repeating-linear-gradient(90deg, #4f9b32 0 14px, #7fe44a 15px 24px, #397b27 25px 28px); box-shadow: 0 0 12px #6ee03f; }
+.app-shell[data-skin="skyspine"] .updater-log { border: 3px solid #24170e; border-radius: 0; outline: 1px solid #6f4523; background: #060705; color: #85d958; font-family: "Skyspine Data", Consolas, monospace; }
+.app-shell[data-skin="skyspine"] .busy-indicator { right: 28px; bottom: 25px; padding: 10px 13px; border: 4px solid #160d08; border-radius: 0; outline: 1px solid #a66c34; background: #0b0907; box-shadow: 0 5px 0 #030201; }
+
+@container app (max-width: 1180px) {
+  .app-shell[data-skin="skyspine"] .app-body { grid-template-columns: 82px minmax(0, 1fr); }
+  .app-shell[data-skin="skyspine"] .rail-sidebar { padding-inline: 9px; }
+  .app-shell[data-skin="skyspine"] .rail-sidebar .nav-label,
+  .app-shell[data-skin="skyspine"] .rail-sidebar .tiny-status,
+  .app-shell[data-skin="skyspine"] .rail-sidebar h2 { display: none; }
+  .app-shell[data-skin="skyspine"] .rail-sidebar .nav-item { grid-template-columns: 1fr; padding: 0; clip-path: none; background: transparent; border: 0; }
+  .app-shell[data-skin="skyspine"] .rail-sidebar .rail-line { left: 35px; }
+  .app-shell[data-skin="skyspine"] .rail-sidebar .collapse-button { display: none; }
+  .app-shell[data-skin="skyspine"] .page-host { padding: 48px 50px 58px; }
+  .app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 20px; }
+  .app-shell[data-skin="skyspine"] .cheat-control-bar { margin-inline: 42px; }
+  .app-shell[data-skin="skyspine"] .settings-workspace { grid-template-columns: 1fr; }
+  .app-shell[data-skin="skyspine"] .skin-settings { grid-column: auto; }
+  .app-shell[data-skin="skyspine"] .workbench-caption { display: none; }
+}
+
+@media (max-width: 760px) {
+  .app-shell[data-skin="skyspine"] .titlebar { grid-template-columns: minmax(220px, 1fr) minmax(120px, auto) 120px; }
+  .app-shell[data-skin="skyspine"] .title-drive { display: none; }
+  .app-shell[data-skin="skyspine"] .brand-logo { width: 52px; height: 52px; }
+  .app-shell[data-skin="skyspine"] .titlebar-status { min-width: 0; padding-inline: 12px; }
+  .app-shell[data-skin="skyspine"] .plaque-bolt { display: none; }
+  .app-shell[data-skin="skyspine"] .window-controls { gap: 0; padding-right: 0; }
+  .app-shell[data-skin="skyspine"] .window-controls button { width: 40px; height: 40px; background-size: 40px; }
+  .app-shell[data-skin="skyspine"] .updater-card { width: calc(100% - 70px); padding: 17px 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell[data-skin="skyspine"] .title-cog,
+  .app-shell[data-skin="skyspine"] .rail-cog { transform: none !important; }
+}

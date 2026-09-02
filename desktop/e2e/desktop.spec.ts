@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.58-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.59-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -55,15 +55,9 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await expect(page.getByText('自动备份存档', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '打开目录', exact: true })).toBeVisible()
     await page.getByRole('button', { name: '界面与更新', exact: true }).click()
-    await page.getByRole('radio', { name: '信号夜航' }).click()
+    await page.getByRole('radio', { name: '天穹机械终端' }).click()
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()
-    await expect(page.locator('.app-shell')).toHaveAttribute('data-skin', 'signal')
-    await page.waitForTimeout(280)
-    await page.screenshot({
-      path: resolve(screenshotRoot, '1280x860-信号夜航皮肤.png'),
-      animations: 'disabled',
-    })
-    await page.getByRole('radio', { name: '齿轨工坊' }).click()
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-skin', 'skyspine')
     await page.getByRole('radio', { name: /自定义/ }).check()
     await page.getByRole('slider').fill('125')
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()

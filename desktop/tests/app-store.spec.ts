@@ -7,12 +7,12 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.58',
+    version: '0.6.59',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
       decisionPriority: 0, uiScaleMode: 'system', customUiScalePercent: 100, characterCfgIndex: 0,
-      activeRoute: 'game', sidebarCollapsed: false, skinId: 'mechanical', gitHubOwner: 'yingyu4451',
+      activeRoute: 'game', sidebarCollapsed: false, skinId: 'skyspine', gitHubOwner: 'yingyu4451',
       gitHubRepository: 'Loopstructor-2-AutoPlayer',
     },
     connection: {
@@ -97,11 +97,11 @@ describe('desktop application store', () => {
     store.applySnapshot(snapshot())
     await store.setRoute('settings')
 
-    await store.saveSettings({ ...store.settings!, skinId: 'signal' }, false)
+    await store.saveSettings({ ...store.settings!, skinId: 'skyspine' }, false)
 
-    expect(saveSettings.mock.calls.at(-1)?.[0].skinId).toBe('signal')
+    expect(saveSettings.mock.calls.at(-1)?.[0].skinId).toBe('skyspine')
     expect(saveSettings.mock.calls.at(-1)?.[0].activeRoute).toBe('settings')
-    expect(store.settings?.skinId).toBe('signal')
+    expect(store.settings?.skinId).toBe('skyspine')
   })
 
   it('exposes the restored automation controls through the preload API', async () => {

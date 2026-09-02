@@ -255,23 +255,23 @@ public sealed class ManagerSettingsStoreTests
     }
 
     [Fact]
-    public void Save_PreservesSupportedSkinAndNormalizesUnknownSkin()
+    public void Save_PreservesSupportedSkinAndMigratesLegacySkin()
     {
         string root = CreateTemporaryDirectory();
         try
         {
             string settingsPath = Path.Combine(root, "settings.json");
             ManagerSettingsStore store = new(settingsPath);
-            ManagerSettings settings = new() { SkinId = "signal" };
+            ManagerSettings settings = new() { SkinId = "skyspine" };
 
             store.Save(settings);
             ManagerSettings reloaded = store.Load(out string warning);
 
             Assert.Empty(warning);
-            Assert.Equal("signal", reloaded.SkinId);
-            reloaded.SkinId = "unknown";
+            Assert.Equal("skyspine", reloaded.SkinId);
+            reloaded.SkinId = "signal";
             store.Save(reloaded);
-            Assert.Equal("mechanical", store.Load(out _).SkinId);
+            Assert.Equal("skyspine", store.Load(out _).SkinId);
         }
         finally
         {

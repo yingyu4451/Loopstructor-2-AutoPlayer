@@ -25,17 +25,17 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.19.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -47,13 +47,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Cache pinned .NET SDK
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .dotnet
           key: ${{ runner.os }}-dotnet-sdk-${{ hashFiles('global.json') }}
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('NuGet.config', '**/*.csproj') }}
@@ -190,7 +190,7 @@ jobs:
           ./scripts/verify-release-assets.ps1 @arguments
 
       - name: Upload runnable program artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
           path: artifacts/package/Loopstructor 2.AutoPlayer/
@@ -198,7 +198,7 @@ jobs:
           retention-days: 30
 
       - name: Download runnable artifact for verification
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
           path: artifacts/workflow-artifact-verification
@@ -222,9 +222,6 @@ jobs:
             'manager/Loopstructor.AutoPlayer.Updater.deps.json'
             'manager/Loopstructor.AutoPlayer.Updater.runtimeconfig.json'
             'manager/coreclr.dll'
-            'manager/PresentationFramework.dll'
-            'manager/PresentationCore.dll'
-            'manager/WindowsBase.dll'
           )
           foreach ($relativePath in $requiredFiles) {
             $path = Join-Path $artifactRoot $relativePath
