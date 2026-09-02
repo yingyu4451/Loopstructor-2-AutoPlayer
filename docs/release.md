@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.61 更新运行时暂存与主按钮可读性
+
+`0.6.61` 修复 Electron 更新入口在 Windows 上复制当前运行中的 Manager 目录时可能于大文件或共享运行时文件中途失败、最终只留下不完整 `electron-*` 临时目录并显示“无法准备独立的更新运行环境”的问题。暂存器现在将 Electron 启动 EXE 独立复制，确保新进程与当前运行中的 Manager 不共用同一映像文件；其余同卷运行时优先创建硬链接，避免重新读取大文件。更新器通过目录移动完成事务替换，不会就地改写硬链接内容。临时目录位于不同卷、硬链接权限不足或达到链接数量限制时，才逐文件回退到排他复制。失败会立即清理本次不完整目录，不再积累半成品。
+
+Skyspine 皮肤中的所有亮黄色实心主按钮不再使用深色文字，统一改为深铜渐变铭牌、暖金外轮廓和浅金文字；选择目录、安装/修复、保存、应用设置、生成与开始等主操作保持一致。hover 与 focus-visible 只提升亮度和绿色焦点轮廓，文字对比保持稳定。Electron 主进程测试同时验证启动 EXE 为独立文件、其余运行时使用硬链接，并使用真实 `0.6.59` 安装目录完成 265 文件暂存验证。本版本以 `v0.6.60` 为相邻增量基线；协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.60 机械 UI 状态与层级修复
 
 `0.6.60` 修复 Skyspine 皮肤在 hover、active、selected、focus-visible 和 disabled 之间发生 cascade 竞争的问题。基础布局规则进入低优先级 `app-base` layer；Skyspine 模块通过组件状态 token 保留金属渐变、齿轮背景和结构阴影，禁用状态只降低明度与饱和度，不再用全局 `!important` 抹掉材质。选中导航、目录卡、选项卡和皮肤项都有独立 hover 组合，键盘焦点沿控件自身异形轮廓增强，不再叠加被 `clip-path` 裁断的矩形焦点框。

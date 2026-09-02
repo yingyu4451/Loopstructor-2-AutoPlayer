@@ -45,3 +45,24 @@ test('copies the complete Electron runtime outside the installation tree', () =>
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('copies the launcher executable while hard-linking the remaining runtime', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loopstructor-electron-relocator-lock-test-'))
+  try {
+    const source = path.join(root, 'release', 'manager')
+    const temporary = path.join(root, 'temporary')
+    fs.mkdirSync(path.join(source, 'resources'), { recursive: true })
+    const executable = path.join(source, 'Loopstructor.AutoPlayer.Manager.exe')
+    const asar = path.join(source, 'resources', 'app.asar')
+    fs.writeFileSync(executable, 'manager')
+    fs.writeFileSync(asar, 'asar')
+
+    const plan = createElectronUpdaterRelocationPlan(source, executable, temporary)
+    stageElectronUpdaterRuntime(source, plan)
+
+    assert.notEqual(fs.statSync(plan.executablePath).ino, fs.statSync(executable).ino)
+    assert.equal(fs.statSync(path.join(plan.destinationRoot, 'resources', 'app.asar')).ino, fs.statSync(asar).ino)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

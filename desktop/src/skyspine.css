@@ -379,7 +379,9 @@
 .app-shell[data-skin="skyspine"] .button::before { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, var(--button-top), var(--button-mid) 52%, var(--button-bottom) 53%); box-shadow: inset 0 2px var(--button-highlight), inset 0 0 0 2px #160e08; }
 .app-shell[data-skin="skyspine"] .button:hover:not(:disabled) { --button-edge: #efb14e; color: #ffe29a; filter: brightness(1.14) saturate(1.08); transform: translateY(-1px); }
 .app-shell[data-skin="skyspine"] .button:active:not(:disabled) { filter: brightness(.9); transform: translateY(3px); box-shadow: 0 1px 0 #070402; }
-.app-shell[data-skin="skyspine"] .button.primary { --button-edge: #ffe18b; --button-top: #e7b866; --button-mid: #9f6e2d; --button-bottom: #6d421b; --button-highlight: #f7db9b; color: #1d1107; text-shadow: 0 1px #f7db9b; }
+.app-shell[data-skin="skyspine"] .button.primary { --button-edge: #d69a45; --button-top: #6a3d1d; --button-mid: #3a2111; --button-bottom: #1d1009; --button-highlight: #d39a55; color: #ffe3a2; text-shadow: 0 2px #1f0d04; }
+.app-shell[data-skin="skyspine"] .button.primary:hover:not(:disabled) { --button-edge: #f0bd65; color: #fff0c6; filter: brightness(1.12) saturate(1.05); }
+.app-shell[data-skin="skyspine"] .button.primary:focus-visible { --button-edge: #78df45; color: #fff0c6; filter: brightness(1.08) drop-shadow(0 0 4px #71df4699); }
 .app-shell[data-skin="skyspine"] .button.secondary { --button-edge: #7d5b34; --button-top: #3b2b1f; --button-mid: #18120e; --button-bottom: #0c0a08; --button-highlight: #8c6740; color: #e2c893; }
 .app-shell[data-skin="skyspine"] .button.danger { --button-edge: #b95435; --button-top: #63291d; --button-mid: #32150f; --button-bottom: #170a07; --button-highlight: #c9694c; color: #ffb098; }
 .app-shell[data-skin="skyspine"] .button.launch { --button-edge: #8be85b; --button-top: #608f3c; --button-mid: #305b25; --button-bottom: #193914; --button-highlight: #97cf70; min-width: 175px; min-height: 52px; color: #efffdd; text-shadow: 0 2px #17320f; }

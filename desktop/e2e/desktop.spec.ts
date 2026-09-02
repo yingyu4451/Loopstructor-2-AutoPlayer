@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.60-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.61-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -143,7 +143,7 @@ test('reuses the Electron runtime for the updater mode', async () => {
         animations: 'disabled',
       })
     }
-    await page.getByRole('button', { name: '退出', exact: true }).click()
+    await expect(page.getByRole('button', { name: '退出', exact: true })).toBeVisible()
   } finally {
     await app.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -202,6 +202,43 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     await secondary.focus()
     expect(await secondary.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
 
+    const assertDarkPrimaryButtons = async () => {
+      const primaryButtons = page.locator('.button.primary:not(:disabled)')
+      expect(await primaryButtons.count()).toBeGreaterThan(0)
+      for (let index = 0; index < await primaryButtons.count(); index += 1) {
+        const palette = await primaryButtons.nth(index).evaluate(element => ({
+          color: getComputedStyle(element).color,
+          edge: getComputedStyle(element).getPropertyValue('--button-edge').trim(),
+          top: getComputedStyle(element).getPropertyValue('--button-top').trim(),
+          mid: getComputedStyle(element).getPropertyValue('--button-mid').trim(),
+          bottom: getComputedStyle(element).getPropertyValue('--button-bottom').trim(),
+          face: getComputedStyle(element, '::before').backgroundImage,
+        }))
+        expect(palette).toMatchObject({
+          color: 'rgb(255, 227, 162)',
+          edge: '#d69a45',
+          top: '#6a3d1d',
+          mid: '#3a2111',
+          bottom: '#1d1009',
+        })
+        expect(palette.face).not.toBe('none')
+      }
+    }
+
+    await assertDarkPrimaryButtons()
+    const directoryButton = page.getByRole('button', { name: '选择目录', exact: true })
+    const directoryRest = await directoryButton.evaluate(element => ({
+      color: getComputedStyle(element).color,
+      edge: getComputedStyle(element).getPropertyValue('--button-edge').trim(),
+      face: getComputedStyle(element, '::before').backgroundImage,
+    }))
+    expect(directoryRest.color).toBe('rgb(255, 227, 162)')
+    expect(directoryRest.edge).toBe('#d69a45')
+    expect(directoryRest.face).not.toBe('none')
+    await directoryButton.hover()
+    await page.waitForTimeout(160)
+    expect(await directoryButton.evaluate(element => getComputedStyle(element).color)).toBe('rgb(255, 240, 198)')
+
     const disabledLaunch = page.getByRole('button', { name: '启动游戏', exact: true })
     await expect(disabledLaunch).toBeDisabled()
     const disabledMaterial = await disabledLaunch.evaluate(element => ({
@@ -225,6 +262,7 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     expect(chromeSpacing.chromeMask).not.toBe('none')
 
     await page.getByRole('button', { name: '界面与更新', exact: true }).click()
+    await assertDarkPrimaryButtons()
     const selectedSkin = page.getByRole('radio', { name: '天穹机械终端' })
     await selectedSkin.hover()
     expect(await selectedSkin.evaluate(element => getComputedStyle(element, '::before').backgroundImage)).not.toBe('none')

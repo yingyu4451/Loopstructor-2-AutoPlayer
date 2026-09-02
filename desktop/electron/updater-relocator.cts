@@ -81,20 +81,43 @@ export function stageElectronUpdaterRuntime(
   const destination = path.resolve(plan.destinationRoot)
   fs.mkdirSync(path.dirname(destination), { recursive: true })
   cleanupElectronCopies(path.dirname(destination), source, 7 * 24 * 60 * 60 * 1000)
-  fs.cpSync(source, destination, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    verbatimSymlinks: true,
-    filter: current => {
-      const stats = fs.lstatSync(current)
-      if (stats.isSymbolicLink()) throw new Error(`Manager 目录包含不允许的符号链接：${current}`)
-      return true
-    },
-  })
+  fs.mkdirSync(destination, { recursive: false })
+  try {
+    stageDirectoryContents(source, destination, path.resolve(plan.executablePath))
+  } catch (error) {
+    try { fs.rmSync(destination, { recursive: true, force: true }) } catch { /* best effort */ }
+    throw error
+  }
   if (!fs.existsSync(plan.executablePath)) {
     throw new Error('Electron 更新程序临时副本不完整。')
   }
+}
+
+function stageDirectoryContents(source: string, destination: string, executablePath: string): void {
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const current = path.join(source, entry.name)
+    const target = path.join(destination, entry.name)
+    const stats = fs.lstatSync(current)
+    if (stats.isSymbolicLink()) throw new Error(`Manager 目录包含不允许的符号链接：${current}`)
+    if (entry.isDirectory()) {
+      fs.mkdirSync(target, { recursive: false })
+      stageDirectoryContents(current, target, executablePath)
+      continue
+    }
+    if (!entry.isFile()) throw new Error(`Manager 目录包含不支持的文件类型：${current}`)
+    try {
+      if (path.resolve(target) === executablePath) fs.copyFileSync(current, target, fs.constants.COPYFILE_EXCL)
+      else fs.linkSync(current, target)
+    } catch (error) {
+      if (!shouldCopyInsteadOfLink(error)) throw error
+      fs.copyFileSync(current, target, fs.constants.COPYFILE_EXCL)
+    }
+  }
+}
+
+function shouldCopyInsteadOfLink(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP' || code === 'EMLINK'
 }
 
 function cleanupElectronCopies(temporaryBase: string, currentSource: string, minimumAgeMs: number): void {
