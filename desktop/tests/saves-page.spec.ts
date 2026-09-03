@@ -38,7 +38,7 @@ describe('save archive page', () => {
 function snapshot(): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.65',
+    version: '0.6.66',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,

@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.66 更新清理等待测试稳定性
+
+`0.6.66` 修复 Release workflow 中 `Cleanup_WaitsForRequestedProcessBeforeRestartingManager` 偶发耗尽 10 秒上限的问题。测试不再为 400 毫秒阻塞启动完整 PowerShell，而是使用启动开销稳定的 Windows 原生进程，并在调用 Updater 前明确确认阻塞进程仍在运行；生产环境的 `ProcessWaiter` 和更新清理等待上限没有改变。
+
+本版本只包含测试稳定性修复与对应版本同步，以 `v0.6.65` 为相邻增量基线；产品运行时、协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.65 项目重命名与更新源迁移
 
 `0.6.65` 将项目和桌面端可见品牌统一为 `Loopstructor 2 QA Tool`，GitHub 仓库、发布链接、Release 标题及 Manager/Updater 默认更新源同步迁移到 `yingyu4451/Loopstructor-2-QA-Tool`。同一所有者下保存的 `Loopstructor-2-AutoPlayer` 和更早的 `gui2` 坐标会在加载时迁移到新仓库；自定义 fork 与环境变量覆盖保持不变。

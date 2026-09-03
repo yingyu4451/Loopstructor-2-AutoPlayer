@@ -29,7 +29,7 @@ describe('title bar update action', () => {
 function snapshot(): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.65',
+    version: '0.6.66',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -41,8 +41,8 @@ function snapshot(): HostSnapshot {
     update: {
       success: true,
       updateAvailable: true,
-      currentVersion: '0.6.65',
-      latestVersion: '0.6.65',
+      currentVersion: '0.6.66',
+      latestVersion: '0.6.66',
       message: '发现新版本',
     },
     logs: [],

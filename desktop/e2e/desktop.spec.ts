@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.65-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.66-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
