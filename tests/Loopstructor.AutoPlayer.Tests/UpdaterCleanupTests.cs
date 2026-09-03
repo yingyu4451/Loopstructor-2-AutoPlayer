@@ -12,21 +12,25 @@ public sealed class UpdaterCleanupTests
             Path.GetTempPath(),
             "Loopstructor-UpdaterCleanupTests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(targetRoot);
-        using Process blocker = Process.Start(new ProcessStartInfo("powershell.exe")
+        using Process blocker = Process.Start(new ProcessStartInfo("ping.exe")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
             ArgumentList =
             {
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Start-Sleep -Milliseconds 400"
+                "-n",
+                "3",
+                "-w",
+                "1000",
+                "127.0.0.1"
             }
         }) ?? throw new InvalidOperationException("Unable to start the cleanup blocker process.");
 
         try
         {
+            Assert.False(blocker.HasExited);
             UpdateCommandOptions options = UpdateCommandOptions.Parse(new[]
             {
                 "cleanup",
