@@ -40,7 +40,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `0.6.66` 修复 Release workflow 中 `Cleanup_WaitsForRequestedProcessBeforeRestartingManager` 偶发耗尽 10 秒上限的问题。测试不再为 400 毫秒阻塞启动完整 PowerShell，而是使用启动开销稳定的 Windows 原生进程，并在调用 Updater 前明确确认阻塞进程仍在运行；生产环境的 `ProcessWaiter` 和更新清理等待上限没有改变。
 
-本版本只包含测试稳定性修复与对应版本同步，以 `v0.6.65` 为相邻增量基线；产品运行时、协议、目录格式和更新清单 schema 均未改变。
+本版本只包含测试稳定性修复与对应版本同步。由于 `v0.6.65` 未发布产品资产，Release workflow 实际以 `v0.6.64` 作为增量更新基线；产品运行时、协议、目录格式和更新清单 schema 均未改变。
 
 ## 0.6.65 项目重命名与更新源迁移
 
