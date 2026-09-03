@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.64 更新启动确认与退出交接
+
+`0.6.64` 补齐更新启动的第一段交接：`update:apply` IPC 在 Host 返回“Updater 已启动”的成功响应后，直接安排原 Manager 退出，不再只依赖可能延迟或丢失的异步 `updateStarted` 事件。事件路径仍作为兼容回退，两条路径共用去重退出调度器；Host 返回失败或请求抛错时不会关闭 Manager。
+
+本版本同时包含 `0.6.63` 引入的第二段交接：新版目录中的 .NET Updater 等待旧 Electron 更新窗口退出，再清理 `cleanup-pending` 事务并重启根 Manager。新增 IPC 成功/失败调度测试；本版本以 `v0.6.63` 为相邻增量基线，协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.63 更新清理与重启交接
 
 `0.6.63` 修复更新确认后 Manager 关闭，但更新窗口没有完成清理和自动重启，用户看起来像是“没反应”的问题。现场事务日志证明目标目录已成功安装 `0.6.62`，但旧版回滚目录中仍有 52 个、约 94 MB 的文件与临时 Electron 运行时共享硬链接，从而使事务停在 `cleanup-pending`。

@@ -5,6 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { HostClient } from './host-client.cjs'
 import {
+  applyUpdateAndScheduleManagerExit,
   createElectronUpdaterCleanupHandoffPlan,
   createElectronUpdaterRelocationPlan,
   cleanupElectronUpdaterRuntimeCopy,
@@ -17,6 +18,7 @@ let window: BrowserWindow | undefined
 let host: HostClient | undefined
 let updaterProcess: ChildProcessWithoutNullStreams | undefined
 let updaterFinished = false
+let updateExitScheduled = false
 const isUpdaterMode = process.argv.some(argument => argument.toLowerCase() === '--updater')
 const updaterArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--updater')
 const updaterArguments = updaterArgumentIndex >= 0 ? process.argv.slice(updaterArgumentIndex + 1) : []
@@ -35,6 +37,12 @@ function showExistingWindow(): void {
   if (window.isMinimized()) window.restore()
   window.show()
   window.focus()
+}
+
+function scheduleManagerExitForUpdate(): void {
+  if (updateExitScheduled) return
+  updateExitScheduled = true
+  setTimeout(() => app.quit(), 200)
 }
 
 if (!isUpdaterMode) app.on('second-instance', showExistingWindow)
@@ -129,7 +137,7 @@ app.whenReady().then(() => {
   host.on('event', (event) => {
     window?.webContents.send('host:event', event)
     if ((event as { event?: string }).event === 'updateStarted') {
-      setTimeout(() => app.quit(), 200)
+      scheduleManagerExitForUpdate()
     }
   })
   host.on('exit', (code) => window?.webContents.send('host:event', {
@@ -349,7 +357,10 @@ function registerIpc(): void {
   ipcMain.handle('update:check', () => invoke('update.check'))
   ipcMain.handle('update:inspectProcesses', () => invoke('update.inspectProcesses'))
   ipcMain.handle('update:closeGame', () => invoke('update.closeGame'))
-  ipcMain.handle('update:apply', () => invoke('update.apply', { desktopProcessId: process.pid }))
+  ipcMain.handle('update:apply', () => applyUpdateAndScheduleManagerExit(
+    () => invoke('update.apply', { desktopProcessId: process.pid }),
+    scheduleManagerExitForUpdate,
+  ))
   ipcMain.handle('diagnostics:openEvidence', () => invoke('diagnostics.openEvidence'))
   ipcMain.handle('backups:open', () => invoke('backups.open'))
   ipcMain.handle('backups:list', () => invoke('backups.list'))

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  applyUpdateAndScheduleManagerExit,
   createElectronUpdaterCleanupHandoffPlan,
   createElectronUpdaterRelocationPlan,
   cleanupElectronUpdaterRuntimeCopy,
@@ -12,6 +13,28 @@ import {
   isStagedUpdaterRun,
   stageElectronUpdaterRuntime,
 } from './updater-relocator.cjs'
+
+test('schedules Manager exit when the Host confirms updater startup', async () => {
+  let exits = 0
+  const response = await applyUpdateAndScheduleManagerExit(
+    async () => ({ success: true, message: 'updater started' }),
+    () => { exits += 1 },
+  )
+
+  assert.deepEqual(response, { success: true, message: 'updater started' })
+  assert.equal(exits, 1)
+})
+
+test('keeps Manager open when updater startup is not confirmed', async () => {
+  let exits = 0
+  const response = await applyUpdateAndScheduleManagerExit(
+    async () => ({ success: false, message: 'updater failed' }),
+    () => { exits += 1 },
+  )
+
+  assert.deepEqual(response, { success: false, message: 'updater failed' })
+  assert.equal(exits, 0)
+})
 
 test('hands cleanup to the installed updater after the Electron window exits', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loopstructor-electron-cleanup-handoff-test-'))
@@ -27,7 +50,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
       target,
       temporaryRuntime,
       4321,
-      '0.6.63',
+      '0.6.64',
       { TEST_ENVIRONMENT: 'preserved' },
     )
 
@@ -36,7 +59,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
     assert.deepEqual(plan.arguments, [
       'cleanup',
       '--target', target,
-      '--current-version', '0.6.63',
+      '--current-version', '0.6.64',
       '--wait-pid', '4321',
       '--restart-manager',
       '--json',

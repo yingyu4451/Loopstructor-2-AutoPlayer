@@ -19,6 +19,19 @@ export interface ElectronUpdaterCleanupHandoffPlan {
   environment: NodeJS.ProcessEnv
 }
 
+export async function applyUpdateAndScheduleManagerExit(
+  applyUpdate: () => Promise<unknown>,
+  scheduleExit: () => void,
+): Promise<unknown> {
+  const response = await applyUpdate()
+  if (typeof response === 'object'
+      && response !== null
+      && (response as { success?: unknown }).success === true) {
+    scheduleExit()
+  }
+  return response
+}
+
 export function isStagedUpdaterRun(argumentsToInspect: readonly string[]): boolean {
   return argumentsToInspect.some(argument => argument.toLowerCase() === '--desktop-staged-run')
 }
