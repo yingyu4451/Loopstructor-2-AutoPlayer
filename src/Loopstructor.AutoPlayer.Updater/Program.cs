@@ -50,7 +50,7 @@ internal static class Program
 
             if (options.Command == UpdateCommand.Cleanup)
             {
-                UpdaterResult cleanup = CleanupTransaction(options);
+                UpdaterResult cleanup = await ExecuteCleanupAsync(options);
                 WriteResult(cleanup, options.JsonOutput, options.JsonStream);
                 return cleanup.Success ? 0 : 1;
             }
@@ -76,6 +76,46 @@ internal static class Program
 
             return 1;
         }
+    }
+
+    internal static async Task<UpdaterResult> ExecuteCleanupAsync(
+        UpdateCommandOptions options,
+        Action<string>? restartManager = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        try
+        {
+            ProcessWaiter processWaiter = new();
+            await processWaiter.WaitForExitAsync(
+                options.WaitProcessIds,
+                TimeSpan.FromSeconds(options.WaitTimeoutSeconds));
+        }
+        catch (Exception exception)
+        {
+            return Failure(options.CurrentVersion, exception);
+        }
+
+        UpdaterResult cleanup = CleanupTransaction(options);
+        if (!options.RestartManager) return cleanup;
+
+        try
+        {
+            if (restartManager != null)
+            {
+                restartManager(options.TargetRoot);
+            }
+            else
+            {
+                using Process restarted = new ManagerRestarter().Restart(options.TargetRoot);
+            }
+        }
+        catch (Exception exception)
+        {
+            cleanup.ManagerRestartFailed = true;
+            cleanup.Message += " 但 Manager 重启失败：" + GetUserFacingFailureMessage(exception);
+        }
+
+        return cleanup;
     }
 
     private static UpdaterResult CleanupTransaction(UpdateCommandOptions options)

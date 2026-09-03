@@ -12,6 +12,13 @@ export interface ElectronUpdaterRelocationPlan {
   workingDirectory: string
 }
 
+export interface ElectronUpdaterCleanupHandoffPlan {
+  executablePath: string
+  workingDirectory: string
+  arguments: string[]
+  environment: NodeJS.ProcessEnv
+}
+
 export function isStagedUpdaterRun(argumentsToInspect: readonly string[]): boolean {
   return argumentsToInspect.some(argument => argument.toLowerCase() === '--desktop-staged-run')
 }
@@ -20,6 +27,44 @@ export function isRuntimeOutsideTarget(runtimeExecutable: string, targetRoot: st
   const runtime = path.resolve(runtimeExecutable)
   const target = path.resolve(targetRoot)
   return !isContained(target, runtime)
+}
+
+export function createElectronUpdaterCleanupHandoffPlan(
+  targetRoot: string,
+  currentRuntimeRoot: string,
+  processId: number,
+  version: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): ElectronUpdaterCleanupHandoffPlan {
+  const target = normalizeDirectory(targetRoot)
+  const runtime = normalizeDirectory(currentRuntimeRoot)
+  if (!Number.isSafeInteger(processId) || processId <= 0) throw new Error('更新窗口进程 ID 无效。')
+  if (!version.trim() || version.startsWith('--')) throw new Error('更新版本号无效。')
+  if (isContained(target, runtime) || isContained(runtime, target)) {
+    throw new Error('更新窗口运行时必须位于安装目录之外。')
+  }
+
+  const executablePath = normalizeFile(path.join(
+    target,
+    'manager',
+    'Loopstructor.AutoPlayer.Updater.exe',
+  ))
+  return {
+    executablePath,
+    workingDirectory: path.dirname(executablePath),
+    arguments: [
+      'cleanup',
+      '--target', target,
+      '--current-version', version,
+      '--wait-pid', String(processId),
+      '--restart-manager',
+      '--json',
+    ],
+    environment: {
+      ...environment,
+      LOOPSTRUCTOR_AUTOPLAYER_CLEANUP_UPDATER_RUNTIME: runtime,
+    },
+  }
 }
 
 export function cleanupElectronUpdaterRuntimeCopy(

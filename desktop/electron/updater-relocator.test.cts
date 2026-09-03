@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  createElectronUpdaterCleanupHandoffPlan,
   createElectronUpdaterRelocationPlan,
   cleanupElectronUpdaterRuntimeCopy,
   cleanupElectronUpdaterRuntimeCopies,
@@ -11,6 +12,41 @@ import {
   isStagedUpdaterRun,
   stageElectronUpdaterRuntime,
 } from './updater-relocator.cjs'
+
+test('hands cleanup to the installed updater after the Electron window exits', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loopstructor-electron-cleanup-handoff-test-'))
+  try {
+    const target = path.join(root, 'release')
+    const installedUpdater = path.join(target, 'manager', 'Loopstructor.AutoPlayer.Updater.exe')
+    const temporaryRuntime = path.join(root, 'temporary', 'electron-runtime')
+    fs.mkdirSync(path.dirname(installedUpdater), { recursive: true })
+    fs.mkdirSync(temporaryRuntime, { recursive: true })
+    fs.writeFileSync(installedUpdater, 'updater')
+
+    const plan = createElectronUpdaterCleanupHandoffPlan(
+      target,
+      temporaryRuntime,
+      4321,
+      '0.6.63',
+      { TEST_ENVIRONMENT: 'preserved' },
+    )
+
+    assert.equal(plan.executablePath, installedUpdater)
+    assert.equal(plan.workingDirectory, path.dirname(installedUpdater))
+    assert.deepEqual(plan.arguments, [
+      'cleanup',
+      '--target', target,
+      '--current-version', '0.6.63',
+      '--wait-pid', '4321',
+      '--restart-manager',
+      '--json',
+    ])
+    assert.equal(plan.environment.TEST_ENVIRONMENT, 'preserved')
+    assert.equal(plan.environment.LOOPSTRUCTOR_AUTOPLAYER_CLEANUP_UPDATER_RUNTIME, temporaryRuntime)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('copies the complete Electron runtime outside the installation tree', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loopstructor-electron-relocator-test-'))

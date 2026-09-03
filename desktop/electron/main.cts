@@ -5,6 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { HostClient } from './host-client.cjs'
 import {
+  createElectronUpdaterCleanupHandoffPlan,
   createElectronUpdaterRelocationPlan,
   cleanupElectronUpdaterRuntimeCopy,
   isRuntimeOutsideTarget,
@@ -272,7 +273,7 @@ function registerUpdaterIpc(distributionRoot: string, managerDirectory: string):
       if (code === 0) {
         const targetRoot = readUpdaterArgument(args, '--target')
         if (targetRoot) {
-          startCleanupAndRestart(executable, targetRoot, latestVersion || readUpdaterArgument(args, '--current-version') || '0.0.0')
+          handoffCleanupAndRestart(targetRoot, latestVersion || readUpdaterArgument(args, '--current-version') || '0.0.0')
         } else {
           window?.webContents.send('updater:event', { event: 'error', payload: { message: '更新完成，但没有找到安装根目录，已停止自动重启。' } })
         }
@@ -293,59 +294,32 @@ function readUpdaterArgument(args: string[], name: string): string | undefined {
   return value && !value.startsWith('--') ? value : undefined
 }
 
-function startCleanupAndRestart(updaterExecutable: string, targetRoot: string, version: string): void {
-  const normalizedRoot = path.resolve(targetRoot)
-  const cleanup = spawn(updaterExecutable, [
-    'cleanup',
-    '--target', normalizedRoot,
-    '--current-version', version,
-    '--json',
-  ], {
-    cwd: path.dirname(updaterExecutable),
-    windowsHide: true,
-    env: { ...process.env },
-  })
-  updaterFinished = false
-  updaterProcess = cleanup
-  cleanup.stdout.on('data', () => { /* Drain the compact cleanup result. */ })
-  cleanup.stderr.on('data', (chunk) => {
-    window?.webContents.send('updater:event', { event: 'stderr', payload: { message: String(chunk) } })
-  })
-  cleanup.on('error', (error) => {
-    updaterFinished = true
-    updaterProcess = undefined
-    window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新清理失败：${error.message}` } })
-  })
-  cleanup.on('exit', (code, signal) => {
-    updaterFinished = true
-    updaterProcess = undefined
-    if (code !== 0) {
-      window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新清理失败（退出代码 ${code ?? signal ?? 'unknown'}）。` } })
-      return
-    }
-    const managerEntry = path.join(normalizedRoot, 'Loopstructor.AutoPlayer.Manager.exe')
-    if (!fs.existsSync(managerEntry)) {
-      window?.webContents.send('updater:event', { event: 'error', payload: { message: '新版安装完成，但找不到根 Manager 入口。' } })
-      return
-    }
-    try {
-      const restarted = spawn(managerEntry, ['--restarted-after-update'], {
-        cwd: normalizedRoot,
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-        env: {
-          ...process.env,
-          LOOPSTRUCTOR_AUTOPLAYER_CLEANUP_UPDATER_RUNTIME: path.dirname(process.execPath),
-        },
-      })
-      restarted.unref()
-      window?.webContents.send('updater:event', { event: 'restarted', payload: { version } })
-      setTimeout(() => app.quit(), 900)
-    } catch (error) {
-      window?.webContents.send('updater:event', { event: 'error', payload: { message: `新版 Manager 启动失败：${String(error)}` } })
-    }
-  })
+function handoffCleanupAndRestart(targetRoot: string, version: string): void {
+  try {
+    const plan = createElectronUpdaterCleanupHandoffPlan(
+      targetRoot,
+      path.dirname(process.execPath),
+      process.pid,
+      version,
+    )
+    const cleanup = spawn(plan.executablePath, plan.arguments, {
+      cwd: plan.workingDirectory,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: plan.environment,
+    })
+    cleanup.once('error', (error) => {
+      window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新交接失败：${error.message}` } })
+    })
+    cleanup.once('spawn', () => {
+      cleanup.unref()
+      window?.webContents.send('updater:event', { event: 'log', payload: { message: '新版已安装，正在清理旧文件并重启 Manager。' } })
+      setTimeout(() => app.quit(), 250)
+    })
+  } catch (error) {
+    window?.webContents.send('updater:event', { event: 'error', payload: { message: `更新交接失败：${String(error)}` } })
+  }
 }
 
 function invoke(method: string, params?: unknown): Promise<unknown> {
