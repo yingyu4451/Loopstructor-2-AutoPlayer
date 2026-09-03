@@ -25,7 +25,7 @@ function systemMenu(event: MouseEvent) {
       <img :src="managerLogo" alt="" width="42" height="42" class="brand-logo" fetchpriority="high" />
       <div>
         <strong translate="no">Loopstructor 2 QA Tool</strong>
-        <span>v{{ store.snapshot?.version ?? '0.6.66' }}</span>
+        <span>v{{ store.snapshot?.version ?? '0.6.67' }}</span>
       </div>
     </div>
     <div class="titlebar-status">

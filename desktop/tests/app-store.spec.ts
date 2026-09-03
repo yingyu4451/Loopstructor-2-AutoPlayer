@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.66',
+    version: '0.6.67',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,

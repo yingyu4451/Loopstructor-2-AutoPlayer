@@ -36,6 +36,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.67 小窗口导航与机械边框完整性
+
+`0.6.67` 修复主窗口处于 980×680 最小尺寸时所有侧栏标题被 1180px container breakpoint 强制隐藏的问题。窄窗口现在使用保留文字的紧凑侧栏；只有用户主动收起侧栏时才进入纯图标模式。自动游玩、战车、道具、对象属性与生成等宽工作区在窄容器中改为单列纵向滚动，不再让固定双列最小宽度越出页面后被 `overflow: hidden` 裁切。
+
+游戏与插件、存档、战斗和生成页面的网格行改为按内容高度排列，避免面板被压缩后由 Skyspine `clip-path` 截掉内部控件和边框。Electron E2E 现在覆盖 980×680 的 100% 与 125% 缩放，逐路由验证 11 个导航标题可见、应用壳和 page-host 不越出 viewport、页面无横向溢出、机械面板左右边界完整且内容不溢出自身边框；缩放截图改用 Electron 原生 `capturePage`，避免 Playwright 在 `webContents` 缩放下生成错误尺寸的截图。
+
+本版本以 `v0.6.66` 为相邻增量基线；插件协议、Desktop Host 协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.66 更新清理等待测试稳定性
 
 `0.6.66` 修复 Release workflow 中 `Cleanup_WaitsForRequestedProcessBeforeRestartingManager` 偶发耗尽 10 秒上限的问题。测试不再为 400 毫秒阻塞启动完整 PowerShell，而是使用启动开销稳定的 Windows 原生进程，并在调用 Updater 前明确确认阻塞进程仍在运行；生产环境的 `ProcessWaiter` 和更新清理等待上限没有改变。

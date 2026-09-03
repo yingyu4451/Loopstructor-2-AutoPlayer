@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test } from '@playwright/test'
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.66-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.67-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -68,11 +68,26 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     await page.getByRole('button', { name: '应用界面设置', exact: true }).click()
     await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', '界面与更新')
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomFactor())).toBeCloseTo(1, 2)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.waitForTimeout(3_500)
-    for (const size of [{ width: 980, height: 680 }, { width: 1280, height: 860 }]) {
-      await app.evaluate(({ BrowserWindow }, nextSize) => {
-        BrowserWindow.getAllWindows()[0]?.setSize(nextSize.width, nextSize.height)
-      }, size)
+    const views = [
+      { width: 980, height: 680, zoom: 1 },
+      { width: 1280, height: 860, zoom: 1 },
+      { width: 980, height: 680, zoom: 1.25 },
+    ]
+    for (const view of views) {
+      await app.evaluate(({ BrowserWindow }, nextView) => {
+        const browserWindow = BrowserWindow.getAllWindows()[0]
+        browserWindow?.setSize(nextView.width, nextView.height)
+        browserWindow?.webContents.setZoomFactor(nextView.zoom)
+      }, view)
+      if (view.width === 980) {
+        const navLabels = page.locator('.nav-label')
+        await expect(navLabels).toHaveCount(routes.length)
+        for (let index = 0; index < routes.length; index += 1) {
+          await expect(navLabels.nth(index)).toBeVisible()
+        }
+      }
       for (const route of routes) {
         await page.getByRole('button', { name: route, exact: true }).click()
         await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', route)
@@ -81,11 +96,63 @@ test('unified desktop is sandboxed and responsive across every route', async () 
           throw new Error(`${route} 页面没有渲染。${rendererErrors.join('\n')}`)
         }
         await expect(page.locator('.page-host > *')).toBeVisible()
-        const safeName = route.replaceAll('/', '-')
-        await page.screenshot({
-          path: resolve(screenshotRoot, `${size.width}x${size.height}-${safeName}.png`),
-          animations: 'disabled',
+        const geometry = await page.evaluate(() => {
+          const pageHost = document.querySelector<HTMLElement>('.page-host')!
+          const hostBounds = pageHost.getBoundingClientRect()
+          const clippedSections = Array.from(pageHost.querySelectorAll<HTMLElement>('.mechanical-section'))
+            .map((section, index) => {
+              const bounds = section.getBoundingClientRect()
+              return { index, left: bounds.left, right: bounds.right }
+            })
+            .filter(bounds => bounds.left < hostBounds.left - 1 || bounds.right > hostBounds.right + 1)
+          const clippedSectionContents = Array.from(pageHost.querySelectorAll<HTMLElement>('.mechanical-section'))
+            .map((section, index) => ({
+              index,
+              clientHeight: section.clientHeight,
+              scrollHeight: section.scrollHeight,
+            }))
+            .filter(section => section.scrollHeight > section.clientHeight + 1)
+          return {
+            clientWidth: pageHost.clientWidth,
+            scrollWidth: pageHost.scrollWidth,
+            visualViewportWidth: window.visualViewport?.width ?? window.innerWidth,
+            documentClientWidth: document.documentElement.clientWidth,
+            documentScrollWidth: document.documentElement.scrollWidth,
+            hostLeft: hostBounds.left,
+            hostRight: hostBounds.right,
+            clippedSections,
+            clippedSectionContents,
+          }
         })
+        expect(
+          geometry.documentScrollWidth,
+          `${route} 在 ${view.width}×${view.height} / ${view.zoom * 100}% 下使应用壳超出 viewport`,
+        ).toBeLessThanOrEqual(geometry.documentClientWidth + 1)
+        expect(geometry.hostLeft).toBeGreaterThanOrEqual(-1)
+        expect(
+          geometry.hostRight,
+          `${route} 在 ${view.width}×${view.height} / ${view.zoom * 100}% 下使页面内容区越出 viewport`,
+        ).toBeLessThanOrEqual(geometry.visualViewportWidth + 1)
+        expect(
+          geometry.scrollWidth,
+          `${route} 在 ${view.width}×${view.height} / ${view.zoom * 100}% 下发生横向溢出`,
+        ).toBeLessThanOrEqual(geometry.clientWidth + 1)
+        expect(
+          geometry.clippedSections,
+          `${route} 在 ${view.width}×${view.height} / ${view.zoom * 100}% 下存在被裁切的机械边框`,
+        ).toEqual([])
+        expect(
+          geometry.clippedSectionContents,
+          `${route} 在 ${view.width}×${view.height} / ${view.zoom * 100}% 下存在溢出机械边框的内容`,
+        ).toEqual([])
+        const safeName = route.replaceAll('/', '-')
+        const zoomSuffix = view.zoom === 1 ? '' : `-${view.zoom * 100}pct`
+        const screenshotBase64 = await app.evaluate(async ({ BrowserWindow }) =>
+          (await BrowserWindow.getAllWindows()[0]!.webContents.capturePage()).toPNG().toString('base64'))
+        writeFileSync(
+          resolve(screenshotRoot, `${view.width}x${view.height}${zoomSuffix}-${safeName}.png`),
+          Buffer.from(screenshotBase64, 'base64'),
+        )
       }
     }
     expect(rendererErrors).toEqual([])

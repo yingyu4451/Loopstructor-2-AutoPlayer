@@ -242,7 +242,7 @@ button:disabled, .disabled { color: #6f675d; cursor: not-allowed; }
 .relic-footer { justify-content: space-between; gap: 12px; }
 .relic-footer progress { width: 240px; accent-color: var(--green); }
 
-.battle-workspace { display: grid; gap: 12px; align-content: start; height: 100%; overflow: auto; }
+.battle-workspace { display: grid; grid-auto-rows: max-content; gap: 12px; align-content: start; height: 100%; overflow: auto; }
 .battle-action-grid { display: grid; grid-template-columns: repeat(2, 220px); gap: 10px 16px; }
 .action-toggle, .command-button { min-height: 62px; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; background: #181410; border: 1px solid #4f3b28; color: #cda862; text-align: left; }
 .action-toggle span, .command-button span { display: flex; flex-direction: column; min-width: 0; }
@@ -380,14 +380,37 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 @keyframes busy { from { opacity: .25; transform: scaleY(.5); } to { opacity: 1; transform: scaleY(1); } }
 
 @container app (max-width: 1180px) {
-  .app-body { grid-template-columns: 72px minmax(0, 1fr); }
-  .rail-sidebar { width: 72px; padding-inline: 6px; }
-  .rail-sidebar .nav-label, .rail-sidebar .tiny-status, .rail-sidebar h2 { display: none; }
-  .rail-sidebar .nav-item { grid-template-columns: 1fr; padding: 0; }
-  .rail-sidebar .rail-line { left: 33px; }
-  .rail-sidebar .collapse-button { display: none; }
+  .app-body { grid-template-columns: 190px minmax(0, 1fr); }
+  .app-body.sidebar-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+  .rail-sidebar { width: auto; padding-inline: 8px; }
+  .rail-sidebar.collapsed { width: 72px; padding-inline: 6px; }
   .lock-message { font-size: 10px; }
-  .vehicle-workspace { grid-template-columns: minmax(390px, 1fr) minmax(260px, .75fr); }
+  .automation-workspace,
+  .vehicle-workspace,
+  .items-workspace,
+  .objects-workspace,
+  .spawn-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    align-content: start;
+    overflow: auto;
+  }
+  .automation-config,
+  .automation-runtime,
+  .vehicle-loadout,
+  .enchantment-panel,
+  .items-workspace > .mechanical-section,
+  .objects-workspace > .mechanical-section,
+  .spawn-workspace > .mechanical-section { min-height: 320px; }
+  .vehicle-selector { grid-row: auto; min-height: 420px; }
+  .spawn-workspace > .mechanical-section { min-height: 400px; }
+  .game-page { grid-template-rows: repeat(4, max-content); }
+  .saves-workspace {
+    grid-template-rows: max-content max-content;
+    align-content: start;
+    overflow: auto;
+  }
+  .save-history-section { min-height: 320px; }
 }
 
 /* Skin contract: geometry and materials live here as well as color, so a new
@@ -582,12 +605,9 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .updater-progress-meta, .app-shell[data-skin] .status-badge, .app-shell[data-skin] .plugin-facts strong, .app-shell[data-skin] .automation-facts strong, .app-shell[data-skin] .count-badge, .app-shell[data-skin] time { font-variant-numeric: tabular-nums; }
 
 @container app (max-width: 1180px) {
-  .app-shell[data-skin] .app-body { grid-template-columns: 78px minmax(0, 1fr); }
-  .app-shell[data-skin] .rail-sidebar { padding-inline: 8px; }
-  .app-shell[data-skin] .rail-sidebar .nav-label, .app-shell[data-skin] .rail-sidebar .tiny-status, .app-shell[data-skin] .rail-sidebar h2 { display: none; }
-  .app-shell[data-skin] .rail-sidebar .nav-item { grid-template-columns: 1fr; padding: 0; }
-  .app-shell[data-skin] .rail-sidebar .rail-line { left: 37px; }
-  .app-shell[data-skin] .rail-sidebar .collapse-button { display: none; }
+  .app-shell[data-skin] .app-body { grid-template-columns: 190px minmax(0, 1fr); }
+  .app-shell[data-skin] .app-body.sidebar-collapsed { grid-template-columns: 78px minmax(0, 1fr); }
+  .app-shell[data-skin] .rail-sidebar { padding-inline: 10px; }
   .app-shell[data-skin] .page-host { padding-inline: 16px; }
   .app-shell[data-skin] .settings-workspace { grid-template-columns: 1fr; }
   .app-shell[data-skin] .skin-settings { grid-column: auto; }
