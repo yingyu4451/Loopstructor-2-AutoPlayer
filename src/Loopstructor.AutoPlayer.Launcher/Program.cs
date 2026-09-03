@@ -24,7 +24,7 @@ internal static class RootLauncher
         }
         catch (Exception exception)
         {
-            return ShowError("Loopstructor AutoPlayer 无法启动。\n\n详细信息：" + exception.Message);
+            return ShowError("Loopstructor 2 QA Tool 无法启动。\n\n详细信息：" + exception.Message);
         }
     }
 
@@ -49,7 +49,7 @@ internal static class RootLauncher
 
     private static int ShowError(string message)
     {
-        MessageBoxW(IntPtr.Zero, message, "Loopstructor AutoPlayer", 0x10);
+        MessageBoxW(IntPtr.Zero, message, "Loopstructor 2 QA Tool", 0x10);
         return 1;
     }
 

@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.64-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.65-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -29,7 +29,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     const page = await app.firstWindow()
     const rendererErrors: string[] = []
     page.on('pageerror', (error) => rendererErrors.push(error.message))
-    await expect(page.getByText('Loopstructor AutoPlayer', { exact: true })).toBeVisible()
+    await expect(page.getByText('Loopstructor 2 QA Tool', { exact: true })).toBeVisible()
     expect(await page.evaluate(() => typeof (globalThis as { require?: unknown }).require)).toBe('undefined')
     const directSnapshot = await page.evaluate(async () => {
       try {
@@ -167,7 +167,7 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
 
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Loopstructor AutoPlayer', { exact: true })).toBeVisible()
+    await expect(page.getByText('Loopstructor 2 QA Tool', { exact: true })).toBeVisible()
     await expect(page.locator('.titlebar-status')).not.toContainText('正在启动 Host', { timeout: 15_000 })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 860))
     await page.waitForTimeout(250)

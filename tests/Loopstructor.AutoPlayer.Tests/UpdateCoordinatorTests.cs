@@ -19,7 +19,7 @@ public sealed class UpdateCoordinatorTests
 
             Assert.True(configured);
             Assert.Equal("yingyu4451", owner);
-            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
+            Assert.Equal("Loopstructor-2-QA-Tool", repository);
         });
     }
 
@@ -38,7 +38,7 @@ public sealed class UpdateCoordinatorTests
 
             Assert.True(configured);
             Assert.Equal("yingyu4451", owner);
-            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
+            Assert.Equal("Loopstructor-2-QA-Tool", repository);
         });
     }
 
@@ -57,7 +57,7 @@ public sealed class UpdateCoordinatorTests
 
             Assert.True(configured);
             Assert.Equal("yingyu4451", owner);
-            Assert.Equal("Loopstructor-2-AutoPlayer", repository);
+            Assert.Equal("Loopstructor-2-QA-Tool", repository);
         });
     }
 
@@ -102,7 +102,7 @@ public sealed class UpdateCoordinatorTests
     [Fact]
     public void TryResolveCoordinates_InvalidEnvironmentOverrideFailsClosed()
     {
-        WithGitHubEnvironment("invalid/owner", "Loopstructor-2-AutoPlayer", () =>
+        WithGitHubEnvironment("invalid/owner", "Loopstructor-2-QA-Tool", () =>
         {
             bool configured = UpdateCoordinator.TryResolveCoordinates(
                 new ManagerSettings(),

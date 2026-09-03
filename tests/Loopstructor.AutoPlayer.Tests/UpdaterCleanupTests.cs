@@ -31,7 +31,7 @@ public sealed class UpdaterCleanupTests
             {
                 "cleanup",
                 "--target", targetRoot,
-                "--current-version", "0.6.64",
+                "--current-version", "0.6.65",
                 "--wait-pid", blocker.Id.ToString(),
                 "--restart-manager",
                 "--wait-timeout-seconds", "10"

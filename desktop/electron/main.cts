@@ -388,8 +388,8 @@ function registerIpc(): void {
     menu.popup({ window, x: Math.round(point.x), y: Math.round(point.y) })
   })
   ipcMain.handle('external:openRelease', (_event, url: string) => {
-    if (!/^https:\/\/github\.com\/yingyu4451\/Loopstructor-2-AutoPlayer\//i.test(url)) {
-      throw new Error('只允许打开 AutoPlayer 官方 GitHub 页面。')
+    if (!/^https:\/\/github\.com\/yingyu4451\/Loopstructor-2-QA-Tool\//i.test(url)) {
+      throw new Error('只允许打开 QA Tool 官方 GitHub 页面。')
     }
     return shell.openExternal(url)
   })

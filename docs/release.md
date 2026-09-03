@@ -36,6 +36,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.65 项目重命名与更新源迁移
+
+`0.6.65` 将项目和桌面端可见品牌统一为 `Loopstructor 2 QA Tool`，GitHub 仓库、发布链接、Release 标题及 Manager/Updater 默认更新源同步迁移到 `yingyu4451/Loopstructor-2-QA-Tool`。同一所有者下保存的 `Loopstructor-2-AutoPlayer` 和更早的 `gui2` 坐标会在加载时迁移到新仓库；自定义 fork 与环境变量覆盖保持不变。
+
+`Loopstructor.AutoPlayer.*` 程序集、可执行文件、发布资产名、固定安装目录、配置目录和环境变量继续保留，避免把仓库与展示品牌重命名扩大为不兼容的安装格式变更。本版本以 `v0.6.64` 为相邻增量基线，协议、目录格式和更新清单 schema 均未改变。
+
 ## 0.6.64 更新启动确认与退出交接
 
 `0.6.64` 补齐更新启动的第一段交接：`update:apply` IPC 在 Host 返回“Updater 已启动”的成功响应后，直接安排原 Manager 退出，不再只依赖可能延迟或丢失的异步 `updateStarted` 事件。事件路径仍作为兼容回退，两条路径共用去重退出调度器；Host 返回失败或请求抛错时不会关闭 Manager。
@@ -333,7 +339,7 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 
 ## 仓库与首次发布
 
-Git 仓库和 `origin` 已配置为 [`yingyu4451/Loopstructor-2-AutoPlayer`](https://github.com/yingyu4451/Loopstructor-2-AutoPlayer)，默认分支为 `main`。Manager 与 Updater 的默认更新源使用相同坐标，Manager 界面不提供仓库地址输入框；旧版 `settings.json` 中的空白坐标及 `yingyu4451/gui2` 旧坐标会在加载和保存时迁移为该默认值，因此用户无需手工填写。环境变量可在不改包的情况下临时覆盖到测试 fork。
+Git 仓库和 `origin` 已配置为 [`yingyu4451/Loopstructor-2-QA-Tool`](https://github.com/yingyu4451/Loopstructor-2-QA-Tool)，默认分支为 `main`。Manager 与 Updater 的默认更新源使用相同坐标，Manager 界面不提供仓库地址输入框；旧版 `settings.json` 中的空白坐标及 `yingyu4451/Loopstructor-2-AutoPlayer`、`yingyu4451/gui2` 旧坐标会在加载和保存时迁移为该默认值，因此用户无需手工填写。环境变量可在不改包的情况下临时覆盖到测试 fork。
 
 仓库可见性决定客户端认证方式：
 
@@ -386,7 +392,7 @@ git push origin v0.6.53
 - 发布后续版本时，用采用当前目录结构的前一版本执行一次完整自更新与失败回滚测试；旧 `updater\` 目录结构不在兼容范围内；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；
-- GitHub 发布与更新坐标保持为 `yingyu4451/Loopstructor-2-AutoPlayer`；若仓库私有，确认测试机通过安全环境提供只读 token，且发布包、日志和 Git 历史均不含 token。
+- GitHub 发布与更新坐标保持为 `yingyu4451/Loopstructor-2-QA-Tool`；若仓库私有，确认测试机通过安全环境提供只读 token，且发布包、日志和 Git 历史均不含 token。
 
 ## 升级 BepInEx
 

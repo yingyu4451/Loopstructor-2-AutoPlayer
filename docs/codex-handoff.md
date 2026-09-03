@@ -1,6 +1,6 @@
 # Codex 换机交接
 
-本文是 Loopstructor 2 AutoPlayer 在更换电脑或重新建立 Codex 项目任务时的唯一交接入口。它只保存会影响后续开发决策的项目事实；具体功能、协议和历史版本仍以仓库源码及对应专题文档为准。
+本文是 Loopstructor 2 QA Tool 在更换电脑或重新建立 Codex 项目任务时的唯一交接入口。它只保存会影响后续开发决策的项目事实；具体功能、协议和历史版本仍以仓库源码及对应专题文档为准。
 
 ## 当前快照
 
@@ -8,7 +8,7 @@
 
 | 项目 | 当前值 |
 |---|---|
-| GitHub 远端 | `https://github.com/yingyu4451/Loopstructor-2-AutoPlayer.git` |
+| GitHub 远端 | `https://github.com/yingyu4451/Loopstructor-2-QA-Tool.git` |
 | 分支 | `main` |
 | 产品版本 | `0.6.56` |
 | 产品提交 | `470305cb4e25090d2718dda81563e061926163c7` |
@@ -24,7 +24,7 @@
 - `pnpm test:e2e`：`2/2`，覆盖统一桌面全部路由、renderer sandbox，以及 `680×520` 和 `760×600` 更新窗口无横纵向裁切。
 - 完整包 `Loopstructor.AutoPlayer-0.6.56-win-x64.zip`：`221998481` 字节，SHA-256 `81e1968dca3a468800194cbcf8a53846a344ee76028658c018dab302b9a11fa7`。
 - `0.6.55 → 0.6.56` 增量包：`110177220` 字节，SHA-256 `6fc4e5531df18a9d01dc4a27a13cd434b451dbc17a860deb4b4a5fa87510e8a4`。
-- 完整包、增量包与 `autoplayer-update-manifest.json` 已在本地逐项核对。标签已触发 GitHub Release workflow；换机后应在 [v0.6.56 页面](https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.6.56) 再确认线上资产和校验文件均已发布。
+- 完整包、增量包与 `autoplayer-update-manifest.json` 已在本地逐项核对。标签已触发 GitHub Release workflow；换机后应在 [v0.6.56 页面](https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.6.56) 再确认线上资产和校验文件均已发布。
 
 ## 开工前的事实来源
 
@@ -74,8 +74,8 @@ Codex 聊天记录不是事实来源。旧记录如果与当前源码、测试�
 安装 Git、Windows PowerShell 5.1 或 PowerShell 7、Node.js 24 和 pnpm 11。仓库的 `packageManager` 当前固定为 `pnpm@11.19.0`；.NET SDK 不必预装，由 bootstrap 在仓库的 `.dotnet` 中安装固定的 `8.0.423`。
 
 ```powershell
-git clone https://github.com/yingyu4451/Loopstructor-2-AutoPlayer.git
-Set-Location .\Loopstructor-2-AutoPlayer
+git clone https://github.com/yingyu4451/Loopstructor-2-QA-Tool.git
+Set-Location .\Loopstructor-2-QA-Tool
 git fetch --tags origin
 git checkout main
 git pull --ff-only origin main
@@ -88,7 +88,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
 ```
 
-预期版本面均为 `0.6.64`：
+预期版本面均为 `0.6.65`：
 
 - `Directory.Build.props` 的 `VersionPrefix`；
 - `src/Loopstructor.AutoPlayer.Plugin/PluginInfo.cs`；
@@ -137,7 +137,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 克隆仓库后，在仓库根目录创建新任务并发送：
 
 ```text
-请接续 Loopstructor 2 AutoPlayer 项目。开始工作前：
+请接续 Loopstructor 2 QA Tool 项目。开始工作前：
 
 1. 完整读取 AGENTS.md 和 docs/codex-handoff.md。
 2. 运行 git status --short --branch、git remote -v、git log -5 --decorate --oneline，确认当前分支、远端和工作区；保留任何已有未提交修改。

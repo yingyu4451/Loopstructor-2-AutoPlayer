@@ -11,7 +11,7 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class GitHubReleaseClientTests
 {
     private const string Owner = "yingyu4451";
-    private const string Repository = "Loopstructor-2-AutoPlayer";
+    private const string Repository = "Loopstructor-2-QA-Tool";
 
     [Fact]
     public async Task PublicReleaseResolution_AvoidsRestApiAndDownloadsExactTagPackage()
@@ -38,13 +38,13 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Equal("v0.1.4", update.ReleaseTag);
         Assert.Equal(
-            "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip",
+            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip",
             update.PackageAsset.DownloadUri.ToString());
         Assert.DoesNotContain(handler.Requests, item => item.Uri.Host == "api.github.com");
         Assert.All(handler.Requests, item => Assert.Null(item.Authorization));
         Assert.Contains(
             handler.Requests,
-            item => item.Uri.AbsolutePath == "/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip");
+            item => item.Uri.AbsolutePath == "/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip");
         Assert.DoesNotContain(
             handler.Requests,
             item => item.Uri.AbsolutePath.Contains("/releases/latest/download/Loopstructor.AutoPlayer", StringComparison.Ordinal));
@@ -67,12 +67,12 @@ public sealed class GitHubReleaseClientTests
         byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
         RecordingHandler handler = new(request => request.RequestUri!.ToString() switch
         {
-            "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/latest" => Redirect(
-                "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.5.3"),
-            "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.5.3/autoplayer-update-manifest.json" => Redirect(
+            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => Redirect(
+                "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.5.3"),
+            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.5.3/autoplayer-update-manifest.json" => Redirect(
                 "https://release-assets.githubusercontent.com/delta-manifest"),
             "https://release-assets.githubusercontent.com/delta-manifest" => BytesResponse(manifestBytes),
-            var value when value == "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.5.3/" + delta.AssetName => Redirect(
+            var value when value == "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.5.3/" + delta.AssetName => Redirect(
                 "https://release-assets.githubusercontent.com/delta-package"),
             "https://release-assets.githubusercontent.com/delta-package" => BytesResponse(deltaBytes),
             _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
@@ -216,11 +216,11 @@ public sealed class GitHubReleaseClientTests
             {
                 Name = manifest.AssetName,
                 DownloadUri = new Uri(
-                    "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.1.7/" + manifest.AssetName),
+                    "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.7/" + manifest.AssetName),
                 Size = manifest.Size
             },
             ReleaseTag = "v0.1.7",
-            ReleasePageUrl = "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.7"
+            ReleasePageUrl = "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.7"
         };
         RecordingHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
         using HttpClient httpClient = new(handler);
@@ -247,11 +247,11 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Theory]
-    [InlineData("http://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.4")]
-    [InlineData("https://evil.example/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.4")]
+    [InlineData("http://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.4")]
+    [InlineData("https://evil.example/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.4")]
     [InlineData("https://github.com/attacker/gui2/releases/tag/v0.1.4")]
-    [InlineData("https://github.com:444/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.4")]
-    [InlineData("https://user@github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.4")]
+    [InlineData("https://github.com:444/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.4")]
+    [InlineData("https://user@github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.4")]
     [InlineData("https://github.com/login?return_to=%2Fyingyu4451%2Fgui2")]
     public async Task PublicReleaseResolution_RejectsUnsafeLatestRedirect(string location)
     {
@@ -269,9 +269,9 @@ public sealed class GitHubReleaseClientTests
     {
         RecordingHandler handler = new(request => request.RequestUri!.AbsolutePath switch
         {
-            "/yingyu4451/Loopstructor-2-AutoPlayer/releases/latest" => Redirect(
-                "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v0.1.4"),
-            "/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v0.1.4/autoplayer-update-manifest.json" => Redirect(
+            "/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => Redirect(
+                "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v0.1.4"),
+            "/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/autoplayer-update-manifest.json" => Redirect(
                 "https://evil.example/manifest"),
             _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
         });
@@ -384,14 +384,14 @@ public sealed class GitHubReleaseClientTests
         """;
         RecordingHandler handler = new(request => request.RequestUri!.ToString() switch
         {
-            "https://api.github.com/repos/yingyu4451/Loopstructor-2-AutoPlayer/releases/latest" => JsonResponse(releaseJson),
-            "https://api.github.com/repos/yingyu4451/Loopstructor-2-AutoPlayer/releases/assets/1001" => Redirect(
+            "https://api.github.com/repos/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => JsonResponse(releaseJson),
+            "https://api.github.com/repos/yingyu4451/Loopstructor-2-QA-Tool/releases/assets/1001" => Redirect(
                 "https://release-assets.githubusercontent.com/private-manifest?signature=manifest"),
             "https://release-assets.githubusercontent.com/private-manifest?signature=manifest" => BytesResponse(manifestBytes),
-            "https://api.github.com/repos/yingyu4451/Loopstructor-2-AutoPlayer/releases/assets/1002" => Redirect(
+            "https://api.github.com/repos/yingyu4451/Loopstructor-2-QA-Tool/releases/assets/1002" => Redirect(
                 "https://release-assets.githubusercontent.com/private-package?signature=package"),
             "https://release-assets.githubusercontent.com/private-package?signature=package" => BytesResponse(packageBytes),
-            "https://api.github.com/repos/yingyu4451/Loopstructor-2-AutoPlayer/releases/assets/1003" => Redirect(
+            "https://api.github.com/repos/yingyu4451/Loopstructor-2-QA-Tool/releases/assets/1003" => Redirect(
                 "https://release-assets.githubusercontent.com/private-delta?signature=delta"),
             "https://release-assets.githubusercontent.com/private-delta?signature=delta" => BytesResponse(deltaBytes),
             _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
@@ -424,7 +424,7 @@ public sealed class GitHubReleaseClientTests
             item => Assert.Null(item.Authorization));
         Assert.DoesNotContain(handler.Requests, item => item.Uri.Host == "evil.example");
         Assert.Equal(
-            "https://api.github.com/repos/yingyu4451/Loopstructor-2-AutoPlayer/releases/assets/1003",
+            "https://api.github.com/repos/yingyu4451/Loopstructor-2-QA-Tool/releases/assets/1003",
             resolvedDelta.PackageAsset.DownloadUri.ToString());
     }
 
@@ -437,12 +437,12 @@ public sealed class GitHubReleaseClientTests
         string packageName = $"Loopstructor.AutoPlayer-{releaseTag[1..]}-win-x64.zip";
         return request.RequestUri!.ToString() switch
         {
-            "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/latest" => Redirect(
-                $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/{releaseTag}"),
-            var value when value == $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/{releaseTag}/autoplayer-update-manifest.json" => Redirect(
+            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => Redirect(
+                $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/{releaseTag}"),
+            var value when value == $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/{releaseTag}/autoplayer-update-manifest.json" => Redirect(
                 "https://release-assets.githubusercontent.com/public-manifest?signature=manifest"),
             "https://release-assets.githubusercontent.com/public-manifest?signature=manifest" => BytesResponse(manifestBytes),
-            var value when value == $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/{releaseTag}/{packageName}" => Redirect(
+            var value when value == $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/{releaseTag}/{packageName}" => Redirect(
                 "https://release-assets.githubusercontent.com/public-package?signature=package"),
             "https://release-assets.githubusercontent.com/public-package?signature=package" => BytesResponse(packageBytes),
             _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)
@@ -454,9 +454,9 @@ public sealed class GitHubReleaseClientTests
         string releaseTag,
         byte[] manifestBytes) => request.RequestUri!.ToString() switch
     {
-        "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/latest" => Redirect(
-            $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/{releaseTag}"),
-        var value when value == $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/{releaseTag}/autoplayer-update-manifest.json" => Redirect(
+        "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => Redirect(
+            $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/{releaseTag}"),
+        var value when value == $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/{releaseTag}/autoplayer-update-manifest.json" => Redirect(
             "https://release-assets.githubusercontent.com/public-manifest?signature=manifest"),
         "https://release-assets.githubusercontent.com/public-manifest?signature=manifest" => BytesResponse(manifestBytes),
         _ => throw new InvalidOperationException("Unexpected request: " + request.RequestUri)

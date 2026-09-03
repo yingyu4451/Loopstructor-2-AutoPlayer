@@ -158,7 +158,7 @@ static void VerifyDefaultUpdateConfiguration(string root)
 
         Require(configuration.ConfigurationPath.Length == 0, "default update configuration does not require a file");
         Require(configuration.Source.GitHubOwner == "yingyu4451", "default GitHub owner");
-        Require(configuration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer", "default GitHub repository");
+        Require(configuration.Source.GitHubRepository == "Loopstructor-2-QA-Tool", "default GitHub repository");
         Require(configuration.GitHubToken.Length == 0, "default update configuration does not invent a token");
 
         string retiredLayoutRoot = Path.Combine(root, "retired-config-layout");
@@ -175,20 +175,23 @@ static void VerifyDefaultUpdateConfiguration(string root)
             "retired updater directory does not inherit parent configuration");
         Require(
             retiredLayoutConfiguration.Source.GitHubOwner == "yingyu4451"
-            && retiredLayoutConfiguration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer",
+            && retiredLayoutConfiguration.Source.GitHubRepository == "Loopstructor-2-QA-Tool",
             "retired updater directory uses current built-in source defaults");
 
         string legacyConfigPath = Path.Combine(applicationDirectory, "autoplayer-update.json");
-        File.WriteAllText(
-            legacyConfigPath,
-            "{\"GitHubOwner\":\"yingyu4451\",\"GitHubRepository\":\"gui2\"}");
-        LoadedUpdateConfiguration migratedConfiguration = new UpdateConfigurationLoader().Load(
-            options,
-            applicationDirectory);
-        Require(
-            migratedConfiguration.Source.GitHubOwner == "yingyu4451"
-            && migratedConfiguration.Source.GitHubRepository == "Loopstructor-2-AutoPlayer",
-            "renamed published repository configuration migrates to current coordinates");
+        foreach (string previousRepository in new[] { "gui2", "Loopstructor-2-AutoPlayer" })
+        {
+            File.WriteAllText(
+                legacyConfigPath,
+                $"{{\"GitHubOwner\":\"yingyu4451\",\"GitHubRepository\":\"{previousRepository}\"}}");
+            LoadedUpdateConfiguration migratedConfiguration = new UpdateConfigurationLoader().Load(
+                options,
+                applicationDirectory);
+            Require(
+                migratedConfiguration.Source.GitHubOwner == "yingyu4451"
+                && migratedConfiguration.Source.GitHubRepository == "Loopstructor-2-QA-Tool",
+                $"published repository configuration {previousRepository} migrates to current coordinates");
+        }
     }
     finally
     {

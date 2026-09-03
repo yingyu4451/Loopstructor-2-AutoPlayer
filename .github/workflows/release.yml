@@ -278,7 +278,7 @@ jobs:
               throw "GitHub stale draft deletion failed with exit code $LASTEXITCODE."
             }
           }
-          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --generate-notes --title "Loopstructor AutoPlayer $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --generate-notes --title "Loopstructor 2 QA Tool $env:GITHUB_REF_NAME"
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub draft release creation failed with exit code $LASTEXITCODE."
           }

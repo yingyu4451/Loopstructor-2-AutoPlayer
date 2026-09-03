@@ -7,7 +7,7 @@ public sealed class RootLauncherTests
     [Fact]
     public void CreateStartInfo_TargetsBundledManagerAndForwardsArguments()
     {
-        string releaseRoot = Path.Combine(Path.GetTempPath(), "Loopstructor AutoPlayer Release");
+        string releaseRoot = Path.Combine(Path.GetTempPath(), "Loopstructor 2 QA Tool Release");
         string[] arguments = { "--restarted-after-update", "value with spaces" };
 
         ProcessStartInfo startInfo = RootLauncher.CreateStartInfo(releaseRoot, arguments);

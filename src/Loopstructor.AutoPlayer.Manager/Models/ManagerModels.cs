@@ -105,9 +105,10 @@ internal readonly record struct RunControlAvailability(
 public sealed class ManagerSettings
 {
     public const string DefaultGitHubOwner = "yingyu4451";
-    public const string DefaultGitHubRepository = "Loopstructor-2-AutoPlayer";
+    public const string DefaultGitHubRepository = "Loopstructor-2-QA-Tool";
     public const string LegacyGitHubOwner = "yingyu4451";
     public const string LegacyGitHubRepository = "gui2";
+    public const string PreviousGitHubRepository = "Loopstructor-2-AutoPlayer";
 
     public string GameRoot { get; set; } = string.Empty;
     public string ProfileName { get; set; } = "player-default";
@@ -135,7 +136,8 @@ public sealed class ManagerSettings
         GitHubRepository = NormalizeCoordinate(GitHubRepository, DefaultGitHubRepository);
 
         if (string.Equals(GitHubOwner, LegacyGitHubOwner, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(GitHubRepository, LegacyGitHubRepository, StringComparison.OrdinalIgnoreCase))
+            && (string.Equals(GitHubRepository, LegacyGitHubRepository, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(GitHubRepository, PreviousGitHubRepository, StringComparison.OrdinalIgnoreCase)))
         {
             GitHubOwner = DefaultGitHubOwner;
             GitHubRepository = DefaultGitHubRepository;

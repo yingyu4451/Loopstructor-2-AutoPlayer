@@ -7,13 +7,13 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.64',
+    version: '0.6.65',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
       decisionPriority: 0, uiScaleMode: 'system', customUiScalePercent: 100, characterCfgIndex: 0,
       activeRoute: 'game', sidebarCollapsed: false, skinId: 'skyspine', gitHubOwner: 'yingyu4451',
-      gitHubRepository: 'Loopstructor-2-AutoPlayer',
+      gitHubRepository: 'Loopstructor-2-QA-Tool',
     },
     connection: {
       trusted: true, label: '已连接游戏', reason: '', cheatAvailable: true, autoplayActive,

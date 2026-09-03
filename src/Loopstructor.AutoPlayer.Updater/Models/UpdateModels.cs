@@ -125,9 +125,10 @@ public sealed class UpdateCommandOptions
 public sealed class UpdateSourceSettings
 {
     public const string DefaultGitHubOwner = "yingyu4451";
-    public const string DefaultGitHubRepository = "Loopstructor-2-AutoPlayer";
+    public const string DefaultGitHubRepository = "Loopstructor-2-QA-Tool";
     public const string LegacyGitHubOwner = "yingyu4451";
     public const string LegacyGitHubRepository = "gui2";
+    public const string PreviousGitHubRepository = "Loopstructor-2-AutoPlayer";
 
     public string GitHubOwner { get; set; } = DefaultGitHubOwner;
     public string GitHubRepository { get; set; } = DefaultGitHubRepository;
@@ -142,7 +143,8 @@ public sealed class UpdateSourceSettings
             : GitHubRepository.Trim();
 
         if (string.Equals(GitHubOwner, LegacyGitHubOwner, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(GitHubRepository, LegacyGitHubRepository, StringComparison.OrdinalIgnoreCase))
+            && (string.Equals(GitHubRepository, LegacyGitHubRepository, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(GitHubRepository, PreviousGitHubRepository, StringComparison.OrdinalIgnoreCase)))
         {
             GitHubOwner = DefaultGitHubOwner;
             GitHubRepository = DefaultGitHubRepository;

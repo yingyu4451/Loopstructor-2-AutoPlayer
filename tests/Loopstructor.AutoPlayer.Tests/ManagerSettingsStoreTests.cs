@@ -68,7 +68,7 @@ public sealed class ManagerSettingsStoreTests
 
             Assert.Empty(warning);
             Assert.Equal(ManagerSettings.DefaultGitHubOwner, settings.GitHubOwner);
-            Assert.Equal(ManagerSettings.DefaultGitHubRepository, settings.GitHubRepository);
+            Assert.Equal("Loopstructor-2-QA-Tool", settings.GitHubRepository);
         }
         finally
         {
@@ -132,8 +132,10 @@ public sealed class ManagerSettingsStoreTests
         }
     }
 
-    [Fact]
-    public void Load_MigratesRenamedPublishedRepositoryWithoutChangingCustomForks()
+    [Theory]
+    [InlineData("gui2")]
+    [InlineData("Loopstructor-2-AutoPlayer")]
+    public void Load_MigratesFormerPublishedRepositoriesWithoutChangingCustomForks(string repository)
     {
         string root = CreateTemporaryDirectory();
         try
@@ -144,21 +146,21 @@ public sealed class ManagerSettingsStoreTests
                 """
                 {
                   "GitHubOwner": "yingyu4451",
-                  "GitHubRepository": "gui2"
+                  "GitHubRepository": "REPOSITORY"
                 }
-                """);
+                """.Replace("REPOSITORY", repository, StringComparison.Ordinal));
 
             ManagerSettings settings = new ManagerSettingsStore(settingsPath).Load(out string warning);
 
             Assert.Empty(warning);
             Assert.Equal(ManagerSettings.DefaultGitHubOwner, settings.GitHubOwner);
-            Assert.Equal(ManagerSettings.DefaultGitHubRepository, settings.GitHubRepository);
+            Assert.Equal("Loopstructor-2-QA-Tool", settings.GitHubRepository);
 
             settings.GitHubOwner = "custom-owner";
-            settings.GitHubRepository = "gui2";
+            settings.GitHubRepository = repository;
             settings.NormalizeUpdateSource();
             Assert.Equal("custom-owner", settings.GitHubOwner);
-            Assert.Equal("gui2", settings.GitHubRepository);
+            Assert.Equal(repository, settings.GitHubRepository);
         }
         finally
         {
@@ -188,7 +190,7 @@ public sealed class ManagerSettingsStoreTests
             Assert.Equal(ManagerSettings.DefaultGitHubRepository, reloaded.GitHubRepository);
             string savedJson = File.ReadAllText(settingsPath);
             Assert.Contains("\"GitHubOwner\": \"yingyu4451\"", savedJson);
-            Assert.Contains("\"GitHubRepository\": \"Loopstructor-2-AutoPlayer\"", savedJson);
+            Assert.Contains("\"GitHubRepository\": \"Loopstructor-2-QA-Tool\"", savedJson);
         }
         finally
         {

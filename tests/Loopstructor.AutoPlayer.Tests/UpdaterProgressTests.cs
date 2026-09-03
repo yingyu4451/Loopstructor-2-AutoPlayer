@@ -206,17 +206,17 @@ public sealed class UpdaterProgressTests
         {
             Name = manifest.AssetName,
             DownloadUri = new Uri(
-                $"https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/download/v{manifest.Version}/{manifest.AssetName}"),
+                $"https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v{manifest.Version}/{manifest.AssetName}"),
             Size = manifest.Size
         },
         ReleaseTag = "v" + manifest.Version,
-        ReleasePageUrl = "https://github.com/yingyu4451/Loopstructor-2-AutoPlayer/releases/tag/v" + manifest.Version
+        ReleasePageUrl = "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/tag/v" + manifest.Version
     };
 
     private static UpdateSourceSettings Settings() => new()
     {
         GitHubOwner = "yingyu4451",
-        GitHubRepository = "Loopstructor-2-AutoPlayer",
+        GitHubRepository = "Loopstructor-2-QA-Tool",
         RuntimeIdentifier = "win-x64",
         ManifestAssetName = "autoplayer-update-manifest.json"
     };

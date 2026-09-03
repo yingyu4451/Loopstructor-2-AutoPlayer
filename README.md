@@ -1,6 +1,6 @@
-# Loopstructor 2 AutoPlayer
+# Loopstructor 2 QA Tool
 
-Loopstructor 2 AutoPlayer 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.64` 完整修复“确认安装更新后没反应”：Host 成功启动更新窗口后，IPC 响应会直接安排原 Manager 退出；文件替换完成后，新版 .NET Updater 等待旧 Electron 退出，再清理回滚目录并重启 Manager。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
+Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.65` 将项目品牌、GitHub 默认更新源和发布链接迁移到 `yingyu4451/Loopstructor-2-QA-Tool`，并自动迁移旧版保存的 `yingyu4451/Loopstructor-2-AutoPlayer` 与 `yingyu4451/gui2` 坐标；技术程序集、安装目录、更新清单 schema 和协议版本保持不变。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -26,20 +26,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.64 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.65 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.64
+.\scripts\package.ps1 -Version 0.6.65
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.64-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor.AutoPlayer-0.6.65-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -227,7 +227,7 @@ push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Pl
 
 `v0.6.14` 将战车和附魔目录改为读取当前游戏程序集的完整枚举，并分别通过游戏已注册战车组件、附魔详情和类型映射验证实际可用性；“本次装配的附魔”改为带层数徽标和延迟详情提示的图标摘要。本版本以 `v0.6.13` 作为相邻增量更新基线。
 
-`v0.6.13` 将内置公开更新源迁移到重命名后的 `yingyu4451/Loopstructor-2-AutoPlayer`，并自动迁移旧安装保存的 `yingyu4451/gui2` 坐标；自定义 fork 和环境变量覆盖保持不变。本版本以 `v0.6.12` 作为相邻增量更新基线。
+`v0.6.13` 将内置公开更新源迁移到当时重命名后的 `yingyu4451/Loopstructor-2-AutoPlayer`，并自动迁移旧安装保存的 `yingyu4451/gui2` 坐标；自定义 fork 和环境变量覆盖保持不变。本版本以 `v0.6.12` 作为相邻增量更新基线。
 
 `v0.6.12` 将作弊工具的战车与附魔目录改为复用随机模式随机轮盘实际使用的固定池：战车读取 `GetRandomModeVehiclePool`，附魔读取 `GetRandomModeBasicFetterPool`，并沿用游戏的成就解锁补丁结果；获取与编辑操作使用同一池校验，不再直接展示完整枚举。本版本以 `v0.6.11` 作为相邻增量更新基线。
 
@@ -261,9 +261,9 @@ push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Pl
 
 安装更新时会打开独立的更新窗口，按“准备、下载、校验、安装、重启”显示阶段进度。下载阶段显示已下载大小、总大小和实时速度；解压与事务替换阶段显示安装进度，完成后会显示最终结果。开始替换文件后窗口会锁定关闭操作，避免破坏更新或回滚。
 
-自动更新只支持当前发布目录：Updater 固定为 `manager\Loopstructor.AutoPlayer.Updater.exe`，不再创建或接受旧 `updater\` 兼容目录。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名。Manager 打开后，标题区会永久显示 `AutoPlayer 版本 v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
+自动更新只支持当前发布目录：Updater 固定为 `manager\Loopstructor.AutoPlayer.Updater.exe`，不再创建或接受旧 `updater\` 兼容目录。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名。Manager 打开后，标题区会永久显示 `Loopstructor 2 QA Tool` 和 `v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
 
-默认发布与更新源为 [`yingyu4451/Loopstructor-2-AutoPlayer`](https://github.com/yingyu4451/Loopstructor-2-AutoPlayer)，Manager 界面不再显示仓库地址输入框，也无需手工填写。旧版本遗留的空白更新源或已保存的 `yingyu4451/gui2` 旧坐标会自动迁移为该默认值；开发测试 fork 时仍可用环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 临时覆盖。
+默认发布与更新源为 [`yingyu4451/Loopstructor-2-QA-Tool`](https://github.com/yingyu4451/Loopstructor-2-QA-Tool)，Manager 界面不再显示仓库地址输入框，也无需手工填写。旧版本遗留的空白更新源或已保存的 `yingyu4451/Loopstructor-2-AutoPlayer`、`yingyu4451/gui2` 旧坐标会自动迁移为该默认值；开发测试 fork 时仍可用环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 临时覆盖。
 
 从 `v0.1.4` 起，公开仓库且未提供 token 时，更新器会先访问 GitHub 网页端的 `releases/latest`，核对它跳转到同一仓库的精确版本 tag，再从该 tag 的 Release 资产地址下载清单和 ZIP。此路径不调用匿名 GitHub REST API，因此不受匿名 API 每个出口 IP 每小时 60 次的配额影响。
 
