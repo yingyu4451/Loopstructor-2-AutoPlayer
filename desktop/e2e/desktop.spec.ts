@@ -303,8 +303,10 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     expect(directoryRest.edge).toBe('#d69a45')
     expect(directoryRest.face).not.toBe('none')
     await directoryButton.hover()
-    await page.waitForTimeout(160)
-    expect(await directoryButton.evaluate(element => getComputedStyle(element).color)).toBe('rgb(255, 240, 198)')
+    await expect.poll(
+      () => directoryButton.evaluate(element => getComputedStyle(element).color),
+      { message: '选择目录按钮的 hover 颜色应完成过渡' },
+    ).toBe('rgb(255, 240, 198)')
 
     const disabledLaunch = page.getByRole('button', { name: '启动游戏', exact: true })
     await expect(disabledLaunch).toBeDisabled()
