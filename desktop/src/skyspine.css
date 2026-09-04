@@ -292,8 +292,6 @@
 .app-shell[data-skin="skyspine"] .workspace-station { position: absolute; right: 58px; bottom: 54px; z-index: 0; width: 200px; height: 200px; object-fit: contain; opacity: .18; filter: drop-shadow(0 12px 12px #000); pointer-events: none; }
 .app-shell[data-skin="skyspine"][data-route="game"] .workspace-station,
 .app-shell[data-skin="skyspine"][data-route="autoplay"] .workspace-station { opacity: .34; }
-.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 23px; left: 50%; z-index: 6; width: min(390px, calc(100% - 150px)); min-height: 58px; transform: translateX(-50%); display: grid; place-items: center; overflow: hidden; padding: 5px 28px; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; line-height: 1.2; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
-
 .app-shell[data-skin="skyspine"] .page-host { position: relative; z-index: 2; padding: 118px 62px 72px; overflow: hidden; }
 .app-shell[data-skin="skyspine"] .page-grid { gap: 14px; }
 
@@ -451,7 +449,7 @@
 .app-shell[data-skin="skyspine"] .radio-card:has(input:checked),
 .app-shell[data-skin="skyspine"] .action-toggle:has(input:checked) { --field-edge: #82d64e; --field-top: #203018; --field-bottom: #0c130a; }
 .app-shell[data-skin="skyspine"] .radio-card:has(input:checked)::before,
-.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked)::before { box-shadow: inset 5px 0 #6bd83e, inset 0 0 0 2px #14220f; }
+.app-shell[data-skin="skyspine"] .action-toggle:has(input:checked)::before { box-shadow: inset 0 0 0 2px #6bd83e; }
 .app-shell[data-skin="skyspine"] .radio-card:has(input:checked):hover,
 .app-shell[data-skin="skyspine"] .action-toggle:has(input:checked):hover { --field-edge: #9bef69; --field-top: #294020; --field-bottom: #10190d; }
 .app-shell[data-skin="skyspine"] input[type="checkbox"],
@@ -474,7 +472,7 @@
 .app-shell[data-skin="skyspine"] .update-panel strong { color: #8ee450; font-family: "Skyspine Data", "Microsoft YaHei UI", monospace; }
 .app-shell[data-skin="skyspine"] .validation-strip,
 .app-shell[data-skin="skyspine"] .launch-band { clip-path: none; border: 2px solid #724725; border-radius: 0; background: #0a0a08e8; box-shadow: inset 0 0 0 3px #23160d; }
-.app-shell[data-skin="skyspine"] .launch-band.ready { border-color: #6fc044; box-shadow: inset 7px 0 #6ddc40, inset 0 0 0 3px #1e2d16, 0 5px 0 #060403; }
+.app-shell[data-skin="skyspine"] .launch-band.ready { border-color: #6fc044; box-shadow: inset 0 0 0 3px #1e2d16, 0 5px 0 #060403; }
 
 .app-shell[data-skin="skyspine"] .type-switcher,
 .app-shell[data-skin="skyspine"] .segmented-control { border: 3px solid #160e09; border-radius: 0; background: #090806; box-shadow: 0 0 0 1px #81532c; }
@@ -513,7 +511,7 @@
 .app-shell[data-skin="skyspine"] .entity-table > button.active { --row-edge: #79db45; --row-top: #182714; --row-bottom: #0a0b08; }
 .app-shell[data-skin="skyspine"] .catalog-card.selected::before,
 .app-shell[data-skin="skyspine"] .vehicle-family.selected::before,
-.app-shell[data-skin="skyspine"] .entity-table > button.active::before { box-shadow: inset 6px 0 #72d941, inset 0 0 0 2px #12210e; }
+.app-shell[data-skin="skyspine"] .entity-table > button.active::before { box-shadow: inset 0 0 0 2px #72d941; }
 .app-shell[data-skin="skyspine"] .catalog-card.selected:hover,
 .app-shell[data-skin="skyspine"] .vehicle-family.selected:hover,
 .app-shell[data-skin="skyspine"] .entity-table > button.active:hover { --row-edge: #91ef5d; --row-top: #20351a; --row-bottom: #0c1209; }
@@ -533,7 +531,7 @@
 .app-shell[data-skin="skyspine"] .skin-option::before { content: ""; position: absolute; inset: 3px; z-index: -1; clip-path: inherit; background: linear-gradient(180deg, #21150d, #0a0907); box-shadow: inset 0 0 0 2px #1b110a; }
 .app-shell[data-skin="skyspine"] .skin-option:hover { --skin-edge: #c9853c; color: #ffe0a0; filter: brightness(1.08); }
 .app-shell[data-skin="skyspine"] .skin-option.selected { --skin-edge: #86df50; }
-.app-shell[data-skin="skyspine"] .skin-option.selected::before { box-shadow: inset 7px 0 #77dd45, inset 0 0 0 2px #183010; }
+.app-shell[data-skin="skyspine"] .skin-option.selected::before { box-shadow: inset 0 0 0 2px #77dd45; }
 .app-shell[data-skin="skyspine"] .skin-option.selected:hover { --skin-edge: #a0f36f; filter: brightness(1.08); }
 .app-shell[data-skin="skyspine"] .skin-option strong { color: #f1bf5b; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
 .app-shell[data-skin="skyspine"] .skin-swatch { border: 4px solid #140c07; border-radius: 0; box-shadow: 0 0 0 1px #a56d35; }

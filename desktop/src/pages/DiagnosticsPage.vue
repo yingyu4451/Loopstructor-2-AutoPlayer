@@ -22,15 +22,15 @@ const statusRows = computed(() => {
 </script>
 
 <template>
-  <div class="diagnostics-workspace mechanical-section">
+  <div class="card diagnostics-workspace mechanical-section">
     <header class="diagnostic-tabs">
-      <div class="segmented-control">
-        <button :class="{ active: active === 'logs' }" @click="active = 'logs'"><FileText :size="16" />运行日志</button>
-        <button :class="{ active: active === 'status' }" @click="active = 'status'"><Activity :size="16" />运行状态</button>
+      <div class="tabs tabs-box segmented-control" role="tablist" aria-label="诊断视图">
+        <button class="tab" :class="{ active: active === 'logs' }" role="tab" :aria-selected="active === 'logs'" @click="active = 'logs'"><FileText :size="16" />运行日志</button>
+        <button class="tab" :class="{ active: active === 'status' }" role="tab" :aria-selected="active === 'status'" @click="active = 'status'"><Activity :size="16" />运行状态</button>
       </div>
       <div class="header-actions">
-        <button class="button secondary compact" @click="api.openEvidence()"><FolderOpen :size="16" />证据目录</button>
-        <button v-if="active === 'logs'" class="button secondary compact" @click="api.clearLogs()"><Trash2 :size="16" />清空</button>
+        <button class="btn btn-outline btn-sm button secondary compact" @click="api.openEvidence()"><FolderOpen :size="16" />证据目录</button>
+        <button v-if="active === 'logs'" class="btn btn-outline btn-sm button secondary compact" @click="api.clearLogs()"><Trash2 :size="16" />清空</button>
       </div>
     </header>
     <div v-if="active === 'logs'" ref="logHost" class="log-console">

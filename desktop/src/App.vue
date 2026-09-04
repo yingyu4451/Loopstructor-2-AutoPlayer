@@ -29,13 +29,7 @@ const pages = {
   relics: RelicsPage, battle: BattlePage, objects: ObjectsPage, spawn: SpawnPage,
   diagnostics: DiagnosticsPage, settings: SettingsPage,
 }
-const pageTitles: Record<keyof typeof pages, string> = {
-  game: '主控 · 游戏与插件', saves: '档案 · 存档保险库', autoplay: '策略 · 自动游玩', vehicles: '工坊 · 战车装配', items: '仓储 · 道具与弹射点',
-  relics: '藏品 · 遗物目录', battle: '指挥 · 战斗控制', objects: '校准 · 对象属性', spawn: '实验 · 怪物生成',
-  diagnostics: '监测 · 日志与状态', settings: '维护 · 界面与更新',
-}
 const activePage = computed(() => pages[store.route])
-const activeTitle = computed(() => pageTitles[store.route])
 let pageTween: gsap.core.Tween | undefined
 let busyTween: gsap.core.Tween | undefined
 
@@ -86,15 +80,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell" :data-skin="store.settings?.skinId ?? 'skyspine'" :data-route="store.route" :class="{ 'updater-mode': updaterMode }">
+  <div class="app-shell h-screen min-h-0 overflow-hidden" data-theme="skyspine" :data-skin="store.settings?.skinId ?? 'skyspine'" :data-route="store.route" :class="{ 'updater-mode': updaterMode }">
     <TitleBar :updater-mode="updaterMode" />
     <UpdaterPage v-if="updaterMode" />
-    <div v-else class="app-body" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">
+    <div v-else class="app-body grid min-h-0" :class="{ 'sidebar-collapsed': store.settings?.sidebarCollapsed }">
       <RailSidebar />
-      <main class="content-shell">
+      <main class="content-shell relative min-h-0 min-w-0 overflow-hidden">
         <img :src="stationArt" alt="" width="256" height="256" class="workspace-station" aria-hidden="true" />
-        <div class="workbench-caption" aria-hidden="true">{{ activeTitle }}</div>
-        <div class="page-host">
+        <div class="page-host h-full min-h-0 min-w-0 overflow-hidden">
           <component :is="activePage" />
         </div>
       </main>

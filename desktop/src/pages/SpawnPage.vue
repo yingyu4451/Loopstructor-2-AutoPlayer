@@ -77,30 +77,30 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="spawn-workspace" :class="{ mutationLocked: store.writeLocked }">
-    <section class="spawn-catalog mechanical-section">
-      <label class="search-box"><Search :size="17" /><input v-model="search" name="enemy-search" autocomplete="off" aria-label="搜索怪物" placeholder="搜索怪物中文名或枚举…" /></label>
+    <section class="card spawn-catalog mechanical-section">
+      <label class="input input-bordered search-box"><Search :size="17" /><input v-model="search" name="enemy-search" autocomplete="off" aria-label="搜索怪物" placeholder="搜索怪物中文名或枚举…" /></label>
       <VirtualCatalogGrid :items="enemies" :selected-ids="selected ? [selected.id] : []" :disabled="store.writeLocked" @invoke="(_button, item) => selected = item" />
     </section>
-    <section class="spawn-editor mechanical-section">
+    <section class="card spawn-editor mechanical-section">
       <header class="section-heading"><div><h2>生成怪物</h2><p>{{ selected?.name || selected?.enumName || '先从左侧选择怪物' }}</p></div></header>
       <div class="form-grid two-columns">
-        <label class="switch-line">跟随当前关卡<input v-model="followLevel" type="checkbox" /></label>
-        <label>自定义等级<input v-model.number="level" type="number" min="1" max="200" :disabled="followLevel" /></label>
-        <label>数量<input v-model.number="count" type="number" min="1" max="100" /></label>
-        <label>散布半径<input v-model.number="radius" type="number" min="0" step="0.5" /></label>
+        <label class="switch-line">跟随当前关卡<input v-model="followLevel" class="checkbox checkbox-success" name="follow-current-level" type="checkbox" /></label>
+        <label>自定义等级<input v-model.number="level" class="input input-bordered" name="spawn-level" autocomplete="off" type="number" inputmode="numeric" min="1" max="200" :disabled="followLevel" /></label>
+        <label>数量<input v-model.number="count" class="input input-bordered" name="spawn-count" autocomplete="off" type="number" inputmode="numeric" min="1" max="100" /></label>
+        <label>散布半径<input v-model.number="radius" class="input input-bordered" name="spawn-radius" autocomplete="off" type="number" inputmode="decimal" min="0" step="0.5" /></label>
       </div>
-      <div class="spawn-point-heading"><div><h3>生成位置</h3><small>{{ captureState.message || '可手工输入，或在游戏内按住左 Alt 后点击选点。' }}</small></div><div class="action-bar"><button class="button secondary compact" @click="capture"><Crosshair :size="16" />{{ captureState.state === 'armed' ? '取消选点' : '游戏内选点' }}</button><button class="icon-button danger-icon" aria-label="清空生成点" :disabled="points.length === 0" @click="clearPoints"><Trash2 :size="16" /></button></div></div>
+      <div class="spawn-point-heading"><div><h3>生成位置</h3><small>{{ captureState.message || '可手工输入，或在游戏内按住左 Alt 后点击选点。' }}</small></div><div class="action-bar"><button class="btn btn-outline btn-sm button secondary compact" @click="capture"><Crosshair :size="16" />{{ captureState.state === 'armed' ? '取消选点' : '游戏内选点' }}</button><button class="btn btn-square btn-error btn-sm icon-button danger-icon" aria-label="清空生成点" :disabled="points.length === 0" @click="clearPoints"><Trash2 :size="16" /></button></div></div>
       <div class="spawn-point-list">
         <div v-for="point in points" :key="point.id" class="coordinate-row">
           <input v-model.number="point.x" type="number" step="0.1" aria-label="X 坐标" />
           <input v-model.number="point.y" type="number" step="0.1" aria-label="Y 坐标" />
           <input v-model.number="point.z" type="number" step="0.1" aria-label="Z 坐标" />
-          <button class="icon-button danger-icon" aria-label="删除生成点" @click="removePoint(point)"><Trash2 :size="16" /></button>
+          <button class="btn btn-square btn-error btn-sm icon-button danger-icon" aria-label="删除生成点" @click="removePoint(point)"><Trash2 :size="16" /></button>
         </div>
       </div>
       <div class="action-bar between">
-        <button class="button secondary compact" @click="points.push({ id: createId(), pointId: '', x: 0, y: 0, z: 0 })"><Plus :size="16" />添加位置</button>
-        <button class="button primary" :disabled="!selected || points.length === 0 || store.writeLocked" @click="spawn"><BugPlay :size="18" />生成怪物</button>
+        <button class="btn btn-outline btn-sm button secondary compact" @click="points.push({ id: createId(), pointId: '', x: 0, y: 0, z: 0 })"><Plus :size="16" />添加位置</button>
+        <button class="btn btn-primary button primary" :disabled="!selected || points.length === 0 || store.writeLocked" @click="spawn"><BugPlay :size="18" />生成怪物</button>
       </div>
     </section>
   </div>

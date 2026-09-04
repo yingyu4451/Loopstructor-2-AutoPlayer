@@ -55,7 +55,7 @@ export const useAppStore = defineStore('app', {
       }
       this.snapshot = snapshot
       this.connected = snapshot.connection.trusted
-      if (becameConnected && cheatRoutes.has(this.currentRoute) && !this.catalog) {
+      if (becameConnected && cheatRoutes.has(this.currentRoute)) {
         void this.refreshCheat(false)
       }
     },
@@ -69,7 +69,7 @@ export const useAppStore = defineStore('app', {
       } catch {
         // Navigation is renderer-owned. A failed preference write must not eject the user from the selected page.
       }
-      if (this.connected && cheatRoutes.has(route) && !this.catalog) await this.refreshCheat(false)
+      if (this.connected && cheatRoutes.has(route)) await this.refreshCheat(false)
     },
     async saveSettings(settings: ManagerSettings, announce = true) {
       const ui = useUiStore()

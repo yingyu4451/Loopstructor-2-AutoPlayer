@@ -77,37 +77,40 @@ async function grantVehicle() {
 </script>
 
 <template>
-  <div class="vehicle-workspace">
-    <section class="vehicle-selector mechanical-section">
+  <div class="vehicle-workspace grid h-full min-h-0">
+    <section class="card vehicle-selector mechanical-section min-h-0">
       <div class="search-row">
-        <label class="search-box"><Search :size="17" /><input v-model="search" name="vehicle-search" autocomplete="off" aria-label="搜索战车" placeholder="搜索中文名、枚举或系列…" /></label>
+        <label class="input input-bordered search-box"><Search :size="17" /><input v-model="search" name="vehicle-search" autocomplete="off" aria-label="搜索战车" placeholder="搜索中文名、枚举或系列…" /></label>
       </div>
-      <div class="type-switcher">
-        <button :class="{ active: activeType === 'all' }" @click="activeType = 'all'">全部</button>
-        <button v-for="type in types" :key="type.key" :class="{ active: activeType === type.key }" @click="activeType = type.key">{{ type.label }}</button>
+      <div class="tabs tabs-box type-switcher" role="tablist" aria-label="战车类型">
+        <button class="tab" :class="{ active: activeType === 'all' }" role="tab" :aria-selected="activeType === 'all'" @click="activeType = 'all'">全部</button>
+        <button v-for="type in types" :key="type.key" class="tab" :class="{ active: activeType === type.key }" role="tab" :aria-selected="activeType === type.key" @click="activeType = type.key">{{ type.label }}</button>
       </div>
       <div class="vehicle-family-grid">
-        <article v-for="family in families" :key="family.key" class="vehicle-family" :class="{ selected: family.items.some(item => item.id === selectedVehicle?.id) }">
-          <div class="family-identity">
-            <span class="vehicle-game-icon">
-              <img v-if="vehicleImage(family.items[0])" :src="vehicleImage(family.items[0])" alt="" width="46" height="46" loading="lazy" />
-              <ImageOff v-else :size="22" />
-            </span>
-            <div><strong>{{ family.items[0].name || family.items[0].fallbackName || family.key }}</strong><small>{{ family.key }}</small></div>
-          </div>
-          <div class="level-buttons">
-            <button
-              v-for="item in family.items"
-              :key="item.id"
-              :class="{ active: selectedVehicle?.id === item.id }"
-              @click="selectedVehicle = item"
-            >{{ shapeLabel(item.level) }}</button>
+        <article v-for="family in families" :key="family.key" class="card vehicle-family" :class="{ selected: family.items.some(item => item.id === selectedVehicle?.id) }">
+          <div class="card-body">
+            <div class="family-identity">
+              <span class="vehicle-game-icon">
+                <img v-if="vehicleImage(family.items[0])" :src="vehicleImage(family.items[0])" alt="" width="46" height="46" loading="lazy" />
+                <ImageOff v-else :size="22" />
+              </span>
+              <div><strong>{{ family.items[0].name || family.items[0].fallbackName || family.key }}</strong><small>{{ family.key }}</small></div>
+            </div>
+            <div class="level-buttons">
+              <button
+                v-for="item in family.items"
+                :key="item.id"
+                class="btn btn-sm"
+                :class="{ active: selectedVehicle?.id === item.id }"
+                @click="selectedVehicle = item"
+              >{{ shapeLabel(item.level) }}</button>
+            </div>
           </div>
         </article>
       </div>
     </section>
 
-    <section class="vehicle-loadout mechanical-section" :class="{ mutationLocked: store.writeLocked }">
+    <section class="card vehicle-loadout mechanical-section" :class="{ mutationLocked: store.writeLocked }">
       <header class="section-heading"><div><h2>本次装配</h2><p>{{ selectedVehicle?.name || selectedVehicle?.enumName || '尚未选择战车' }}</p></div></header>
       <div class="selected-enchantment-wrap">
         <CatalogCard
@@ -120,15 +123,15 @@ async function grantVehicle() {
         <p v-if="selectedEnchantments.length === 0" class="empty-state">未选择附魔时获取普通战车。</p>
       </div>
       <div class="grant-row">
-        <label>数量<input v-model.number="count" type="number" min="1" max="999" /></label>
-        <button class="button primary" :disabled="!selectedVehicle || store.writeLocked" @click="grantVehicle"><Plus :size="17" />获取战车</button>
+        <label>数量<input v-model.number="count" class="input input-bordered input-sm" name="vehicle-count" autocomplete="off" type="number" inputmode="numeric" min="1" max="999" /></label>
+        <button class="btn btn-primary button primary" :disabled="!selectedVehicle || store.writeLocked" @click="grantVehicle"><Plus :size="17" />获取战车</button>
       </div>
     </section>
 
-    <section class="enchantment-panel mechanical-section">
+    <section class="card enchantment-panel mechanical-section">
       <div class="search-row">
-        <label class="search-box"><Search :size="17" /><input v-model="enchantmentSearch" name="enchantment-search" autocomplete="off" aria-label="搜索附魔" placeholder="搜索附魔中文名或枚举…" /></label>
-        <button class="button secondary compact" @click="enchantments = {}"><Trash2 :size="16" />清空所选</button>
+        <label class="input input-bordered search-box"><Search :size="17" /><input v-model="enchantmentSearch" name="enchantment-search" autocomplete="off" aria-label="搜索附魔" placeholder="搜索附魔中文名或枚举…" /></label>
+        <button class="btn btn-outline btn-sm button secondary compact" @click="enchantments = {}"><Trash2 :size="16" />清空所选</button>
       </div>
       <VirtualCatalogGrid :items="enchantmentItems" :counts="enchantments" @invoke="adjustEnchantment" />
     </section>

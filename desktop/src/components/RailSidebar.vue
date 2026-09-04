@@ -43,7 +43,7 @@ async function toggle() {
         <button
           v-for="item in group.items"
           :key="item.key"
-          class="nav-item"
+          class="btn btn-ghost nav-item"
           :class="{ active: store.route === item.key }"
           :aria-label="item.label"
           :aria-current="store.route === item.key ? 'page' : undefined"
@@ -55,7 +55,7 @@ async function toggle() {
         </button>
       </section>
     </nav>
-    <button class="collapse-button" :aria-label="store.settings?.sidebarCollapsed ? '展开侧栏' : '收起侧栏'" @click="toggle">
+    <button class="btn btn-circle btn-ghost collapse-button" :aria-label="store.settings?.sidebarCollapsed ? '展开侧栏' : '收起侧栏'" @click="toggle">
       <ChevronRight v-if="store.settings?.sidebarCollapsed" :size="18" />
       <ChevronLeft v-else :size="18" />
     </button>

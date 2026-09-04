@@ -26,7 +26,7 @@ const detail = computed(() => [
 <template>
   <button
     v-tooltip="detail"
-    class="catalog-card"
+    class="card catalog-card"
     :class="{ selected, disabled }"
     :disabled="disabled"
     :aria-pressed="selected ? 'true' : 'false'"

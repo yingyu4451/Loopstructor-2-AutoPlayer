@@ -7,7 +7,7 @@ const icons = { success: CheckCircle2, info: Info, warning: TriangleAlert, error
 
 <template>
   <Transition name="toast-slide">
-    <div v-if="ui.activeToast" class="app-toast" :class="ui.activeToast.kind" role="status">
+    <div v-if="ui.activeToast" class="alert app-toast" :class="ui.activeToast.kind" role="status">
       <component :is="icons[ui.activeToast.kind]" :size="18" />
       <span>{{ ui.activeToast.message }}</span>
     </div>

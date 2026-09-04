@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="updater-shell">
-    <section class="updater-card mechanical-section" aria-live="polite">
+    <section class="card updater-card mechanical-section" aria-live="polite">
       <header class="updater-heading">
         <div>
           <div class="eyebrow" translate="no">LOOPSTRUCTOR 2 QA TOOL</div>
@@ -132,7 +132,7 @@ onBeforeUnmount(() => {
       </div>
       <footer class="updater-actions">
         <span v-if="!isFailure && !result?.success" class="updater-hint"><RefreshCw :size="14" />更新过程中请勿关闭窗口</span>
-        <button class="button secondary compact" :disabled="!isFailure && !result?.success" @click="closeUpdater">{{ result?.success ? '关闭' : '退出' }}</button>
+        <button class="btn btn-outline btn-sm button secondary compact" :disabled="!isFailure && !result?.success" @click="closeUpdater">{{ result?.success ? '关闭' : '退出' }}</button>
       </footer>
     </section>
   </main>

@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.68-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.69-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -88,23 +88,7 @@ test('unified desktop is sandboxed and responsive across every route', async () 
           await expect(navLabels.nth(index)).toBeVisible()
         }
       }
-      const caption = page.locator('.workbench-caption')
-      await expect(caption).toBeVisible()
-      const captionAlignment = await caption.evaluate(element => {
-        const captionBounds = element.getBoundingClientRect()
-        const contentBounds = element.parentElement!.getBoundingClientRect()
-        return {
-          horizontalOffset: Math.abs(
-            (captionBounds.left + captionBounds.width / 2) -
-            (contentBounds.left + contentBounds.width / 2),
-          ),
-          display: getComputedStyle(element).display,
-          alignItems: getComputedStyle(element).alignItems,
-          justifyItems: getComputedStyle(element).justifyItems,
-        }
-      })
-      expect(captionAlignment.horizontalOffset).toBeLessThanOrEqual(1)
-      expect(captionAlignment).toMatchObject({ display: 'grid', alignItems: 'center', justifyItems: 'center' })
+      await expect(page.locator('.workbench-caption')).toHaveCount(0)
       for (const route of routes) {
         await page.getByRole('button', { name: route, exact: true }).click()
         await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', route)
@@ -172,6 +156,29 @@ test('unified desktop is sandboxed and responsive across every route', async () 
           resolve(screenshotRoot, `${view.width}x${view.height}${zoomSuffix}-${safeName}.png`),
           Buffer.from(screenshotBase64, 'base64'),
         )
+      }
+      if (view.zoom === 1) {
+        await page.getByRole('button', { name: '道具', exact: true }).click()
+        const itemLayout = await page.evaluate(() => {
+          const workspace = document.querySelector<HTMLElement>('.items-workspace')!
+          const workspaceBounds = workspace.getBoundingClientRect()
+          const sections = Array.from(workspace.querySelectorAll<HTMLElement>(':scope > .inventory-column'))
+          const sectionBounds = sections.map(section => section.getBoundingClientRect())
+          return {
+            overflowY: getComputedStyle(workspace).overflowY,
+            clientHeight: workspace.clientHeight,
+            scrollHeight: workspace.scrollHeight,
+            topOffsets: sectionBounds.map(bounds => Math.abs(bounds.top - workspaceBounds.top)),
+            bottomOffsets: sectionBounds.map(bounds => Math.abs(bounds.bottom - workspaceBounds.bottom)),
+          }
+        })
+        if (view.width === 1280) {
+          expect(itemLayout.topOffsets.every(offset => offset <= 1)).toBe(true)
+          expect(itemLayout.bottomOffsets.every(offset => offset <= 1)).toBe(true)
+        } else {
+          expect(itemLayout.overflowY).toBe('auto')
+          expect(itemLayout.scrollHeight).toBeGreaterThan(itemLayout.clientHeight)
+        }
       }
     }
     expect(rendererErrors).toEqual([])
@@ -268,14 +275,17 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     const navBefore = await activeNav.evaluate(element => ({
       face: getComputedStyle(element, '::before').backgroundImage,
       filter: getComputedStyle(element).filter,
+      shadow: getComputedStyle(element).boxShadow,
     }))
     await activeNav.hover()
+    await page.waitForTimeout(180)
     const navHover = await activeNav.evaluate(element => ({
       face: getComputedStyle(element, '::before').backgroundImage,
       filter: getComputedStyle(element).filter,
       cog: getComputedStyle(element.querySelector('.rail-cog')!).backgroundImage,
     }))
     expect(navBefore.face).not.toBe('none')
+    expect(navBefore.shadow).not.toContain('inset')
     expect(navHover.face).not.toBe('none')
     expect(navHover.cog).toContain('gear-')
     expect(navHover.filter).not.toBe(navBefore.filter)
@@ -346,12 +356,12 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-button-focus-disabled.png'), animations: 'disabled' })
 
     const chromeSpacing = await page.evaluate(() => {
-      const caption = document.querySelector<HTMLElement>('.workbench-caption')!.getBoundingClientRect()
-      const heading = document.querySelector<HTMLElement>('.page-heading')!.getBoundingClientRect()
+      const pageHost = document.querySelector<HTMLElement>('.page-host')!.getBoundingClientRect()
+      const heading = document.querySelector<HTMLElement>('.page-host > *')!.getBoundingClientRect()
       const chrome = getComputedStyle(document.querySelector<HTMLElement>('.content-shell')!, '::before')
-      return { separated: caption.bottom <= heading.top, chromeZ: Number(chrome.zIndex), chromeMask: chrome.maskImage || chrome.webkitMaskImage }
+      return { contained: pageHost.top <= heading.top, chromeZ: Number(chrome.zIndex), chromeMask: chrome.maskImage || chrome.webkitMaskImage }
     })
-    expect(chromeSpacing.separated).toBe(true)
+    expect(chromeSpacing.contained).toBe(true)
     expect(chromeSpacing.chromeZ).toBeGreaterThan(2)
     expect(chromeSpacing.chromeMask).not.toBe('none')
 
@@ -361,6 +371,7 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     await selectedSkin.hover()
     expect(await selectedSkin.evaluate(element => getComputedStyle(element, '::before').backgroundImage)).not.toBe('none')
     expect(await selectedSkin.evaluate(element => getComputedStyle(element).getPropertyValue('--skin-edge').trim())).toBe('#a0f36f')
+    expect(await selectedSkin.evaluate(element => getComputedStyle(element, '::before').boxShadow)).not.toContain('7px 0px')
     await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-selected-hover.png'), animations: 'disabled' })
 
     await page.getByRole('button', { name: '战车', exact: true }).click()

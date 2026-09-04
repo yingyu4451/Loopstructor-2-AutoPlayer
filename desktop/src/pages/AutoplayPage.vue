@@ -78,7 +78,7 @@ onMounted(refreshSetup)
   <div class="page-grid autoplay-page">
     <section class="page-heading">
       <div><span class="eyebrow">AUTOMATION</span><h1>自动游玩</h1></div>
-      <button class="button secondary compact" :disabled="!store.connected || setupLoading || ui.busy" @click="refreshSetup">
+      <button class="btn btn-outline btn-sm button secondary compact" :disabled="!store.connected || setupLoading || ui.busy" @click="refreshSetup">
         <RefreshCw :size="16" />刷新可玩内容
       </button>
     </section>
@@ -89,29 +89,29 @@ onMounted(refreshSetup)
     </section>
 
     <div class="automation-workspace">
-      <section class="mechanical-section automation-config">
+      <section class="card mechanical-section automation-config">
         <header class="section-heading compact-heading">
           <div class="heading-with-icon"><Bot :size="21" /><div><h2>运行配置</h2><p>可玩模式和角色直接读取当前已连接的游戏。</p></div></div>
           <span class="status-badge" :class="{ online: store.connected, warning: !store.connected }">{{ store.connected ? '游戏已连接' : '等待游戏连接' }}</span>
         </header>
         <div v-if="draft" class="automation-form" :class="{ locked: isActive }">
-          <label><span>游戏模式</span><select v-model="draft.gameMode" :disabled="isActive"><option v-for="mode in modes" :key="mode.mode" :value="mode.mode" :disabled="!mode.available" :title="mode.reason">{{ mode.displayName }}{{ mode.available ? '' : ' · 不可用' }}</option></select></label>
-          <label><span>存档流程</span><select v-model="draft.continueExistingProfile" :disabled="isActive"><option :value="false">开始新游戏</option><option :value="true">继续当前存档</option></select></label>
-          <label v-if="showCharacter"><span>角色</span><select v-model.number="draft.characterCfgIndex" :disabled="isActive"><option v-for="character in characters" :key="character.cfgIndex" :value="character.cfgIndex">{{ character.displayName }}</option></select></label>
-          <label><span>游戏速度</span><select v-model="speedChoice" :disabled="isActive"><option value="native">跟随游戏</option><option value="0">1×</option><option value="1">2×</option><option value="2">3×</option></select></label>
-          <label><span>最长运行</span><div class="number-suffix"><input v-model.number="draft.maxRunMinutes" type="number" min="5" max="480" :disabled="isActive" /><span>分钟</span></div></label>
-          <label><span>决策优先</span><select v-model="draft.decisionPriority" :disabled="isActive"><option value="vehicleRewards">优先拿三星车</option><option value="catapultPoints">优先拿弹射点</option><option value="relics">优先拿遗物</option></select></label>
-          <label class="automation-toggle"><input v-model="draft.skipStory" type="checkbox" :disabled="isActive" /><span class="switch-track"><span /></span><strong>跳过剧情</strong></label>
+          <label><span>游戏模式</span><select v-model="draft.gameMode" class="select select-bordered" name="game-mode" autocomplete="off" :disabled="isActive"><option v-for="mode in modes" :key="mode.mode" :value="mode.mode" :disabled="!mode.available" :title="mode.reason">{{ mode.displayName }}{{ mode.available ? '' : ' · 不可用' }}</option></select></label>
+          <label><span>存档流程</span><select v-model="draft.continueExistingProfile" class="select select-bordered" name="profile-flow" autocomplete="off" :disabled="isActive"><option :value="false">开始新游戏</option><option :value="true">继续当前存档</option></select></label>
+          <label v-if="showCharacter"><span>角色</span><select v-model.number="draft.characterCfgIndex" class="select select-bordered" name="character" autocomplete="off" :disabled="isActive"><option v-for="character in characters" :key="character.cfgIndex" :value="character.cfgIndex">{{ character.displayName }}</option></select></label>
+          <label><span>游戏速度</span><select v-model="speedChoice" class="select select-bordered" name="game-speed" autocomplete="off" :disabled="isActive"><option value="native">跟随游戏</option><option value="0">1×</option><option value="1">2×</option><option value="2">3×</option></select></label>
+          <label><span>最长运行</span><div class="number-suffix"><input v-model.number="draft.maxRunMinutes" class="input input-bordered" name="max-run-minutes" autocomplete="off" type="number" inputmode="numeric" min="5" max="480" :disabled="isActive" /><span>分钟</span></div></label>
+          <label><span>决策优先</span><select v-model="draft.decisionPriority" class="select select-bordered" name="decision-priority" autocomplete="off" :disabled="isActive"><option value="vehicleRewards">优先拿三星车</option><option value="catapultPoints">优先拿弹射点</option><option value="relics">优先拿遗物</option></select></label>
+          <label class="automation-toggle"><input v-model="draft.skipStory" class="checkbox checkbox-success" name="skip-story" type="checkbox" :disabled="isActive" /><span class="switch-track"><span /></span><strong>跳过剧情</strong></label>
         </div>
         <div class="automation-actions">
-          <button class="button primary" :disabled="!canStart || ui.busy" @click="start"><Play :size="17" />开始</button>
-          <button class="button secondary" :disabled="!isRunning || ui.busy" @click="store.pauseAutomation"><Pause :size="17" />暂停</button>
-          <button class="button secondary" :disabled="!isPaused || ui.busy" @click="store.resumeAutomation"><Play :size="17" />继续</button>
-          <button class="button danger" :disabled="!isActive || ui.busy" @click="store.stopAutomation"><OctagonX :size="17" />停止</button>
+          <button class="btn btn-primary button primary" :disabled="!canStart || ui.busy" @click="start"><Play :size="17" />开始</button>
+          <button class="btn btn-outline button secondary" :disabled="!isRunning || ui.busy" @click="store.pauseAutomation"><Pause :size="17" />暂停</button>
+          <button class="btn btn-outline button secondary" :disabled="!isPaused || ui.busy" @click="store.resumeAutomation"><Play :size="17" />继续</button>
+          <button class="btn btn-error button danger" :disabled="!isActive || ui.busy" @click="store.stopAutomation"><OctagonX :size="17" />停止</button>
         </div>
       </section>
 
-      <section class="mechanical-section automation-runtime">
+      <section class="card mechanical-section automation-runtime">
         <header class="section-heading compact-heading">
           <div class="heading-with-icon"><Activity :size="21" /><div><h2>运行轨迹</h2><p>{{ status?.stageDetail || '开始后将在这里显示当前步骤与决策。' }}</p></div></div>
           <span class="status-badge" :class="{ online: isActive, warning: runState === 'faulted' }">{{ status?.runState || 'standby' }}</span>

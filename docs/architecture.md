@@ -27,7 +27,7 @@ flowchart LR
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
-| `desktop` / `Loopstructor-2-QA-Tool.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
+| `desktop` / `Loopstructor-2-QA-Tool.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS 4、daisyUI 5、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
 | `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 `net8.0` 自包含无窗口进程 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
 | `--updater` Electron 模式 | Electron 44 + Vue 3 | 复用 Manager 运行时显示统一更新窗口，不启动 Host，只托管隐藏的 .NET 更新事务 |
@@ -35,7 +35,7 @@ flowchart LR
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
-皮肤契约位于 `desktop/src/theme/skins.ts`，共享布局与语义规则位于 `styles.css` 的低优先级 `app-base` cascade layer，游戏原生皮肤实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。Skyspine 模块拥有 rest、hover、active、selected、focus-visible 和 disabled 的完整状态接口；外轮廓与内材质使用同一 polygon 分层绘制，内容只进入工作台 chrome 声明的安全区。皮肤可覆盖整套图片资产、颜色、材质、边框、间距、导航宽度和组件形状。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
+皮肤契约位于 `desktop/src/theme/skins.ts`。Tailwind CSS 4 提供布局工具层，daisyUI 5 提供 `card`、`btn`、`input`、`tabs`、`modal`、`alert` 和 `progress` 等共享控件接口；`styles.css` 的低优先级 `app-base` cascade layer 与自定义 `skyspine` daisyUI theme 负责共同语义，游戏原生材质实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。Skyspine 模块拥有 rest、hover、active、selected、focus-visible 和 disabled 的完整状态接口；选中态只改变四边一致的轮廓和内材质，不再绘制左侧绿色竖条。外轮廓与内材质使用同一 polygon 分层绘制，内容只进入工作台 chrome 声明的安全区。各路由不再重复显示工作台木牌标题；`page-host` 直接占满内容区域，道具宽屏双栏共同拉伸、窄屏纵向滚动。目录路由每次进入和游戏重连时重新查询完整目录，避免先前缓存阻止遗物显示。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
 
 ## 启动与激活
 

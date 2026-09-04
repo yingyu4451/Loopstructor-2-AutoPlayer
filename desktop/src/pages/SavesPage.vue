@@ -55,7 +55,7 @@ async function restore(backup: SaveBackupEntry) {
 
 <template>
   <div class="saves-workspace">
-    <section class="mechanical-section save-vault-controls">
+    <section class="card mechanical-section save-vault-controls">
       <header class="section-heading">
         <div class="heading-with-icon"><Save :size="22" /><div><h2>存档保险库</h2><p>章节或关卡变化后，等待游戏写盘稳定再保存快照。</p></div></div>
         <span class="backup-counter">{{ status?.backupCount ?? backups.length }} / {{ draft?.maximumSaveBackups ?? 20 }}</span>
@@ -63,11 +63,11 @@ async function restore(backup: SaveBackupEntry) {
       <div v-if="draft" class="backup-controls">
         <label class="switch-row">
           <span><strong>自动备份存档</strong><small>只处理正式玩家存档</small></span>
-          <input v-model="draft.automaticSaveBackupEnabled" type="checkbox" @change="markDirty" />
+          <input v-model="draft.automaticSaveBackupEnabled" class="checkbox checkbox-success" name="automatic-save-backup" type="checkbox" @change="markDirty" />
         </label>
         <label class="backup-limit" :class="{ disabled: !draft.automaticSaveBackupEnabled }">
           <span>最多保留</span>
-          <input v-model.number="draft.maximumSaveBackups" type="number" min="1" max="100" step="1" :disabled="!draft.automaticSaveBackupEnabled" @input="markDirty" />
+          <input v-model.number="draft.maximumSaveBackups" class="input input-bordered" name="maximum-save-backups" autocomplete="off" type="number" inputmode="numeric" min="1" max="100" step="1" :disabled="!draft.automaticSaveBackupEnabled" @input="markDirty" />
           <span>个步骤存档</span>
         </label>
         <div class="backup-summary">
@@ -76,17 +76,17 @@ async function restore(backup: SaveBackupEntry) {
             <p>{{ status?.lastMessage || '备份按章节、关卡和时间命名。' }}</p>
           </div>
           <div class="backup-actions">
-            <button class="button primary compact" :disabled="!dirty" @click="saveSettings">保存设置</button>
-            <button class="button secondary compact" @click="api.openSaveBackups()"><FolderOpen :size="16" />打开目录</button>
+            <button class="btn btn-primary btn-sm button primary compact" :disabled="!dirty" @click="saveSettings">保存设置</button>
+            <button class="btn btn-outline btn-sm button secondary compact" @click="api.openSaveBackups()"><FolderOpen :size="16" />打开目录</button>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="mechanical-section save-history-section">
+    <section class="card mechanical-section save-history-section">
       <header class="section-heading save-history-heading">
         <div class="heading-with-icon"><ArchiveClock :size="22" /><div><h2>保存好的存档</h2><p>选择一个快照后，Manager 会关闭游戏、恢复存档并重新启动游戏。</p></div></div>
-        <button v-tooltip="'刷新存档列表'" class="icon-button" aria-label="刷新存档列表" @click="store.refreshSaveBackups(true)"><RefreshCw :size="17" /></button>
+        <button v-tooltip="'刷新存档列表'" class="btn btn-square btn-ghost btn-sm icon-button" aria-label="刷新存档列表" @click="store.refreshSaveBackups(true)"><RefreshCw :size="17" /></button>
       </header>
       <div v-if="backups.length" class="save-history-list">
         <article v-for="backup in backups" :key="backup.id" class="save-history-row">
@@ -98,7 +98,7 @@ async function restore(backup: SaveBackupEntry) {
             <p>{{ formatDate(backup.createdAt) }}</p>
             <small>{{ backup.fileCount }} 个文件 · {{ formatSize(backup.totalBytes) }}</small>
           </div>
-          <button class="button secondary restore-save-button" @click="restore(backup)"><BackupRestore :size="18" />读档</button>
+          <button class="btn btn-outline button secondary restore-save-button" @click="restore(backup)"><BackupRestore :size="18" />读档</button>
         </article>
       </div>
       <div v-else class="save-history-empty">

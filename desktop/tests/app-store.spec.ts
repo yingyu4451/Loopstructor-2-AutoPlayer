@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.68',
+    version: '0.6.69',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -67,6 +67,23 @@ describe('desktop application store', () => {
     expect(store.catalog).toEqual({ relics: [] })
     expect(store.cheatState).toEqual({ enabled: true })
     expect(useUiStore().activeToast).toBeUndefined()
+  })
+
+  it('refreshes the relic catalog even when another cheat catalog is already cached', async () => {
+    const saveSettings = vi.fn(async (settings) => settings)
+    const relic = { id: 'Relic_Compass', enumName: 'Relic_Compass', name: '远行罗盘' }
+    const cheatCommand = vi.fn(async (command: string) => command === 'cheat.queryCatalog'
+      ? { success: true, message: '', data: { relics: [relic] } }
+      : { success: true, message: '', data: { enabled: true, ownedRelics: [] } })
+    window.loopstructorDesktop = { saveSettings, cheatCommand } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+    store.catalog = { vehicles: [] }
+
+    await store.setRoute('relics')
+
+    expect(cheatCommand.mock.calls.map(call => call[0])).toEqual(['cheat.queryCatalog', 'cheat.queryState'])
+    expect(store.catalogItems('relics')).toEqual([relic])
   })
 
   it('loads cheat catalogs when a game connects while a cheat page is open', async () => {

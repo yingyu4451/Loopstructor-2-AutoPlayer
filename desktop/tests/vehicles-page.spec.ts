@@ -30,6 +30,11 @@ describe('vehicle catalog presentation', () => {
     expect(wrapper.text()).not.toContain('内部过渡形态')
     expect(wrapper.findAll('.level-buttons button')).toHaveLength(2)
     expect(wrapper.get('.vehicle-game-icon img').attributes('src')).toBe('data:image/png;base64,AA==')
+    expect(wrapper.get('.vehicle-family').classes()).toContain('card')
+    expect(wrapper.find('.vehicle-family > .card-body').exists()).toBe(true)
+    for (const button of wrapper.findAll('.level-buttons button')) {
+      expect(button.classes()).toEqual(expect.arrayContaining(['btn', 'btn-sm']))
+    }
   })
 })
 

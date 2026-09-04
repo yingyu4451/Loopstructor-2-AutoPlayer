@@ -1,4 +1,42 @@
 @import "tailwindcss";
+@plugin "daisyui" {
+  themes: false;
+  logs: false;
+}
+@plugin "daisyui/theme" {
+  name: "skyspine";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #17130f;
+  --color-base-200: #12110e;
+  --color-base-300: #090a09;
+  --color-base-content: #e8dfd2;
+  --color-primary: #c99542;
+  --color-primary-content: #120b06;
+  --color-secondary: #72502e;
+  --color-secondary-content: #fff0c6;
+  --color-accent: #79d53b;
+  --color-accent-content: #0a1207;
+  --color-neutral: #211b15;
+  --color-neutral-content: #e8dfd2;
+  --color-info: #328cc5;
+  --color-info-content: #eefaff;
+  --color-success: #79d53b;
+  --color-success-content: #0a1207;
+  --color-warning: #d8a13e;
+  --color-warning-content: #1d1005;
+  --color-error: #d95a44;
+  --color-error-content: #fff3ed;
+  --radius-selector: 0;
+  --radius-field: 0;
+  --radius-box: 0;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
 
 @layer app-base {
 :root {
@@ -62,7 +100,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .nav-group h2 { margin: 0 0 5px 48px; color: #806f5b; font: 600 10px/1.3 Bahnschrift, sans-serif; text-transform: uppercase; }
 .nav-item { position: relative; width: 100%; height: 42px; display: grid; grid-template-columns: 43px minmax(0, 1fr) auto; align-items: center; border: 1px solid transparent; background: transparent; padding: 0 8px 0 0; text-align: left; color: #baaa96; }
 .nav-item:hover { background: #272017; border-color: #49341f; color: #f3e7d5; }
-.nav-item.active { background: #30251a; border-color: var(--brass); color: #f5d78f; box-shadow: inset 3px 0 var(--green); }
+.nav-item.active { background: #30251a; border-color: var(--brass); color: #f5d78f; }
 .rail-node { z-index: 1; justify-self: center; width: 26px; height: 26px; display: grid; place-items: center; background: #251b12; border: 2px solid var(--copper); transform: rotate(45deg); }
 .rail-node svg { transform: rotate(-45deg); }
 .nav-item.active .rail-node { border-color: var(--brass); color: var(--green); }
@@ -75,8 +113,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .rail-sidebar.collapsed .rail-line { left: 33px; }
 .rail-sidebar.collapsed .collapse-button { align-self: center; }
 
-.content-shell { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #12110e; }
-.page-host { min-width: 0; min-height: 0; padding: 12px; overflow: hidden; }
+.content-shell { min-width: 0; min-height: 0; display: block; background: #12110e; }
+.page-host { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 12px; overflow: hidden; }
 .page-host > * { width: 100%; height: 100%; }
 .updater-shell { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: clamp(12px, 3vw, 22px); display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 20%, #292016 0, #12110e 58%); }
 .updater-card { width: min(650px, 100%); max-width: 100%; max-height: 100%; min-height: 330px; overflow: auto; display: grid; align-content: start; gap: 14px; padding: clamp(16px, 3vw, 22px); background: #1b1712; border: 1px solid var(--copper); box-shadow: inset 0 0 0 1px #3c2d1d, 0 18px 42px #0009; }
@@ -147,7 +185,7 @@ button:disabled, .disabled { color: #6f675d; cursor: not-allowed; }
 .launch-band > div > div { display: flex; flex-direction: column; min-width: 0; }
 .launch-band strong { font-size: 13px; color: #e7d8c3; }
 .launch-band small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.game-page { grid-template-rows: auto auto auto auto; }
+.game-page { grid-template-rows: auto auto auto; }
 
 .autoplay-page { height: 100%; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
 .automation-warning { min-height: 50px; display: flex; align-items: center; gap: 11px; padding: 8px 12px; border: 1px solid #9d7030; border-left: 4px solid var(--amber); background: #332616; color: #f2ca76; }
@@ -195,8 +233,9 @@ button:disabled, .disabled { color: #6f675d; cursor: not-allowed; }
 .type-switcher button, .segmented-control button { min-height: 32px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-right: 1px solid #513a24; background: #211a14; color: #a99b87; font-size: 11px; }
 .type-switcher button:last-child, .segmented-control button:last-child { border-right: 0; }
 .type-switcher button.active, .segmented-control button.active { background: #49341e; color: #f1d18b; box-shadow: inset 0 -3px var(--green); }
-.vehicle-family { min-height: 96px; background: #181410; border: 1px solid #4b3724; padding: 9px; display: grid; grid-template-rows: 1fr auto; gap: 8px; }
-.vehicle-family.selected { border-color: var(--brass); box-shadow: inset 3px 0 var(--green); }
+.vehicle-family { min-width: 0; min-height: 108px; overflow: hidden; background: #181410; border: 1px solid #4b3724; padding: 0; display: block; }
+.vehicle-family > .card-body { min-width: 0; height: 100%; padding: 10px; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 9px; }
+.vehicle-family.selected { border-color: var(--brass); }
 .family-identity { display: flex; align-items: center; gap: 8px; min-width: 0; color: #d0a75e; }
 .vehicle-game-icon { width: 46px; height: 46px; flex: none; display: grid; place-items: center; overflow: hidden; background: #0f0d0b; border: 1px solid #614729; color: #695d4d; }
 .vehicle-game-icon img { width: 100%; height: 100%; object-fit: contain; }
@@ -320,7 +359,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .save-history-section { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .save-history-heading { align-items: center; }
 .save-history-list { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 7px; padding-right: 3px; }
-.save-history-row { position: relative; min-height: 78px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; background: #17130f; border: 1px solid #4b3825; box-shadow: inset 3px 0 #2f6a33; }
+.save-history-row { position: relative; min-height: 78px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; background: #17130f; border: 1px solid #4b3825; }
 .save-history-row:hover { border-color: #8b6738; background: #1d1812; }
 .save-history-copy { min-width: 0; display: grid; gap: 3px; }
 .save-history-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -393,7 +432,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
   .spawn-workspace > .mechanical-section { min-height: 320px; }
   .vehicle-selector { grid-row: auto; min-height: 420px; }
   .spawn-workspace > .mechanical-section { min-height: 400px; }
-  .game-page { grid-template-rows: repeat(4, max-content); }
+  .game-page { grid-template-rows: repeat(3, max-content); }
   .saves-workspace {
     grid-template-rows: max-content max-content;
     align-content: start;
@@ -493,7 +532,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .nav-group h2 { margin-left: 54px; color: var(--theme-muted); font-size: 10px; letter-spacing: .12em; }
 .app-shell[data-skin] .nav-item { height: 46px; padding-right: 9px; border-color: transparent; border-radius: var(--theme-radius-md); color: var(--theme-muted); }
 .app-shell[data-skin] .nav-item:hover { border-color: var(--theme-line); background: #24405566; color: var(--theme-text); }
-.app-shell[data-skin] .nav-item.active { border-color: var(--theme-brass); background: linear-gradient(90deg, #29495b, #29495b44); box-shadow: inset 4px 0 var(--theme-signal), 0 6px 18px #0003; color: var(--theme-text); }
+.app-shell[data-skin] .nav-item.active { border-color: var(--theme-brass); background: linear-gradient(90deg, #29495b, #29495b44); box-shadow: 0 6px 18px #0003; color: var(--theme-text); }
 .app-shell[data-skin] .rail-node { width: 30px; height: 30px; border: 1px solid var(--theme-copper); border-radius: var(--theme-radius-sm); background: var(--theme-surface-deep); box-shadow: inset 0 0 0 2px #ffffff08; }
 .app-shell[data-skin] .nav-item.active .rail-node { border-color: var(--theme-brass); color: var(--theme-signal); box-shadow: 0 0 12px #83e27255; }
 .app-shell[data-skin] .nav-label { font-size: 13px; letter-spacing: .02em; }
@@ -535,7 +574,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .validation-strip { border-color: var(--theme-line); border-radius: var(--theme-radius-sm); background: var(--theme-surface-deep); }
 .app-shell[data-skin] .validation-strip.valid { border-color: var(--theme-signal); color: #dcffd3; }
 .app-shell[data-skin] .launch-band { min-height: 88px; padding: 15px 18px; border-color: var(--theme-line); border-radius: var(--theme-radius-md); background: linear-gradient(90deg, var(--theme-surface), var(--theme-surface-deep)); }
-.app-shell[data-skin] .launch-band.ready { border-color: var(--theme-signal); box-shadow: inset 4px 0 var(--theme-signal); }
+.app-shell[data-skin] .launch-band.ready { border-color: var(--theme-signal); box-shadow: inset 0 0 0 1px var(--theme-signal); }
 
 .app-shell[data-skin] .automation-warning { min-height: 58px; border-color: var(--theme-amber); border-left-width: 4px; border-radius: var(--theme-radius-md); background: #4b351e99; color: #ffe2a8; }
 .app-shell[data-skin] .automation-workspace, .app-shell[data-skin] .vehicle-workspace, .app-shell[data-skin] .objects-workspace, .app-shell[data-skin] .spawn-workspace { gap: 16px; }
@@ -544,7 +583,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .catalog-card, .app-shell[data-skin] .vehicle-family, .app-shell[data-skin] .entity-table > button, .app-shell[data-skin] .switch-row, .app-shell[data-skin] .radio-card, .app-shell[data-skin] .range-field { border-color: var(--theme-line); border-radius: var(--theme-radius-sm); background: var(--theme-surface-deep); }
 .app-shell[data-skin] .catalog-card { height: 86px; grid-template-columns: 52px minmax(0, 1fr); padding: 9px; }
 .app-shell[data-skin] .catalog-card:hover:not(:disabled), .app-shell[data-skin] .vehicle-family:hover { border-color: var(--theme-brass); background: var(--theme-surface-raised); }
-.app-shell[data-skin] .catalog-card.selected, .app-shell[data-skin] .vehicle-family.selected, .app-shell[data-skin] .entity-table > button.active { border-color: var(--theme-signal); box-shadow: inset 3px 0 var(--theme-signal); background: #1e3b2d; }
+.app-shell[data-skin] .catalog-card.selected, .app-shell[data-skin] .vehicle-family.selected, .app-shell[data-skin] .entity-table > button.active { border-color: var(--theme-signal); box-shadow: inset 0 0 0 1px var(--theme-signal); background: #1e3b2d; }
 .app-shell[data-skin] .catalog-icon, .app-shell[data-skin] .vehicle-game-icon { border-color: var(--theme-line); border-radius: var(--theme-radius-sm); background: #070d16; }
 .app-shell[data-skin] .catalog-copy strong, .app-shell[data-skin] .entity-table strong { color: var(--theme-text); }
 .app-shell[data-skin] .count-badge, .app-shell[data-skin] .selected-badge { border-color: var(--theme-brass); border-radius: 999px; background: var(--theme-surface-raised); color: var(--theme-brass); }
@@ -561,7 +600,7 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .skin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .app-shell[data-skin] .skin-option { min-width: 0; min-height: 74px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 22px; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--theme-line); border-radius: var(--theme-radius-md); background: var(--theme-surface-deep); color: var(--theme-text); text-align: left; }
 .app-shell[data-skin] .skin-option:hover { border-color: var(--theme-brass); background: var(--theme-surface-raised); }
-.app-shell[data-skin] .skin-option.selected { border-color: var(--theme-signal); box-shadow: inset 4px 0 var(--theme-signal), 0 5px 16px #0003; }
+.app-shell[data-skin] .skin-option.selected { border-color: var(--theme-signal); box-shadow: inset 0 0 0 1px var(--theme-signal), 0 5px 16px #0003; }
 .app-shell[data-skin] .skin-option > span:nth-child(2) { min-width: 0; display: grid; gap: 4px; }
 .app-shell[data-skin] .skin-option strong { color: var(--theme-brass); font-size: 13px; }
 .app-shell[data-skin] .skin-option small { color: var(--theme-muted); font-size: 10px; line-height: 1.35; }

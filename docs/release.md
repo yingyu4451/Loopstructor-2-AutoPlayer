@@ -11,7 +11,7 @@
 | BepInEx 编译包 | `BepInEx.Core 5.4.21` |
 | Unity 编译引用 | `UnityEngine.Modules 2022.3.62` |
 | 插件目标框架 | `netstandard2.1`（对应当前 Unity 2022 项目的 `apiCompatibilityLevel: 6`） |
-| Desktop | Electron `44.x`、Node `24` 构建链、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、离线 Iconify |
+| Desktop | Electron `44.x`、Node `24` 构建链、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS `4.3.3`、daisyUI `5.7.22`、离线 Iconify |
 | Host/Updater RID | `win-x64`；Host 与无窗口 .NET Updater 均随包发布，无需系统 .NET |
 
 BepInEx runtime 下载地址和 SHA-256 集中在 `Directory.Build.props`：
@@ -35,6 +35,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
+
+## 0.6.69 Tailwind + daisyUI 与工作台布局修复
+
+`0.6.69` 将 Electron renderer 的共享控件接口迁移到 Tailwind CSS 4 + daisyUI 5：Vite 继续使用 `@tailwindcss/vite`，`styles.css` 注册仅供本应用使用的 `skyspine` daisyUI 暗色主题，页面卡片、按钮、搜索框、页内 tabs、模态窗、提示和进度条使用 daisyUI 语义类，`skyspine.css` 只覆盖游戏特有的机械材质、轮廓和动效。依赖与 lockfile 固定到 `tailwindcss/@tailwindcss-vite 4.3.3` 和 `daisyui 5.7.22`。
+
+所有路由右侧工作台木牌标题及其 renderer 映射被删除；游戏与插件页不再保留单独的页面标题行，“刷新连接”移动到“游戏构建”标题行最右侧。`content-shell` 改为单一全高内容宿主，道具页在宽屏下让“消耗品”和“弹射点”两块面板共同撑满工作台，在窄屏下保持完整纵向滚动。战车系列改为稳定的 `card/card-body` 结构，游戏图标、名称、枚举和初始/升级形态按钮不再互相挤压。侧栏、战车、目录卡片、对象列表、皮肤和单选卡片的 active/selected/checked 状态统一使用四边等宽轮廓，不再从左侧突出绿色竖条。
+
+进入任一作弊目录路由时都会静默重新读取完整目录，游戏重新连接时也会刷新，不再因为已有战车或道具缓存而跳过遗物查询。插件协议、Desktop Host 协议、发布目录 schema 2 和更新清单 schema 3 均未改变；本版可从 `v0.6.68` 使用同格式自动或增量更新。
 
 ## 0.6.68 发布命名、界面精简与更新窗口握手
 
@@ -257,19 +265,19 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.68 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.69 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor-2-QA-Tool-0.6.68-win-x64.zip
-Loopstructor-2-QA-Tool-0.6.68-win-x64.zip.sha256
+Loopstructor-2-QA-Tool-0.6.69-win-x64.zip
+Loopstructor-2-QA-Tool-0.6.69-win-x64.zip.sha256
 autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.68-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.69-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor-2-QA-Tool/
@@ -299,11 +307,11 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 3�
 ```json
 {
   "schemaVersion": 3,
-  "version": "0.6.68",
+  "version": "0.6.69",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor-2-QA-Tool-0.6.68-win-x64.zip",
-  "sha256": "da8c3d79b7fdddcd807b29555932cf84441ba41107a234aab3b9877cd13d79e1",
-  "size": 196067635,
+  "assetName": "Loopstructor-2-QA-Tool-0.6.69-win-x64.zip",
+  "sha256": "10e8b9637924f0be6ac173688aef1a91fe5c1acd44ab65fe494345d3558fc560",
+  "size": 196163297,
   "deltaAssets": []
 }
 ```

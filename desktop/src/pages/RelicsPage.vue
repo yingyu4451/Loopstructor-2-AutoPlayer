@@ -33,20 +33,20 @@ onBeforeUnmount(() => { if (pollTimer) window.clearInterval(pollTimer) })
 </script>
 
 <template>
-  <div class="relic-workspace mechanical-section">
+  <div class="card relic-workspace mechanical-section grid h-full min-h-0">
     <header class="section-heading">
       <div class="heading-with-icon"><Gem :size="21" /><div><h2>遗物目录</h2><p>左键启用，右键移除；悬停 1 秒读取游戏原始说明。</p></div></div>
       <div class="header-actions">
-        <button class="button secondary compact" :disabled="store.writeLocked" @click="runBatch('cheat.grantAllRelics')"><Download :size="16" />全部获取</button>
-        <button class="button danger compact" :disabled="store.writeLocked" @click="runBatch('cheat.removeAllRelics')"><Trash2 :size="16" />全部删除</button>
+        <button class="btn btn-outline btn-sm button secondary compact" :disabled="store.writeLocked" @click="runBatch('cheat.grantAllRelics')"><Download :size="16" />全部获取</button>
+        <button class="btn btn-error btn-sm button danger compact" :disabled="store.writeLocked" @click="runBatch('cheat.removeAllRelics')"><Trash2 :size="16" />全部删除</button>
       </div>
     </header>
-    <label class="search-box"><Search :size="17" /><input v-model="search" name="relic-search" autocomplete="off" aria-label="搜索遗物" placeholder="搜索遗物中文名或枚举…" /></label>
+    <label class="input input-bordered search-box"><Search :size="17" /><input v-model="search" name="relic-search" autocomplete="off" aria-label="搜索遗物" placeholder="搜索遗物中文名或枚举…" /></label>
     <VirtualCatalogGrid :items="items" :selected-ids="ownedIds" :disabled="store.writeLocked" @invoke="toggle" />
     <footer class="relic-footer">
       <span>{{ task?.state === 'running' ? task.message : removal?.state === 'running' ? removal.message : `已启用 ${ownedIds.length} / ${items.length}` }}</span>
-      <progress v-if="task?.state === 'running'" :value="task.processedCount" :max="task.totalCount" />
-      <progress v-else-if="removal?.state === 'running'" :value="removal.processedCount" :max="removal.totalCount" />
+      <progress v-if="task?.state === 'running'" class="progress progress-success" :value="task.processedCount" :max="task.totalCount" />
+      <progress v-else-if="removal?.state === 'running'" class="progress progress-error" :value="removal.processedCount" :max="removal.totalCount" />
     </footer>
   </div>
 </template>
