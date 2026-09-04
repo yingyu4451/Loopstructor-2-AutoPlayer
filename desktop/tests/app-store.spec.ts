@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.69',
+    version: '0.6.70',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -188,5 +188,57 @@ describe('desktop application store', () => {
 
     expect(restoreSaveBackup).toHaveBeenCalledOnce()
     expect(restoreSaveBackup).toHaveBeenCalledWith(backup.id)
+  })
+
+  it('asks before closing the entire QA tool to install an update', async () => {
+    const inspectUpdateProcesses = vi.fn(async () => ({ gameRunning: false, processIds: [] }))
+    const applyUpdate = vi.fn(async () => ({ success: true, message: 'started' }))
+    window.loopstructorDesktop = { inspectUpdateProcesses, applyUpdate } as unknown as DesktopApi
+    const store = useAppStore()
+    const current = snapshot()
+    current.update = {
+      success: true, currentVersion: '0.6.70', latestVersion: '0.6.71', updateAvailable: true,
+      message: 'v0.6.71 可用',
+    }
+    store.applySnapshot(current)
+
+    const pending = store.installUpdate()
+    await vi.waitFor(() => expect(useUiStore().confirmDialog).toBeTruthy())
+
+    expect(useUiStore().confirmDialog).toMatchObject({
+      title: '关闭工具并更新',
+      confirmText: '关闭工具并更新',
+      cancelText: '暂不更新',
+    })
+    expect(useUiStore().confirmDialog?.message).toContain('后台 Host')
+    expect(applyUpdate).not.toHaveBeenCalled()
+    useUiStore().resolveConfirm(false)
+    await pending
+    expect(applyUpdate).not.toHaveBeenCalled()
+  })
+
+  it('uses one confirmation before closing the game and the QA tool', async () => {
+    const inspectUpdateProcesses = vi.fn(async () => ({ gameRunning: true, processIds: [4321] }))
+    const closeGameForUpdate = vi.fn(async () => ({ success: true, remainingProcessIds: [], message: 'closed' }))
+    const applyUpdate = vi.fn(async () => ({ success: true, message: 'started' }))
+    window.loopstructorDesktop = { inspectUpdateProcesses, closeGameForUpdate, applyUpdate } as unknown as DesktopApi
+    const store = useAppStore()
+    const current = snapshot()
+    current.update = {
+      success: true, currentVersion: '0.6.70', latestVersion: '0.6.71', updateAvailable: true,
+      message: 'v0.6.71 可用',
+    }
+    store.applySnapshot(current)
+
+    const pending = store.installUpdate()
+    await vi.waitFor(() => expect(useUiStore().confirmDialog?.title).toBe('关闭游戏与工具并更新'))
+    expect(useUiStore().confirmDialog?.message).toContain('PID 4321')
+    expect(useUiStore().confirmDialog?.cancelText).toBe('暂不更新')
+    useUiStore().resolveConfirm(true)
+    await pending
+
+    expect(closeGameForUpdate).toHaveBeenCalledOnce()
+    expect(applyUpdate).toHaveBeenCalledOnce()
+    expect(useUiStore().confirmDialog).toBeUndefined()
   })
 })

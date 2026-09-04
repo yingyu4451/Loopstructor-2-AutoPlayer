@@ -241,3 +241,5 @@ schema 3 更新清单始终指向新命名的完整 Release ZIP，并可通过 `
 根启动器只负责原样转发参数并启动 `manager\Loopstructor-2-QA-Tool.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和无窗口 .NET Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 `Loopstructor-2-QA-Tool.exe` 无需安装 Node.js 或系统 .NET。标题栏永久显示当前产品版本，实际版本与发布目录 schema 同时记录在 `autoplayer-release.json`。GitHub Actions artifact 保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 EXE，不包含 `Loopstructor-2-QA-Tool\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
 
 安装更新时，Host 为 Electron Updater 创建一次性本机就绪信号路径并启动第一阶段进程。第一阶段只把完整 Electron 运行时搬到安装目录外，再以可见窗口方式启动第二阶段；第二阶段 BrowserWindow 完成 `ready-to-show`、调用 `show()` 并确认可见后写入自身 PID。Host 收到就绪信号后才向原 Manager 返回成功，原 Manager 随后退出；30 秒内没有信号则保持原窗口并报告失败。就绪参数只用于 Electron 两阶段交接，进入 .NET Updater 前会被剥离。
+
+更新入口在启动 Updater 前先通过统一模态窗确认是否关闭工具；游戏仍在运行时同一确认也授权正常关闭游戏。可见更新窗口就绪后旧 Manager 立即隐藏，但 Electron 的 `before-quit` 会等待其拥有的 `.NET Host` 关闭 stdin、退出轮询并释放资源，3 秒超时后才终止该 Host 子进程。Host 与 Electron 两个 PID 都传给 Updater，事务替换必须等二者完全退出；普通窗口关闭也复用该 Host 收尾流程。

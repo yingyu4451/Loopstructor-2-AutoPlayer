@@ -36,6 +36,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.70 更新关闭确认与 Host 完整退出
+
+`0.6.70` 在标题栏更新入口和“界面与更新”页共用的安装流程中增加明确关闭确认。没有运行中游戏时显示“关闭工具并更新”，说明更新窗口显示后当前 QA 工具窗口和后台 Host 都会退出；检测到 Skyspine 时显示“关闭游戏与工具并更新”，同一确认同时授权正常关闭游戏与退出工具，不再出现只确认游戏关闭、随后工具直接退出的模糊流程。取消确认不会关闭游戏、不会启动 Updater，也不会退出工具。
+
+Electron 收到 Updater 可见窗口就绪确认后立即隐藏旧 Manager 主窗口，再触发受控退出。`before-quit` 现在阻止 Electron 提前结束，先关闭 Host stdin 并等待 `.NET Host` 完成后台轮询与资源释放；3 秒内未退出时只终止当前 Electron 创建的 Host 子进程，再继续退出 Electron。Updater 已同时持有 Host 与 Electron PID，只有两个进程都结束后才进入事务替换，避免旧 Host 短暂占用安装目录或让更新窗口长期停留在“等待 Manager 退出”。普通关闭工具也复用同一 Host 收尾流程。
+
+插件协议、Desktop Host 协议、发布目录 schema 2 和更新清单 schema 3 均未改变；本版以 `v0.6.69` 为同格式增量基线。
+
 ## 0.6.69 Tailwind + daisyUI 与工作台布局修复
 
 `0.6.69` 将 Electron renderer 的共享控件接口迁移到 Tailwind CSS 4 + daisyUI 5：Vite 继续使用 `@tailwindcss/vite`，`styles.css` 注册仅供本应用使用的 `skyspine` daisyUI 暗色主题，页面卡片、按钮、搜索框、页内 tabs、模态窗、提示和进度条使用 daisyUI 语义类，`skyspine.css` 只覆盖游戏特有的机械材质、轮廓和动效。依赖与 lockfile 固定到 `tailwindcss/@tailwindcss-vite 4.3.3` 和 `daisyui 5.7.22`。
@@ -265,19 +273,19 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.69 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.70 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor-2-QA-Tool-0.6.69-win-x64.zip
-Loopstructor-2-QA-Tool-0.6.69-win-x64.zip.sha256
+Loopstructor-2-QA-Tool-0.6.70-win-x64.zip
+Loopstructor-2-QA-Tool-0.6.70-win-x64.zip.sha256
 autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.69-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.70-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor-2-QA-Tool/
@@ -307,19 +315,12 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 3�
 ```json
 {
   "schemaVersion": 3,
-  "version": "0.6.69",
+  "version": "0.6.70",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor-2-QA-Tool-0.6.69-win-x64.zip",
-  "sha256": "df1a54460c36ed6c1f161da12c734d7113d4c579e89e6a81e9c7a77c038f0761",
-  "size": 196162901,
-  "deltaAssets": [
-    {
-      "fromVersion": "0.6.68",
-      "assetName": "Loopstructor-2-QA-Tool-0.6.68-to-0.6.69-win-x64.delta.zip",
-      "sha256": "fa9f59c1ee19fce28c0c4ffa6e34b343d71cbd13336563c3316f59504f4c92f1",
-      "size": 114287864
-    }
-  ]
+  "assetName": "Loopstructor-2-QA-Tool-0.6.70-win-x64.zip",
+  "sha256": "776c70f7a5da68f0a003f6dda135a07faa06a4634cacaced0e93f1bbd16541fc",
+  "size": 196163534,
+  "deltaAssets": []
 }
 ```
 

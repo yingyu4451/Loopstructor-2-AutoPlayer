@@ -10,6 +10,36 @@ interface PendingRequest {
   timer: NodeJS.Timeout
 }
 
+async function waitForProcessExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null) return true
+  return await new Promise<boolean>((resolve) => {
+    let settled = false
+    const finish = (exited: boolean) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.off('exit', onExit)
+      resolve(exited)
+    }
+    const onExit = () => finish(true)
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    child.once('exit', onExit)
+    if (child.exitCode !== null) finish(true)
+  })
+}
+
+export async function stopChildProcess(
+  child: ChildProcessWithoutNullStreams,
+  gracefulTimeoutMs = 3000,
+  forcedTimeoutMs = 1000,
+): Promise<void> {
+  if (child.exitCode !== null) return
+  if (child.stdin.writable) child.stdin.end()
+  if (await waitForProcessExit(child, gracefulTimeoutMs)) return
+  child.kill()
+  await waitForProcessExit(child, forcedTimeoutMs)
+}
+
 export class HostClient extends EventEmitter {
   private process?: ChildProcessWithoutNullStreams
   private readonly pending = new Map<string, PendingRequest>()
@@ -77,8 +107,10 @@ export class HostClient extends EventEmitter {
     return promise
   }
 
-  stop(): void {
-    this.process?.stdin.end()
+  async stop(): Promise<void> {
+    const child = this.process
+    if (!child) return
+    await stopChildProcess(child)
   }
 
   private handleLine(line: string): void {

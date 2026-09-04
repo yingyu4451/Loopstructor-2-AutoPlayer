@@ -66,7 +66,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
       target,
       temporaryRuntime,
       4321,
-      '0.6.69',
+      '0.6.70',
       { TEST_ENVIRONMENT: 'preserved' },
     )
 
@@ -75,7 +75,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
     assert.deepEqual(plan.arguments, [
       'cleanup',
       '--target', target,
-      '--current-version', '0.6.69',
+      '--current-version', '0.6.70',
       '--wait-pid', '4321',
       '--restart-manager',
       '--json',

@@ -141,23 +141,19 @@ export const useAppStore = defineStore('app', {
       if (!update?.updateAvailable) return undefined
       const processState = await ui.run(() => window.loopstructorDesktop.inspectUpdateProcesses())
       if (!processState) return undefined
+      const proceed = await ui.confirm({
+        title: processState.gameRunning ? '关闭游戏与工具并更新' : '关闭工具并更新',
+        message: processState.gameRunning
+          ? `检测到 Skyspine 仍在运行（PID ${processState.processIds.join('、')}）。继续后会先请求游戏正常关闭；更新窗口显示后，当前 QA 工具窗口和后台 Host 会完全退出。是否继续？`
+          : `将从 v${update.currentVersion} 更新到 v${update.latestVersion}。更新窗口显示后，当前 QA 工具窗口和后台 Host 会完全退出。是否关闭工具并继续更新？`,
+        confirmText: processState.gameRunning ? '关闭游戏与工具并更新' : '关闭工具并更新',
+        cancelText: '暂不更新',
+        danger: processState.gameRunning,
+      })
+      if (!proceed) return undefined
       if (processState.gameRunning) {
-        const close = await ui.confirm({
-          title: '关闭游戏并更新',
-          message: `检测到 Skyspine 仍在运行（PID ${processState.processIds.join('、')}）。是否请求游戏正常关闭后继续更新？`,
-          confirmText: '关闭并更新',
-          danger: true,
-        })
-        if (!close) return undefined
         const result = await ui.run(() => window.loopstructorDesktop.closeGameForUpdate())
         if (!result?.success) return undefined
-      } else {
-        const proceed = await ui.confirm({
-          title: '安装更新',
-          message: `将从 v${update.currentVersion} 更新到 v${update.latestVersion}。Updater 会在本窗口关闭后完成替换。`,
-          confirmText: '开始更新',
-        })
-        if (!proceed) return undefined
       }
       return await ui.run(() => window.loopstructorDesktop.applyUpdate())
     },

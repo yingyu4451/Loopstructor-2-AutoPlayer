@@ -21,6 +21,8 @@ let host: HostClient | undefined
 let updaterProcess: ChildProcessWithoutNullStreams | undefined
 let updaterFinished = false
 let updateExitScheduled = false
+let quitAfterHostShutdown = false
+let hostShutdown: Promise<void> | undefined
 const isUpdaterMode = process.argv.some(argument => argument.toLowerCase() === '--updater')
 const updaterArgumentIndex = process.argv.findIndex(argument => argument.toLowerCase() === '--updater')
 const updaterArguments = updaterArgumentIndex >= 0 ? process.argv.slice(updaterArgumentIndex + 1) : []
@@ -44,6 +46,7 @@ function showExistingWindow(): void {
 function scheduleManagerExitForUpdate(): void {
   if (updateExitScheduled) return
   updateExitScheduled = true
+  window?.hide()
   setTimeout(() => app.quit(), 200)
 }
 
@@ -403,5 +406,17 @@ function registerIpc(): void {
   })
 }
 
-app.on('before-quit', () => host?.stop())
+app.on('before-quit', (event) => {
+  if (quitAfterHostShutdown || !host) return
+  event.preventDefault()
+  if (hostShutdown) return
+  const activeHost = host
+  hostShutdown = activeHost.stop()
+    .catch(error => console.error('等待 .NET Host 退出失败。', error))
+    .finally(() => {
+      host = undefined
+      quitAfterHostShutdown = true
+      app.quit()
+    })
+})
 app.on('window-all-closed', () => app.quit())

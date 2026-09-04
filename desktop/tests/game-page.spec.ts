@@ -11,7 +11,7 @@ describe('game page controls', () => {
     const store = useAppStore()
     store.snapshot = {
       protocolVersion: 1,
-      version: '0.6.69',
+      version: '0.6.70',
       settings: {} as never,
       connection: { trusted: false, label: '等待选择游戏', reason: '', cheatAvailable: false, autoplayActive: false },
       logs: [],
