@@ -25,8 +25,8 @@ $ProgressPreference = 'SilentlyContinue'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
 $runtimeIdentifier = 'win-x64'
-$releaseRootName = 'Loopstructor 2.AutoPlayer'
-$deltaRootName = 'Loopstructor 2.AutoPlayer.delta'
+$releaseRootName = 'Loopstructor-2-QA-Tool'
+$deltaRootName = 'Loopstructor-2-QA-Tool.delta'
 $manifestName = 'autoplayer-update-manifest.json'
 $BaseArchive = [System.IO.Path]::GetFullPath($BaseArchive)
 $BaseManifest = [System.IO.Path]::GetFullPath($BaseManifest)
@@ -247,7 +247,7 @@ function New-MaximumCompressionZip {
 
 $baseUpdateManifest = Get-Content -LiteralPath $BaseManifest -Raw | ConvertFrom-Json
 $baseVersion = [string]$baseUpdateManifest.version
-if ([int]$baseUpdateManifest.schemaVersion -ne 2 -or
+if ([int]$baseUpdateManifest.schemaVersion -ne 3 -or
     -not (Test-CanonicalSemanticVersion -Value $baseVersion) -or
     -not [StringComparer]::Ordinal.Equals([string]$baseUpdateManifest.runtimeIdentifier, $runtimeIdentifier) -or
     -not [StringComparer]::Ordinal.Equals([string]$baseUpdateManifest.assetName, [System.IO.Path]::GetFileName($BaseArchive)) -or
@@ -265,7 +265,7 @@ if ((Compare-CanonicalSemanticVersion -Left $baseVersion -Right $targetPackageVe
 $targetManifestPath = Join-Path $ReleaseDirectory $manifestName
 $targetUpdateManifest = Get-Content -LiteralPath $targetManifestPath -Raw | ConvertFrom-Json
 $targetFullArchive = Join-Path $ReleaseDirectory ([string]$targetUpdateManifest.assetName)
-if ([int]$targetUpdateManifest.schemaVersion -ne 2 -or
+if ([int]$targetUpdateManifest.schemaVersion -ne 3 -or
     -not [StringComparer]::Ordinal.Equals([string]$targetUpdateManifest.version, $targetPackageVersion) -or
     -not (Test-Path -LiteralPath $targetFullArchive -PathType Leaf)) {
     throw 'Target update manifest is missing or does not describe the target package.'
@@ -279,12 +279,14 @@ if ([long]$targetUpdateManifest.size -ne [long]$targetFullArchiveFile.Length -or
 
 $baseFiles = @(Get-ZipFileIndex -Path $BaseArchive -RequiredRootDirectory $releaseRootName)
 $baseMarker = Read-ZipEntryText -Path $BaseArchive -EntryName "$releaseRootName/autoplayer-release.json" | ConvertFrom-Json
-if (-not [StringComparer]::Ordinal.Equals([string]$baseMarker.version, $baseVersion)) {
-    throw 'Base archive marker version does not match the base manifest.'
+if ([int]$baseMarker.schemaVersion -ne 2 -or
+    -not [StringComparer]::Ordinal.Equals([string]$baseMarker.version, $baseVersion)) {
+    throw 'Base archive marker schema or version does not match the base manifest.'
 }
 $targetMarker = Get-Content -LiteralPath (Join-Path $TargetPackageDirectory 'autoplayer-release.json') -Raw | ConvertFrom-Json
-if (-not [StringComparer]::Ordinal.Equals([string]$targetMarker.version, $targetPackageVersion)) {
-    throw 'Target package marker version does not match the requested target version.'
+if ([int]$targetMarker.schemaVersion -ne 2 -or
+    -not [StringComparer]::Ordinal.Equals([string]$targetMarker.version, $targetPackageVersion)) {
+    throw 'Target package marker schema or version does not match the requested target version.'
 }
 
 $targetFiles = @(Get-DirectoryFileIndex -Path $TargetPackageDirectory)
@@ -321,7 +323,7 @@ $temporaryParent = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()
 $temporaryRoot = Join-Path $temporaryParent ('LoopstructorAutoPlayerDelta-' + [Guid]::NewGuid().ToString('N'))
 $deltaStagingRoot = Join-Path $temporaryRoot $deltaRootName
 $deltaPayloadRoot = Join-Path $deltaStagingRoot 'files'
-$deltaName = "Loopstructor.AutoPlayer-$baseVersion-to-$targetPackageVersion-$runtimeIdentifier.delta.zip"
+$deltaName = "Loopstructor-2-QA-Tool-$baseVersion-to-$targetPackageVersion-$runtimeIdentifier.delta.zip"
 $deltaPath = Join-Path $ReleaseDirectory $deltaName
 try {
     New-Item -ItemType Directory -Path $deltaPayloadRoot -Force | Out-Null

@@ -6,8 +6,8 @@ namespace Loopstructor.AutoPlayer.Updater.Services;
 
 public sealed class SecureZipExtractor
 {
-    public const string ReleaseArchiveRootDirectory = "Loopstructor 2.AutoPlayer";
-    public const string DeltaArchiveRootDirectory = "Loopstructor 2.AutoPlayer.delta";
+    public const string ReleaseArchiveRootDirectory = "Loopstructor-2-QA-Tool";
+    public const string DeltaArchiveRootDirectory = "Loopstructor-2-QA-Tool.delta";
     public const int MaximumEntryCount = 10_000;
     public const long MaximumExpandedBytes = 2L * 1024 * 1024 * 1024;
     public const long MaximumSingleFileBytes = 512L * 1024 * 1024;

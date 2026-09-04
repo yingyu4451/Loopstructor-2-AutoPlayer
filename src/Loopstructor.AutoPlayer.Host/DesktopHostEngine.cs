@@ -120,7 +120,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
                 "update.check" => await CheckUpdatesAsync(),
                 "update.inspectProcesses" => InspectUpdateProcesses(),
                 "update.closeGame" => await CloseGameForUpdateAsync(),
-                "update.apply" => StartUpdate(parameters?.Value<int?>("desktopProcessId") ?? 0),
+                "update.apply" => await StartUpdateAsync(parameters?.Value<int?>("desktopProcessId") ?? 0),
                 "diagnostics.openEvidence" => OpenEvidenceDirectory(),
                 "backups.open" => OpenSaveBackupDirectory(),
                 "backups.list" => ListSaveBackups(),
@@ -464,10 +464,14 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         }
     }
 
-    private JToken StartUpdate(int desktopProcessId)
+    private async Task<JToken> StartUpdateAsync(int desktopProcessId)
     {
         int? gameProcessId = FindUpdateGameProcesses().Cast<int?>().FirstOrDefault();
-        (bool success, string message) = _updates.StartApply(_settings, gameProcessId, desktopProcessId);
+        (bool success, string message) = await _updates.StartApplyAsync(
+            _settings,
+            gameProcessId,
+            desktopProcessId,
+            _lifetime);
         if (!success) throw new InvalidOperationException(message);
         AddLog("info", message);
         _ = _emit("updateStarted", new { message });

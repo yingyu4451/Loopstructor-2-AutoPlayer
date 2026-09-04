@@ -27,7 +27,7 @@ flowchart LR
 | 组件 | 目标框架 | 职责 |
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
-| `desktop` / `Loopstructor.AutoPlayer.Manager.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
+| `desktop` / `Loopstructor-2-QA-Tool.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
 | `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 `net8.0` 自包含无窗口进程 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
 | `--updater` Electron 模式 | Electron 44 + Vue 3 | 复用 Manager 运行时显示统一更新窗口，不启动 Host，只托管隐藏的 .NET 更新事务 |
@@ -209,13 +209,13 @@ Steamworks.SteamAPI.RestartAppIfNecessary
 
 ## 发布包结构
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-<version>-win-x64.zip` 始终用于手动下载、首次安装、跨格式升级和增量不可用时的回退。它必须完整解压，不能直接在资源管理器的 ZIP 预览中运行；压缩包只有一个固定顶层目录，进入该目录后才是程序根目录：
 
 ```text
-Loopstructor 2.AutoPlayer/
-  Loopstructor.AutoPlayer.Manager.exe  用户启动的根目录单文件入口
+Loopstructor-2-QA-Tool/
+  Loopstructor-2-QA-Tool.exe           用户启动的根目录单文件入口
   manager/
-    Loopstructor.AutoPlayer.Manager.exe  Electron 桌面入口
+    Loopstructor-2-QA-Tool.exe           Electron 桌面入口
     resources/app.asar                  Vue renderer 与 Electron 主进程
     Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
     Loopstructor.AutoPlayer.Host.dll
@@ -228,14 +228,16 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256                 包内逐文件 SHA-256
 ```
 
-schema 2 更新清单始终指向完整 Release ZIP，并可通过 `deltaAssets` 列出精确基准版本对应的文件级增量包。协议版本保持为 2，使旧 Updater 忽略扩展字段并继续使用完整包。新版 Updater 只有在当前 marker 版本与 `fromVersion` 精确一致、当前安装校验通过且增量更小时才选择增量；没有匹配项、跳过版本或旧客户端时使用完整包。
+schema 3 更新清单始终指向新命名的完整 Release ZIP，并可通过 `deltaAssets` 列出精确基准版本对应的文件级增量包。发布目录 marker 使用 schema 2，固定新目录和新入口；旧 Updater 不兼容该格式，用户必须手动安装 `v0.6.68`。新版 Updater 只有在当前 marker 版本与 `fromVersion` 精确一致、当前安装校验通过且增量更小时才选择增量；没有匹配项或跳过版本时使用完整包。
 
-增量 ZIP 使用固定的 `Loopstructor 2.AutoPlayer.delta/` 顶层目录，包含目标版 `checksums.sha256` 和 `files/` 下发生变化或新增的文件。Updater 不原地覆盖安装目录，而是在空 staging 中按目标校验目录复制本地未变文件、写入增量文件，已删除文件自然不会进入新版。完整校验 staging 后以整目录事务切换正式安装；旧目录仅作为更新失败时的隐藏临时回滚点，新版校验成功后立即删除，不长期保存旧版本。`v0.5.3` 是首个支持增量流程的客户端，因此从 `v0.5.2` 升级到 `v0.5.3` 仍会完整下载一次，后续相邻版本才使用增量。
+增量 ZIP 使用固定的 `Loopstructor-2-QA-Tool.delta/` 顶层目录，包含目标版 `checksums.sha256` 和 `files/` 下发生变化或新增的文件。Updater 不原地覆盖安装目录，而是在空 staging 中按目标校验目录复制本地未变文件、写入增量文件，已删除文件自然不会进入新版。完整校验 staging 后以整目录事务切换正式安装；旧目录仅作为更新失败时的隐藏临时回滚点，新版校验成功后立即删除，不长期保存旧版本。`v0.6.68` 是新目录格式的首个版本，不从旧格式生成增量包；后续相同格式版本才使用增量更新。
 
-完整包验证要求压缩包只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。更新只接受当前目录结构：Updater 必须位于 `manager/Loopstructor.AutoPlayer.Updater.exe`，发布根不能包含旧 `updater/` 兼容目录。
+完整包验证要求压缩包只有名称和大小写精确为 `Loopstructor-2-QA-Tool/` 的顶层目录，安全移除该包装层后再验证并事务替换程序根。更新只接受 schema 2 当前目录结构：根部及 `manager/` 内必须包含 `Loopstructor-2-QA-Tool.exe`，Updater 必须位于 `manager/Loopstructor.AutoPlayer.Updater.exe`，发布根不能包含旧 `updater/` 目录。
 
 从 `v0.1.4` 起，公开仓库且未提供 token 时，Updater 通过 GitHub 网页端 `releases/latest` 解析同一仓库的精确 tag，再从该 tag 的 Release 资产地址下载清单和 ZIP；它不调用匿名 REST API，因此不受每个出口 IP 每小时 60 次的匿名 API 配额影响。提供 token（包括私有仓库）时才使用 GitHub REST API 返回的资产 URL；token 只发送给 `api.github.com`，重定向到 Release CDN 后不转发。两种路径都将清单和 ZIP 固定到同一精确 tag，并校验 tag、清单版本、资产名、大小及 SHA-256。
 
 `v0.1.3` 的无 token 更新仍可能因匿名 REST API 配额耗尽而返回 403。遇到该情况时需等待配额恢复、在当前 Manager 进程环境中临时提供只读 token，或手动安装 `v0.1.4` 一次；之后公开仓库的无 token 更新即使用新的网页 Release 路径。
 
-根启动器只负责原样转发参数并启动 `manager\Loopstructor.AutoPlayer.Manager.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和无窗口 .NET Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET。固定的 `Loopstructor 2.AutoPlayer\` 目录无需随版本重命名。标题栏永久显示当前产品版本，实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 仍保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+根启动器只负责原样转发参数并启动 `manager\Loopstructor-2-QA-Tool.exe`，随后立即退出；用户无需进入内部 `manager\` 目录。Electron、.NET Host 和无窗口 .NET Updater 都位于 `manager\`，发布根不包含旧 `updater\` 目录。完整解压后运行根部 `Loopstructor-2-QA-Tool.exe` 无需安装 Node.js 或系统 .NET。标题栏永久显示当前产品版本，实际版本与发布目录 schema 同时记录在 `autoplayer-release.json`。GitHub Actions artifact 保持扁平；平台提供的外层 ZIP 打开后直接是程序文件和根部 EXE，不包含 `Loopstructor-2-QA-Tool\` 包装目录或第二层产品 ZIP。游戏文件和 `Assembly-CSharp.dll` 不在该目录树中。
+
+安装更新时，Host 为 Electron Updater 创建一次性本机就绪信号路径并启动第一阶段进程。第一阶段只把完整 Electron 运行时搬到安装目录外，再以可见窗口方式启动第二阶段；第二阶段 BrowserWindow 完成 `ready-to-show`、调用 `show()` 并确认可见后写入自身 PID。Host 收到就绪信号后才向原 Manager 返回成功，原 Manager 随后退出；30 秒内没有信号则保持原窗口并报告失败。就绪参数只用于 Electron 两阶段交接，进入 .NET Updater 前会被剥离。

@@ -7,7 +7,7 @@ import type { DesktopApi, HostSnapshot, SaveBackupEntry } from '../src/types'
 function snapshot(autoplayActive = false): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.67',
+    version: '0.6.68',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,
@@ -46,10 +46,45 @@ describe('desktop application store', () => {
     const store = useAppStore()
     store.applySnapshot(snapshot())
 
+    await store.setRoute('settings')
+
+    expect(store.route).toBe('settings')
+    expect(saveSettings).toHaveBeenCalledOnce()
+  })
+
+  it('loads cheat catalogs silently when entering a cheat page', async () => {
+    const saveSettings = vi.fn(async (settings) => settings)
+    const cheatCommand = vi.fn(async (command: string) => command === 'cheat.queryCatalog'
+      ? { success: true, message: '', data: { relics: [] } }
+      : { success: true, message: '', data: { enabled: true } })
+    window.loopstructorDesktop = { saveSettings, cheatCommand } as unknown as DesktopApi
+    const store = useAppStore()
+    store.applySnapshot(snapshot())
+
     await store.setRoute('relics')
 
-    expect(store.route).toBe('relics')
-    expect(saveSettings).toHaveBeenCalledOnce()
+    expect(cheatCommand.mock.calls.map(call => call[0])).toEqual(['cheat.queryCatalog', 'cheat.queryState'])
+    expect(store.catalog).toEqual({ relics: [] })
+    expect(store.cheatState).toEqual({ enabled: true })
+    expect(useUiStore().activeToast).toBeUndefined()
+  })
+
+  it('loads cheat catalogs when a game connects while a cheat page is open', async () => {
+    const cheatCommand = vi.fn(async (command: string) => command === 'cheat.queryCatalog'
+      ? { success: true, message: '', data: { vehicles: [] } }
+      : { success: true, message: '', data: { enabled: true } })
+    window.loopstructorDesktop = { cheatCommand } as unknown as DesktopApi
+    const store = useAppStore()
+    const disconnected = snapshot()
+    disconnected.settings.activeRoute = 'vehicles'
+    disconnected.connection.trusted = false
+    store.applySnapshot(disconnected)
+
+    store.applySnapshot(snapshot())
+    await vi.waitFor(() => expect(cheatCommand).toHaveBeenCalledTimes(2))
+
+    expect(cheatCommand.mock.calls.map(call => call[0])).toEqual(['cheat.queryCatalog', 'cheat.queryState'])
+    expect(useUiStore().activeToast).toBeUndefined()
   })
 
   it('keeps the selected route when a stale Host snapshot arrives', async () => {
@@ -58,10 +93,10 @@ describe('desktop application store', () => {
     const store = useAppStore()
     store.applySnapshot(snapshot())
 
-    await store.setRoute('vehicles')
+    await store.setRoute('settings')
     store.applySnapshot(snapshot())
 
-    expect(store.route).toBe('vehicles')
+    expect(store.route).toBe('settings')
   })
 
   it('does not navigate away when route persistence fails', async () => {
@@ -70,9 +105,9 @@ describe('desktop application store', () => {
     const store = useAppStore()
     store.applySnapshot(snapshot())
 
-    await store.setRoute('battle')
+    await store.setRoute('saves')
 
-    expect(store.route).toBe('battle')
+    expect(store.route).toBe('saves')
   })
 
   it('preserves the renderer route when saving a stale settings draft', async () => {

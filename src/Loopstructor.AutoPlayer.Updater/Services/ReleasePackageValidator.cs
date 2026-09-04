@@ -6,7 +6,7 @@ namespace Loopstructor.AutoPlayer.Updater.Services;
 
 public sealed class ReleasePackageValidator
 {
-    internal const string RequiredManagerEntryPoint = "Loopstructor.AutoPlayer.Manager.exe";
+    internal const string RequiredManagerEntryPoint = "Loopstructor-2-QA-Tool.exe";
     internal const string RequiredUpdaterEntryPoint = "manager/Loopstructor.AutoPlayer.Updater.exe";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -25,6 +25,11 @@ public sealed class ReleasePackageValidator
         }
 
         ReleaseMarker marker = ReadMarker(root);
+        if (marker.SchemaVersion != ReleaseMarker.CurrentSchemaVersion)
+        {
+            throw new InvalidDataException("不支持的发布目录格式版本：" + marker.SchemaVersion);
+        }
+
         if (!SemanticVersion.TryParse(marker.Version, out _))
         {
             throw new InvalidDataException("发布标记中的版本无效。");
@@ -48,7 +53,7 @@ public sealed class ReleasePackageValidator
         {
             throw new InvalidDataException("发布目录不能包含已停用的 updater 兼容目录。");
         }
-        RequireExecutableOrDll(root, "manager", "Loopstructor.AutoPlayer.Manager");
+        RequireExecutableOrDll(root, "manager", "Loopstructor-2-QA-Tool");
         ResolveRequiredEntryPoint(
             root,
             marker.ManagerPath,

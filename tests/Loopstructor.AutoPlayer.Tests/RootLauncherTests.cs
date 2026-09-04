@@ -13,7 +13,7 @@ public sealed class RootLauncherTests
         ProcessStartInfo startInfo = RootLauncher.CreateStartInfo(releaseRoot, arguments);
 
         string managerDirectory = Path.Combine(Path.GetFullPath(releaseRoot), "manager");
-        Assert.Equal(Path.Combine(managerDirectory, "Loopstructor.AutoPlayer.Manager.exe"), startInfo.FileName);
+        Assert.Equal(Path.Combine(managerDirectory, "Loopstructor-2-QA-Tool.exe"), startInfo.FileName);
         Assert.Equal(managerDirectory, startInfo.WorkingDirectory);
         Assert.False(startInfo.UseShellExecute);
         Assert.Equal(arguments, startInfo.ArgumentList);

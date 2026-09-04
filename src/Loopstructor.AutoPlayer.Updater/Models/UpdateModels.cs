@@ -154,6 +154,8 @@ public sealed class UpdateSourceSettings
 
 public sealed class UpdateManifest
 {
+    public const int CurrentSchemaVersion = 3;
+
     public int SchemaVersion { get; set; }
     public string Version { get; set; } = string.Empty;
     public string RuntimeIdentifier { get; set; } = string.Empty;
@@ -208,6 +210,9 @@ public sealed class UpdaterResult
 
 public sealed class ReleaseMarker
 {
+    public const int CurrentSchemaVersion = 2;
+
+    public int SchemaVersion { get; set; }
     public string Version { get; set; } = string.Empty;
     public string BepInExVersion { get; set; } = string.Empty;
     public string ManagerPath { get; set; } = string.Empty;

@@ -77,7 +77,7 @@ public sealed class BrandingAssetTests
         Assert.Contains("assets\\branding\\manager.ico", launcher, StringComparison.Ordinal);
         Assert.Contains("assets/branding/manager.ico", desktop, StringComparison.Ordinal);
         Assert.Contains("assets\\branding\\manager.ico", updater, StringComparison.Ordinal);
-        Assert.Contains("Loopstructor.AutoPlayer.Manager", desktop, StringComparison.Ordinal);
+        Assert.Contains("Loopstructor-2-QA-Tool", desktop, StringComparison.Ordinal);
     }
 
     private static void AssertTransparentPng(string path, int expectedSize)

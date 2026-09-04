@@ -491,7 +491,7 @@ public sealed class GitHubReleaseClient
 
     private void ValidateManifest(UpdateManifest manifest)
     {
-        if (manifest.SchemaVersion != 2)
+        if (manifest.SchemaVersion != UpdateManifest.CurrentSchemaVersion)
         {
             throw new InvalidDataException("不支持的更新清单协议版本：" + manifest.SchemaVersion);
         }
@@ -509,7 +509,7 @@ public sealed class GitHubReleaseClient
             throw new InvalidDataException("清单中的运行时标识与此更新器不匹配。");
         }
 
-        string expectedAssetName = $"Loopstructor.AutoPlayer-{manifest.Version}-win-x64.zip";
+        string expectedAssetName = $"Loopstructor-2-QA-Tool-{manifest.Version}-win-x64.zip";
         if (string.IsNullOrWhiteSpace(manifest.AssetName)
             || !string.Equals(Path.GetFileName(manifest.AssetName), manifest.AssetName, StringComparison.Ordinal)
             || !string.Equals(manifest.AssetName, expectedAssetName, StringComparison.Ordinal))
@@ -551,7 +551,7 @@ public sealed class GitHubReleaseClient
             }
 
             string expectedDeltaName =
-                $"Loopstructor.AutoPlayer-{delta.FromVersion}-to-{manifest.Version}-win-x64.delta.zip";
+                $"Loopstructor-2-QA-Tool-{delta.FromVersion}-to-{manifest.Version}-win-x64.delta.zip";
             if (!string.Equals(Path.GetFileName(delta.AssetName), delta.AssetName, StringComparison.Ordinal)
                 || !string.Equals(delta.AssetName, expectedDeltaName, StringComparison.Ordinal)
                 || !sourceVersions.Add(delta.FromVersion)

@@ -90,7 +90,6 @@ async function restore(backup: SaveBackupEntry) {
       </header>
       <div v-if="backups.length" class="save-history-list">
         <article v-for="backup in backups" :key="backup.id" class="save-history-row">
-          <div class="save-step-node" aria-hidden="true"><span>{{ backup.chapter }}</span><small>{{ backup.level }}</small></div>
           <div class="save-history-copy">
             <div class="save-history-title">
               <strong>第 {{ backup.chapter }} 章 · 第 {{ backup.level }} 关</strong>

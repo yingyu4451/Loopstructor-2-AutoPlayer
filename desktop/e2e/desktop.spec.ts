@@ -8,7 +8,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.67-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.68-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -88,6 +88,23 @@ test('unified desktop is sandboxed and responsive across every route', async () 
           await expect(navLabels.nth(index)).toBeVisible()
         }
       }
+      const caption = page.locator('.workbench-caption')
+      await expect(caption).toBeVisible()
+      const captionAlignment = await caption.evaluate(element => {
+        const captionBounds = element.getBoundingClientRect()
+        const contentBounds = element.parentElement!.getBoundingClientRect()
+        return {
+          horizontalOffset: Math.abs(
+            (captionBounds.left + captionBounds.width / 2) -
+            (contentBounds.left + contentBounds.width / 2),
+          ),
+          display: getComputedStyle(element).display,
+          alignItems: getComputedStyle(element).alignItems,
+          justifyItems: getComputedStyle(element).justifyItems,
+        }
+      })
+      expect(captionAlignment.horizontalOffset).toBeLessThanOrEqual(1)
+      expect(captionAlignment).toMatchObject({ display: 'grid', alignItems: 'center', justifyItems: 'center' })
       for (const route of routes) {
         await page.getByRole('button', { name: route, exact: true }).click()
         await expect(page.locator('.nav-item.active')).toHaveAttribute('aria-label', route)
@@ -96,6 +113,8 @@ test('unified desktop is sandboxed and responsive across every route', async () 
           throw new Error(`${route} 页面没有渲染。${rendererErrors.join('\n')}`)
         }
         await expect(page.locator('.page-host > *')).toBeVisible()
+        await expect(page.locator('.cheat-control-bar')).toHaveCount(0)
+        await expect(page.getByText('作弊运行控制', { exact: true })).toHaveCount(0)
         const geometry = await page.evaluate(() => {
           const pageHost = document.querySelector<HTMLElement>('.page-host')!
           const hostBounds = pageHost.getBoundingClientRect()
@@ -164,8 +183,12 @@ test('unified desktop is sandboxed and responsive across every route', async () 
 
 test('reuses the Electron runtime for the updater mode', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-updater-e2e-'))
+  const readyRoot = resolve(tmpdir(), 'LoopstructorAutoPlayerUpdater')
+  const readyFile = resolve(readyRoot, `ready-e2e-${process.pid}.signal`)
+  mkdirSync(readyRoot, { recursive: true })
+  rmSync(readyFile, { force: true })
   const app = await electron.launch({
-    args: ['.', '--updater', '--desktop-staged-run'],
+    args: ['.', '--updater', '--window-ready-file', readyFile, '--desktop-staged-run'],
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -176,6 +199,7 @@ test('reuses the Electron runtime for the updater mode', async () => {
 
   try {
     const page = await app.firstWindow()
+    await expect.poll(() => existsSync(readyFile)).toBe(true)
     await expect(page.getByText('更新未完成', { exact: true })).toBeVisible()
     expect(await page.evaluate(() => window.loopstructorDesktop.isUpdater)).toBe(true)
     await expect(page.locator('.updater-message')).toHaveText('apply 命令必须提供 --target <release-root>。')
@@ -214,6 +238,7 @@ test('reuses the Electron runtime for the updater mode', async () => {
   } finally {
     await app.close()
     rmSync(dataRoot, { recursive: true, force: true })
+    rmSync(readyFile, { force: true })
   }
 })
 
@@ -342,12 +367,7 @@ test('skyspine interaction states preserve material, focus, and chrome spacing',
     const activeTab = page.locator('.type-switcher button.active')
     await activeTab.hover()
     expect(await activeTab.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
-    const cheatSpacing = await page.evaluate(() => {
-      const caption = document.querySelector<HTMLElement>('.workbench-caption')!.getBoundingClientRect()
-      const controls = document.querySelector<HTMLElement>('.cheat-control-bar')!.getBoundingClientRect()
-      return caption.bottom <= controls.top
-    })
-    expect(cheatSpacing).toBe(true)
+    await expect(page.locator('.cheat-control-bar')).toHaveCount(0)
     await page.screenshot({ path: resolve(screenshotRoot, '1280x860-state-tab-hover.png'), animations: 'disabled' })
 
     const closeButton = page.getByRole('button', { name: '关闭', exact: true })

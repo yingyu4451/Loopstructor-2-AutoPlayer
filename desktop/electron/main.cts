@@ -11,7 +11,9 @@ import {
   cleanupElectronUpdaterRuntimeCopy,
   isRuntimeOutsideTarget,
   isStagedUpdaterRun,
+  signalUpdaterWindowReady,
   stageElectronUpdaterRuntime,
+  stripUpdaterTransportArguments,
 } from './updater-relocator.cjs'
 
 let window: BrowserWindow | undefined
@@ -64,7 +66,7 @@ app.whenReady().then(() => {
           cwd: plan.workingDirectory,
           detached: true,
           stdio: 'ignore',
-          windowsHide: true,
+          windowsHide: false,
           env: { ...process.env },
         })
         relocated.unref()
@@ -182,8 +184,17 @@ function createUpdaterWindow(): void {
   window.on('close', (event) => {
     if (updaterProcess && !updaterFinished) event.preventDefault()
   })
+  window.once('ready-to-show', () => {
+    window?.show()
+    window?.focus()
+    if (!window?.isVisible()) return
+    try {
+      signalUpdaterWindowReady(updaterArguments)
+    } catch (error) {
+      dialog.showErrorBox('更新窗口启动确认失败', String(error))
+    }
+  })
   loadRenderer(window)
-  window.once('ready-to-show', () => window?.show())
   window.on('closed', () => { window = undefined })
   registerUpdaterIpc(distributionRoot, managerDirectory)
 }
@@ -234,10 +245,7 @@ function registerUpdaterIpc(distributionRoot: string, managerDirectory: string):
     ].filter((candidate): candidate is string => Boolean(candidate))
     const executable = candidates.find(candidate => fs.existsSync(candidate))
     if (!executable) return { success: false, message: '找不到 .NET 更新事务组件。' }
-    const args = updaterArguments.filter(argument => {
-      const normalized = argument.toLowerCase()
-      return normalized !== '--updater' && normalized !== '--desktop-staged-run'
-    })
+    const args = stripUpdaterTransportArguments(updaterArguments)
     if (!args.some(argument => argument.toLowerCase() === 'apply')) args.unshift('apply')
     if (!args.some(argument => argument.toLowerCase() === '--json-stream')) args.push('--json-stream')
     const targetRoot = readUpdaterArgument(args, '--target')

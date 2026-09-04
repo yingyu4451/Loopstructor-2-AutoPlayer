@@ -127,7 +127,7 @@ jobs:
             }
             $directory = Join-Path $env:GITHUB_WORKSPACE "artifacts\delta-base\$($candidate.Text)"
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
-            $asset = "Loopstructor.AutoPlayer-$($candidate.Text)-win-x64.zip"
+            $asset = "Loopstructor-2-QA-Tool-$($candidate.Text)-win-x64.zip"
             gh release download $candidate.Tag --pattern $asset --pattern 'autoplayer-update-manifest.json' --dir $directory --clobber
             if ($LASTEXITCODE -ne 0) {
               continue
@@ -138,7 +138,7 @@ jobs:
               $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
               $archiveFile = Get-Item -LiteralPath $archive
               $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ([int]$manifest.schemaVersion -ne 2 -or
+              if ([int]$manifest.schemaVersion -ne 3 -or
                   -not [StringComparer]::Ordinal.Equals([string]$manifest.version, $candidate.Text) -or
                   -not [StringComparer]::Ordinal.Equals([string]$manifest.runtimeIdentifier, 'win-x64') -or
                   -not [StringComparer]::Ordinal.Equals([string]$manifest.assetName, $asset) -or
@@ -174,7 +174,7 @@ jobs:
           ./scripts/package-delta.ps1 `
             -BaseArchive '${{ steps.delta_base.outputs.base_archive }}' `
             -BaseManifest '${{ steps.delta_base.outputs.base_manifest }}' `
-            -TargetPackageDirectory 'artifacts/package/Loopstructor 2.AutoPlayer' `
+            -TargetPackageDirectory 'artifacts/package/Loopstructor-2-QA-Tool' `
             -TargetVersion '${{ steps.version.outputs.version }}' `
             -ReleaseDirectory 'artifacts/release'
 
@@ -192,15 +192,15 @@ jobs:
       - name: Upload runnable program artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
-          path: artifacts/package/Loopstructor 2.AutoPlayer/
+          name: Loopstructor-2-QA-Tool-${{ steps.version.outputs.version }}-win-x64
+          path: artifacts/package/Loopstructor-2-QA-Tool/
           if-no-files-found: error
           retention-days: 30
 
       - name: Download runnable artifact for verification
         uses: actions/download-artifact@v8
         with:
-          name: Loopstructor.AutoPlayer-${{ steps.version.outputs.version }}-win-x64
+          name: Loopstructor-2-QA-Tool-${{ steps.version.outputs.version }}-win-x64
           path: artifacts/workflow-artifact-verification
 
       - name: Verify runnable artifact layout
@@ -208,10 +208,10 @@ jobs:
         run: |
           $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\workflow-artifact-verification'
           $requiredFiles = @(
-            'Loopstructor.AutoPlayer.Manager.exe'
+            'Loopstructor-2-QA-Tool.exe'
             'autoplayer-release.json'
             'checksums.sha256'
-            'manager/Loopstructor.AutoPlayer.Manager.exe'
+            'manager/Loopstructor-2-QA-Tool.exe'
             'manager/resources/app.asar'
             'manager/Loopstructor.AutoPlayer.Host.exe'
             'manager/Loopstructor.AutoPlayer.Host.dll'
@@ -242,7 +242,10 @@ jobs:
           }
 
           $marker = Get-Content -LiteralPath (Join-Path $artifactRoot 'autoplayer-release.json') -Raw | ConvertFrom-Json
-          if ($marker.managerPath -ne 'Loopstructor.AutoPlayer.Manager.exe') {
+          if ([int]$marker.schemaVersion -ne 2) {
+            throw "Workflow artifact release schema is incorrect: $($marker.schemaVersion)"
+          }
+          if ($marker.managerPath -ne 'Loopstructor-2-QA-Tool.exe') {
             throw "Workflow artifact Manager entry point is not at the root: $($marker.managerPath)"
           }
           if ($marker.updaterPath -cne 'manager/Loopstructor.AutoPlayer.Updater.exe') {

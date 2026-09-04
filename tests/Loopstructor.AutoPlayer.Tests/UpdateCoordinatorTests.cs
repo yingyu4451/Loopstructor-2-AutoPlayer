@@ -8,6 +8,32 @@ namespace Loopstructor.AutoPlayer.Tests;
 public sealed class UpdateCoordinatorTests
 {
     [Fact]
+    public async Task WaitForUpdaterWindowReady_CompletesOnlyAfterVisibleWindowSignal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "LoopstructorUpdaterReadyTests", Guid.NewGuid().ToString("N"));
+        string signalPath = Path.Combine(root, "ready.signal");
+        Directory.CreateDirectory(root);
+        try
+        {
+            Task<int> wait = UpdateCoordinator.WaitForUpdaterWindowReadyAsync(
+                signalPath,
+                TimeSpan.FromSeconds(5),
+                CancellationToken.None);
+
+            await Task.Delay(100);
+            Assert.False(wait.IsCompleted);
+
+            await File.WriteAllTextAsync(signalPath, "4321");
+
+            Assert.Equal(4321, await wait);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TryResolveCoordinates_DefaultSettingsUsePublishedRepository()
     {
         WithGitHubEnvironment(null, null, () =>
@@ -182,7 +208,37 @@ public sealed class UpdateCoordinatorTests
             Assert.Equal(sharedUpdaterExecutable, startInfo.FileName);
             Assert.Equal(managerDirectory, startInfo.WorkingDirectory);
             Assert.False(startInfo.UseShellExecute);
+            Assert.True(startInfo.CreateNoWindow);
             Assert.Equal(new[] { "check" }, startInfo.ArgumentList);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryCreateElectronInvocation_UsesVisibleRenamedDesktopExecutable()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "LoopstructorUpdaterWindowTests",
+            Guid.NewGuid().ToString("N"));
+        string managerDirectory = Path.Combine(root, "manager");
+        Directory.CreateDirectory(managerDirectory);
+        try
+        {
+            string desktopExecutable = Path.Combine(managerDirectory, "Loopstructor-2-QA-Tool.exe");
+            File.WriteAllBytes(desktopExecutable, Array.Empty<byte>());
+            UpdateCoordinator coordinator = new(DistributionLayout.Locate(root));
+
+            bool created = coordinator.TryCreateElectronInvocation(out ProcessStartInfo startInfo);
+
+            Assert.True(created);
+            Assert.Equal(desktopExecutable, startInfo.FileName);
+            Assert.Equal(managerDirectory, startInfo.WorkingDirectory);
+            Assert.False(startInfo.UseShellExecute);
+            Assert.False(startInfo.CreateNoWindow);
         }
         finally
         {

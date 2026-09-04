@@ -292,13 +292,9 @@
 .app-shell[data-skin="skyspine"] .workspace-station { position: absolute; right: 58px; bottom: 54px; z-index: 0; width: 200px; height: 200px; object-fit: contain; opacity: .18; filter: drop-shadow(0 12px 12px #000); pointer-events: none; }
 .app-shell[data-skin="skyspine"][data-route="game"] .workspace-station,
 .app-shell[data-skin="skyspine"][data-route="autoplay"] .workspace-station { opacity: .34; }
-.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 43px; left: 50%; z-index: 6; width: min(360px, 34%); transform: translateX(-50%); overflow: hidden; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
-
-.app-shell[data-skin="skyspine"] .cheat-control-bar { position: relative; z-index: 4; min-height: 64px; margin: 116px 62px 0; padding: 10px 22px; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 14px); border: 0; background: linear-gradient(180deg, #9a5e2d 0 3px, #4b2b16 3px, #1d120b 44%, #0b0907); box-shadow: inset 0 0 0 3px #140c07, inset 0 0 0 5px #9a5e2d, inset 0 2px #c18042, 0 6px 14px #0009; }
-.app-shell[data-skin="skyspine"] .cheat-control-title { color: #f4bf60; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 16px; }
+.app-shell[data-skin="skyspine"] .workbench-caption { position: absolute; top: 23px; left: 50%; z-index: 6; width: min(390px, calc(100% - 150px)); min-height: 58px; transform: translateX(-50%); display: grid; place-items: center; overflow: hidden; padding: 5px 28px; color: #74df45; font-family: "Skyspine Display", "Microsoft YaHei UI", sans-serif; font-size: 18px; line-height: 1.2; text-align: center; text-overflow: ellipsis; text-shadow: 0 0 8px #66da3f66, 0 2px #000; white-space: nowrap; pointer-events: none; }
 
 .app-shell[data-skin="skyspine"] .page-host { position: relative; z-index: 2; padding: 118px 62px 72px; overflow: hidden; }
-.app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 18px; }
 .app-shell[data-skin="skyspine"] .page-grid { gap: 14px; }
 
 .app-shell[data-skin="skyspine"] .page-heading {
@@ -584,11 +580,8 @@
   .app-shell[data-skin="skyspine"] .app-body.sidebar-collapsed { grid-template-columns: 82px minmax(0, 1fr); }
   .app-shell[data-skin="skyspine"] .rail-sidebar { padding-inline: 10px; }
   .app-shell[data-skin="skyspine"] .page-host { padding: 108px 50px 58px; }
-  .app-shell[data-skin="skyspine"] .page-host.with-cheat-bar { padding-top: 20px; }
-  .app-shell[data-skin="skyspine"] .cheat-control-bar { margin: 96px 42px 0; }
   .app-shell[data-skin="skyspine"] .settings-workspace { grid-template-columns: 1fr; }
   .app-shell[data-skin="skyspine"] .skin-settings { grid-column: auto; }
-  .app-shell[data-skin="skyspine"] .workbench-caption { display: none; }
 }
 
 @media (max-width: 760px) {

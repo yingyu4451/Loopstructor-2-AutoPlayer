@@ -36,6 +36,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.68 发布命名、界面精简与更新窗口握手
+
+`0.6.68` 将完整包、解压顶层目录、根启动器、内部 Electron 程序和 workflow artifact 统一命名为 `Loopstructor-2-QA-Tool`。根部及 `manager\` 内的用户程序均为 `Loopstructor-2-QA-Tool.exe`；Host、Updater、Plugin/Core 等内部技术程序集继续保留 `Loopstructor.AutoPlayer.*` 名称。发布目录 marker 升级为 schema 2，更新清单升级为 schema 3；不保留旧入口或旧包装目录兼容，`v0.6.67` 及更早版本必须手动下载并完整解压本版。本版不生成跨旧格式增量包，后续采用相同格式的版本才恢复自动与增量更新。
+
+Skyspine 顶部木质铭牌中的页面标题改为始终可见并在固定牌面内水平、垂直居中；存档列表删除重复且难以理解的菱形章/关数字节点，保留唯一、清晰的“第 X 章 · 第 Y 关”正文；作弊页面删除整条“作弊运行控制”、连接提示和刷新齿轮状态栏，内容区直接进入功能面板。Electron E2E 覆盖 980×680 的 100% 与 125% 缩放，验证标题常显居中、作弊状态栏不存在，以及所有页面和机械边框不越界。
+
+更新流程新增本机可见窗口就绪握手。Host 启动 Electron Updater 后传入一次性信号路径；最终临时运行时中的 BrowserWindow 完成 `ready-to-show`、调用 `show()` 并确认可见后写入 PID，Host 收到信号才向原 Manager 返回成功并允许其退出。二次 Electron 启动不再使用隐藏窗口标志，transport 参数也不会传入 .NET Updater。若 30 秒内没有可见窗口，原 Manager 保持打开并显示失败，不再出现后台下载但没有进度窗的状态。
+
+插件协议和 Desktop Host 协议未改变；发布目录格式和更新清单 schema 按实际不兼容变化分别升级。
+
 ## 0.6.67 小窗口导航与机械边框完整性
 
 `0.6.67` 修复主窗口处于 980×680 最小尺寸时所有侧栏标题被 1180px container breakpoint 强制隐藏的问题。窄窗口现在使用保留文字的紧凑侧栏；只有用户主动收起侧栏时才进入纯图标模式。自动游玩、战车、道具、对象属性与生成等宽工作区在窄容器中改为单列纵向滚动，不再让固定双列最小宽度越出页面后被 `overflow: hidden` 裁切。
@@ -247,27 +257,25 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.53 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.68 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor.AutoPlayer-0.6.53-win-x64.zip
-Loopstructor.AutoPlayer-0.6.53-win-x64.zip.sha256
-Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip        可选
-Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip.sha256 可选
-  autoplayer-update-manifest.json
+Loopstructor-2-QA-Tool-0.6.68-win-x64.zip
+Loopstructor-2-QA-Tool-0.6.68-win-x64.zip.sha256
+autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终用于手动下载、首次安装、跨版本升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.68-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
-Loopstructor 2.AutoPlayer/
-  Loopstructor.AutoPlayer.Manager.exe   根目录单文件启动器
+Loopstructor-2-QA-Tool/
+  Loopstructor-2-QA-Tool.exe            根目录单文件启动器
   manager/
-    Loopstructor.AutoPlayer.Manager.exe Electron 桌面入口
+    Loopstructor-2-QA-Tool.exe           Electron 桌面入口
     resources/app.asar                  Vue renderer 与 Electron 主进程
     Loopstructor.AutoPlayer.Host.exe     无窗口 .NET Host
     Loopstructor.AutoPlayer.Host.dll
@@ -280,34 +288,27 @@ Loopstructor 2.AutoPlayer/
   checksums.sha256
 ```
 
-固定目录无需随版本升级而重命名。完整解压后运行根部 EXE 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与无窗口 .NET Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 兼容目录。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。标题栏永久显示当前产品版本；实际版本同时记录在程序根部的 `autoplayer-release.json`。
+固定目录无需随版本升级而重命名。完整解压后运行根部 `Loopstructor-2-QA-Tool.exe` 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与无窗口 .NET Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 目录、`Loopstructor 2.AutoPlayer\` 包装目录或 `Loopstructor.AutoPlayer.Manager.exe` 入口。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。实际版本与 schema 2 发布目录标记同时记录在程序根部的 `autoplayer-release.json`。
 
 `payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
 ## 更新清单
 
-GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2：
+GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 3：
 
 ```json
 {
-  "schemaVersion": 2,
-  "version": "0.6.53",
+  "schemaVersion": 3,
+  "version": "0.6.68",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor.AutoPlayer-0.6.53-win-x64.zip",
-  "sha256": "eb7a113384ee1f46027094dda2dfb50fdf46c72a8b274c32b4e291c554844598",
-  "size": 221984374,
-  "deltaAssets": [
-    {
-      "fromVersion": "0.6.52",
-      "assetName": "Loopstructor.AutoPlayer-0.6.52-to-0.6.53-win-x64.delta.zip",
-      "sha256": "60bfe5dfbee7a18dc1b0eed664e26f5b23437dde15371ddec5b74ef81ff2795e",
-      "size": 110163113
-    }
-  ]
+  "assetName": "Loopstructor-2-QA-Tool-0.6.68-win-x64.zip",
+  "sha256": "cc63da32e424222a9ce3e99922d95e3283e0057dfb8a0fae1558ca4b87754fc9",
+  "size": 196067137,
+  "deltaAssets": []
 }
 ```
 
-`deltaAssets` 是 schema 2 的可选扩展。协议版本有意保持为 2，使旧 Updater 可以忽略未知字段并继续下载完整包。增量资产只为精确的相邻基准版本生成；没有上一正式 Release、旧包校验失败或增量包不小于完整包时，发布仍然成功，但不包含增量资产。
+`deltaAssets` 是 schema 3 的可选字段。`v0.6.68` 是新发布格式基线，不从 schema 2 旧包生成增量资产；后续只为采用同一新格式且版本精确匹配的已发布基线生成 `Loopstructor-2-QA-Tool-<from>-to-<target>-win-x64.delta.zip`。没有可用基线、旧包校验失败或增量包不小于完整包时，发布仍然成功，但不包含增量资产。
 
 公开仓库且未提供 token 时，更新器不调用匿名 GitHub REST API。它先访问 `https://github.com/<owner>/<repository>/releases/latest`，只接受跳转到同一仓库的精确版本 tag；随后通过该 tag 的 `releases/download/<tag>/...` Release 资产地址下载清单和 ZIP。这样不会消耗匿名 REST API 每个出口 IP 每小时 60 次的配额，也避免在清单下载后继续使用可变化的 `latest` 地址。
 
@@ -319,14 +320,14 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 4. 当前安装 marker 的版本与增量 `fromVersion` 精确一致，否则使用完整包；
 5. 下载字节数与所选资产的 `size` 相同；
 6. zip SHA-256 与所选资产的 `sha256` 相同；
-7. 完整 ZIP 只有名称和大小写精确为 `Loopstructor 2.AutoPlayer/` 的顶层目录；
-8. 增量 ZIP 只有固定的 `Loopstructor 2.AutoPlayer.delta/` 顶层目录、目标版 `checksums.sha256` 和发生变化的 `files/`；
+7. 完整 ZIP 只有名称和大小写精确为 `Loopstructor-2-QA-Tool/` 的顶层目录；
+8. 增量 ZIP 只有固定的 `Loopstructor-2-QA-Tool.delta/` 顶层目录、目标版 `checksums.sha256` 和发生变化的 `files/`；
 9. 增量更新在空 staging 中复制当前安装的未变文件、写入增量文件并自然排除已删除文件；
 10. staging 根存在目标版 `autoplayer-release.json`，且全部文件通过目标版 `checksums.sha256` 和完整发布包结构校验。
 
-验证完成后退出管理器，再由独立 Updater 使用事务安装器替换工具目录。更新开始提交前会再次核对基准版本；旧目录只作为隐藏临时回滚点存在，新版完整校验成功后立即删除，不保留可供手动降级的副本。任何验证或替换失败都会恢复当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor 2.AutoPlayer\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
+验证完成后退出管理器，再由独立 Updater 使用事务安装器替换工具目录。更新开始提交前会再次核对基准版本；旧目录只作为隐藏临时回滚点存在，新版完整校验成功后立即删除，不保留可供手动降级的副本。任何验证或替换失败都会恢复当前可运行版本，不能半更新后继续启动游戏。更新继续使用固定的 `Loopstructor-2-QA-Tool\` 目录，无需随版本重命名；实际版本以 Manager GUI 和 `autoplayer-release.json` 为准。
 
-当前 Updater 只处理 schema 2 和当前固定包装目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，包含旧 `updater/` 兼容目录的发布包会被拒绝；旧目录版本需要手动安装当前发布包。`v0.5.3` 是首个支持增量更新的客户端，因此 `v0.5.2 → v0.5.3` 仍需完整下载一次；安装 `v0.5.3` 后，后续相邻版本才会选择增量包。跳过版本时使用完整包，不串联多个历史增量。
+当前 Updater 只处理 schema 3 更新清单和 schema 2 发布目录。Updater 入口必须是 `manager/Loopstructor.AutoPlayer.Updater.exe`，根/内部 Electron 入口必须是 `Loopstructor-2-QA-Tool.exe`；旧包装目录、旧 Manager EXE 或旧 `updater/` 目录都会被拒绝。`v0.6.68` 是新格式基线，旧版必须手动安装；后续相同格式版本才会选择增量包。跳过版本时使用完整包，不串联多个历史增量。
 
 `v0.1.3` 的无 token 更新检查仍调用匿名 REST API。如果它正报告 `403 (rate limit exceeded)`，可等待配额恢复、仅在当前 Manager 进程环境中临时提供只读 token，或手动下载并安装 `Loopstructor.AutoPlayer-0.1.4-win-x64.zip` 一次。安装 `v0.1.4` 后，公开仓库的无 token 更新改用网页端 `releases/latest` 和精确 tag 的 Release 资产地址。
 
@@ -343,13 +344,13 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 2�
 
 1. 从 tag 提取 SemVer；
 2. 构建和测试；
-3. 生成带固定 `Loopstructor 2.AutoPlayer/` 顶层目录的完整 Release ZIP、SHA-256 与 schema 2 更新清单；
+3. 生成带固定 `Loopstructor-2-QA-Tool/` 顶层目录的完整 Release ZIP、SHA-256 与 schema 3 更新清单；
 4. 下载并严格验证上一正式版本的已发布完整包，生成可选的文件级增量 ZIP 和 SHA-256；
 5. 对完整包和增量重建结果执行逐文件、结构、marker 与安全验证；
 6. 上传未压缩目录作为 workflow artifact，并重新下载验证根部 EXE、marker、checksums 且不存在内嵌产品 ZIP；
 7. 先创建草稿 Release，上传完整包与增量资产，最后上传清单并公开；失败草稿重跑时从空资产集合重建，已经公开的同 tag Release 不允许自动覆盖。
 
-手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；与 Release ZIP 不同，解开 Actions artifact 后应直接得到扁平的程序文件和根部 Manager EXE，不应出现 `Loopstructor 2.AutoPlayer/` 包装目录或第二层产品 ZIP。
+手工触发 Release workflow 只生成 artifact，不自动创建没有对应 tag 的正式 Release。GitHub 下载 artifact 时固定使用外层 ZIP；与 Release ZIP 不同，解开 Actions artifact 后应直接得到扁平的程序文件和根部 `Loopstructor-2-QA-Tool.exe`，不应出现 `Loopstructor-2-QA-Tool/` 包装目录或第二层产品 ZIP。
 
 ## 仓库与首次发布
 
@@ -390,7 +391,7 @@ git push origin v0.6.53
 - 确认四个强制平台写入补丁全部应用；使用 QA 账号或离线环境，不得把“无已知成就写入”等同于账号零痕迹；
 - 验证干净的默认防线初始化失败会重试、嵌套污染或已提交动力站点后的失败会要求新进程、路线先于防线、继续 QA 存档不会重建默认防线；
 - 验证 Faulted/`NeedsProcessRestart` 后 Manager 禁用 Start 且拒绝向旧游戏进程发送 `start`；
-- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；统一窗口单实例、侧栏、响应式页面和作弊控制条正确；自动游玩页不可启动且可停止遗留会话；中文/枚举/Iconify 图标搜索、战车/附魔家族排序、附魔无限层数与卡片全量换行、消耗品/弹射点互斥目录、对象图标、已有附魔图标、批量删除和多点生成等作弊能力符合预期；
+- 验证玩家模式可连接手动启动游戏且不启用任何 QA 重定向；统一窗口单实例、侧栏和响应式页面正确，作弊页不再显示运行状态条；自动游玩页不可启动且可停止遗留会话；中文/枚举/Iconify 图标搜索、战车/附魔家族排序、附魔无限层数与卡片全量换行、消耗品/弹射点互斥目录、对象图标、已有附魔图标、批量删除和多点生成等作弊能力符合预期；
 - 验证地图跳关仍隐藏当前进度层及历史层，只开放进度之后的节点，并拒绝活动波次、运行节点、待选子关卡、陈旧阶段请求、跨阶段及失效目标；验证失败补偿恢复和恢复失败自动关闭；
 - 验证结束波次拒绝无活动波次、模板锁定和 Boss 波；指定位置刷怪拒绝 Boss、特殊波单位和无有效预制体的 ID，批量位置在所选半径内保持间距，且每个成功对象都处于敌方阵营并具备正常碰撞、战斗和可受击状态；
 - 验证普通事件剧情开关只点击 `EventUI_Normal` 的真实 Skip 按钮，轨神事件不受影响；两种决策优先级可持久化并改变奖励与路线排序；右侧目标型道具只使用最新 MCP 合法候选，扩轨资源不会被战斗逻辑消耗；
@@ -399,10 +400,10 @@ git push origin v0.6.53
 - 验证装修厂优先直升真实且未升级的战车，并完整走过选择战车、确认、稳定三选一附魔和结算阶段；同名个人附魔优先升级，既有个人附魔全部保留且附魔数量不设上限；
 - 验证作弊快捷投放每个战车系列只显示“初始形态 / 升级形态”，内部过渡形态和车列专属附魔不出现在新增或设置目录，旧存档已有车列专属附魔仍可查看和移除；旧决策配置值 `0` 加载为“优先拿战车”；
 - 在受支持构建上验证运行时契约检查允许启动和执行；在程序集指纹或必需运行时契约未知的构建上验证插件拒绝写入并返回明确的不兼容原因；
-- 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录；进入后验证根启动器无需系统 Node.js/.NET 即可启动 Electron、Host 与 Updater，`resources/app.asar` 存在、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
-- 验证 schema 2 更新清单的完整包资产名、大小和 SHA-256 正确；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；
+- 将完整 Release ZIP 完整解压，确认它只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录；进入后验证根部 `Loopstructor-2-QA-Tool.exe` 无需系统 Node.js/.NET 即可启动 Electron、Host 与 Updater，`manager\Loopstructor-2-QA-Tool.exe` 和 `resources/app.asar` 存在、不存在旧 `updater\` 目录，并验证 marker 和逐文件 checksums；不得在 ZIP 预览中运行；
+- 验证 schema 3 更新清单的完整包资产名、大小和 SHA-256 正确，发布目录 marker 为 schema 2；存在 `deltaAssets` 时，还要从对应已发布基线重建并逐文件比对目标包；
 - 分别验证公开仓库无 token 时不调用匿名 REST API，以及带 token 时只向 `api.github.com` 发送凭据且不向 Release CDN 转发；验证精确 tag、清单版本和 ZIP 资产名不一致时拒绝更新；
-- 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 Manager EXE，不含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP；
+- 重新下载 Actions artifact，确认打开后直接是扁平的程序文件和根部 `Loopstructor-2-QA-Tool.exe`，不含 `Loopstructor-2-QA-Tool\` 包装目录或第二层产品 ZIP；
 - 发布后续版本时，用采用当前目录结构的前一版本执行一次完整自更新与失败回滚测试；旧 `updater\` 目录结构不在兼容范围内；
 - 检查发布包固定使用 BepInEx `5.4.23.5`，且不含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、token、票据、QA 存档、日志、状态或测试截图；
 - 发布说明记录游戏构建指纹、程序集哈希、BepInEx `5.4.23.5`、两种模式的验证状态、随机转盘非致命异常、Steam AppID `3841840` 的本机许可限制及账号残余风险；

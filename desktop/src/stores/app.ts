@@ -11,6 +11,7 @@ const mutationCommands = new Set([
   'cheat.grantAllRelics', 'cheat.removeRelic', 'cheat.removeAllRelics', 'cheat.spawnEnemy',
   'cheat.setMapSkipEnabled', 'cheat.setSpawnPointCapture', 'cheat.removeSpawnPoint', 'cheat.clearSpawnPoints',
 ])
+const cheatRoutes = new Set<RouteKey>(['vehicles', 'items', 'relics', 'battle', 'objects', 'spawn'])
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -45,15 +46,18 @@ export const useAppStore = defineStore('app', {
       })
       const snapshot = await ui.run(() => window.loopstructorDesktop.getSnapshot())
       if (snapshot) this.applySnapshot(snapshot)
-      if (this.snapshot?.connection.trusted) await this.refreshCheat(false)
     },
     applySnapshot(snapshot: HostSnapshot) {
+      const becameConnected = !this.connected && snapshot.connection.trusted
       if (!this.routeInitialized) {
         this.currentRoute = snapshot.settings.activeRoute ?? 'game'
         this.routeInitialized = true
       }
       this.snapshot = snapshot
       this.connected = snapshot.connection.trusted
+      if (becameConnected && cheatRoutes.has(this.currentRoute) && !this.catalog) {
+        void this.refreshCheat(false)
+      }
     },
     async setRoute(route: RouteKey) {
       if (!this.snapshot) return
@@ -65,6 +69,7 @@ export const useAppStore = defineStore('app', {
       } catch {
         // Navigation is renderer-owned. A failed preference write must not eject the user from the selected page.
       }
+      if (this.connected && cheatRoutes.has(route) && !this.catalog) await this.refreshCheat(false)
     },
     async saveSettings(settings: ManagerSettings, announce = true) {
       const ui = useUiStore()

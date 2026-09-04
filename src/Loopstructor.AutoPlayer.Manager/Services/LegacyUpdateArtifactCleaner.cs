@@ -61,7 +61,7 @@ internal static class LegacyUpdateArtifactCleaner
         string markerPath = Path.Combine(root, "autoplayer-release.json");
         if (!File.Exists(markerPath)
             || !File.Exists(Path.Combine(root, "checksums.sha256"))
-            || !File.Exists(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"))
+            || !File.Exists(Path.Combine(root, "Loopstructor-2-QA-Tool.exe"))
             || !Directory.Exists(Path.Combine(root, "manager"))
             || !Directory.Exists(Path.Combine(root, "payload")))
         {

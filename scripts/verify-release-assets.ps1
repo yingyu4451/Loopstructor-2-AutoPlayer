@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $ReleaseDirectory -PathType Container)) {
     throw "Release directory not found: $ReleaseDirectory"
 }
 if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
-    $PackageDirectory = Join-Path $repositoryRoot 'artifacts\package\Loopstructor 2.AutoPlayer'
+    $PackageDirectory = Join-Path $repositoryRoot 'artifacts\package\Loopstructor-2-QA-Tool'
 }
 $PackageDirectory = [System.IO.Path]::GetFullPath($PackageDirectory)
 if (-not (Test-Path -LiteralPath $PackageDirectory -PathType Container)) {
@@ -283,9 +283,9 @@ function Assert-Sidecar {
     }
 }
 
-$topLevelDirectory = 'Loopstructor 2.AutoPlayer'
-$deltaTopLevelDirectory = 'Loopstructor 2.AutoPlayer.delta'
-$archiveName = "Loopstructor.AutoPlayer-$packageVersion-$runtimeIdentifier.zip"
+$topLevelDirectory = 'Loopstructor-2-QA-Tool'
+$deltaTopLevelDirectory = 'Loopstructor-2-QA-Tool.delta'
+$archiveName = "Loopstructor-2-QA-Tool-$packageVersion-$runtimeIdentifier.zip"
 $manifestName = 'autoplayer-update-manifest.json'
 $manifestPath = Join-Path $ReleaseDirectory $manifestName
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -321,7 +321,7 @@ $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.T
 Assert-Sidecar -ArchivePath $archivePath -ExpectedHash $archiveHash
 
 $archiveFile = Get-Item -LiteralPath $archivePath
-if ([int]$manifest.schemaVersion -ne 2 -or
+if ([int]$manifest.schemaVersion -ne 3 -or
     -not [StringComparer]::Ordinal.Equals([string]$manifest.version, $packageVersion) -or
     -not [StringComparer]::Ordinal.Equals([string]$manifest.runtimeIdentifier, $runtimeIdentifier) -or
     -not [StringComparer]::Ordinal.Equals([string]$manifest.assetName, $archiveName) -or
@@ -409,7 +409,7 @@ $seenDeltaNames = @{}
 foreach ($delta in $deltaAssets) {
     $fromVersion = [string]$delta.fromVersion
     $deltaName = [string]$delta.assetName
-    $expectedDeltaName = "Loopstructor.AutoPlayer-$fromVersion-to-$packageVersion-$runtimeIdentifier.delta.zip"
+    $expectedDeltaName = "Loopstructor-2-QA-Tool-$fromVersion-to-$packageVersion-$runtimeIdentifier.delta.zip"
     if (-not (Test-CanonicalSemanticVersion -Value $fromVersion) -or
         (Compare-CanonicalSemanticVersion -Left $fromVersion -Right $packageVersion) -ge 0 -or
         -not [StringComparer]::Ordinal.Equals($deltaName, $expectedDeltaName) -or
@@ -490,10 +490,10 @@ foreach ($delta in $deltaAssets) {
 
 $packagePaths = @($unwrappedArchiveFiles | ForEach-Object { $_.Path })
 foreach ($requiredFile in @(
-    'Loopstructor.AutoPlayer.Manager.exe'
+    'Loopstructor-2-QA-Tool.exe'
     'autoplayer-release.json'
     'checksums.sha256'
-    'manager/Loopstructor.AutoPlayer.Manager.exe'
+    'manager/Loopstructor-2-QA-Tool.exe'
     'manager/resources/app.asar'
     'manager/Loopstructor.AutoPlayer.Host.exe'
     'manager/Loopstructor.AutoPlayer.Host.dll'
@@ -524,10 +524,11 @@ foreach ($requiredDirectory in @('manager/', 'payload/')) {
 
 $markerEntryName = "$prefix" + 'autoplayer-release.json'
 $marker = Read-ZipEntryText -Path $archivePath -EntryName $markerEntryName | ConvertFrom-Json
-if (-not [StringComparer]::Ordinal.Equals([string]$marker.version, $packageVersion) -or
-    -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor.AutoPlayer.Manager.exe') -or
+if ([int]$marker.schemaVersion -ne 2 -or
+    -not [StringComparer]::Ordinal.Equals([string]$marker.version, $packageVersion) -or
+    -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor-2-QA-Tool.exe') -or
     -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'manager/Loopstructor.AutoPlayer.Updater.exe')) {
-    throw 'Release marker version, root Manager entry point, or Updater entry point is incorrect.'
+    throw 'Release marker schema, version, root Manager entry point, or Updater entry point is incorrect.'
 }
 
 Write-Host "Verified release ZIP: $archiveName"

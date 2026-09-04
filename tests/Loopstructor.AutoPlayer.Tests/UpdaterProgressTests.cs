@@ -191,10 +191,10 @@ public sealed class UpdaterProgressTests
 
     private static UpdateManifest Manifest(string version, byte[] package) => new()
     {
-        SchemaVersion = 2,
+        SchemaVersion = 3,
         Version = version,
         RuntimeIdentifier = "win-x64",
-        AssetName = $"Loopstructor.AutoPlayer-{version}-win-x64.zip",
+        AssetName = $"Loopstructor-2-QA-Tool-{version}-win-x64.zip",
         Sha256 = Convert.ToHexString(SHA256.HashData(package)).ToLowerInvariant(),
         Size = package.LongLength
     };

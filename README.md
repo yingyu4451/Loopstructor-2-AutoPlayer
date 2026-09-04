@@ -1,6 +1,6 @@
 # Loopstructor 2 QA Tool
 
-Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.67` 修复最小窗口及 125% 缩放下侧栏标题消失、双列工作区越界和机械面板内容被压出边框的问题；窄窗口保留带文字导航，并将宽工作区改为可纵向滚动的单列布局。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
+Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.68` 将发布目录、完整包、根启动器和内部 Electron 程序统一命名为 `Loopstructor-2-QA-Tool`；顶部页面标题在小窗口中保持居中可见，存档列表删除重复菱形编号，作弊页删除整条运行状态栏。更新流程新增可见窗口就绪握手，只有进度窗口实际显示后才关闭原 Manager。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
 
@@ -26,21 +26,21 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.67 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.68 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.67
+.\scripts\package.ps1 -Version 0.6.68
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor.AutoPlayer-0.6.67-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor 2.AutoPlayer\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
-2. 进入该目录并启动根部的 `Loopstructor.AutoPlayer.Manager.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
+1. 将 `Loopstructor-2-QA-Tool-0.6.68-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor-2-QA-Tool\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+2. 进入该目录并启动根部的 `Loopstructor-2-QA-Tool.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
 5. 安装完成后，Manager 会为该游戏目录创建当前 Windows 用户专用的玩家模式本机控制注册；注册绑定游戏根目录、插件协议和 `Assembly-CSharp.dll` SHA-256，不会开放网络端口。
@@ -157,7 +157,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor.AutoPlayer-0.6.53-win-x64.zip` 始终保留用于手动下载、首次安装、跨版本升级和完整包回退，内部只有固定的 `Loopstructor 2.AutoPlayer\` 顶层目录。
+push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到采用同一发布格式且可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor-2-QA-Tool-0.6.68-win-x64.zip` 用于手动下载、首次安装、跨格式升级和完整包回退，内部只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 
@@ -261,7 +261,7 @@ push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Pl
 
 安装更新时会打开独立的更新窗口，按“准备、下载、校验、安装、重启”显示阶段进度。下载阶段显示已下载大小、总大小和实时速度；解压与事务替换阶段显示安装进度，完成后会显示最终结果。开始替换文件后窗口会锁定关闭操作，避免破坏更新或回滚。
 
-自动更新只支持当前发布目录：Updater 固定为 `manager\Loopstructor.AutoPlayer.Updater.exe`，不再创建或接受旧 `updater\` 兼容目录。固定目录 `Loopstructor 2.AutoPlayer\` 无需随版本重命名。Manager 打开后，标题区会永久显示 `Loopstructor 2 QA Tool` 和 `v<当前版本>`，不依赖选择或加载游戏目录，更新检查状态也不会覆盖该版本文本；实际版本同时记录在 `autoplayer-release.json`。GitHub Actions artifact 下载时仍由平台套一层 ZIP，但打开后直接是扁平的程序文件和根部 Manager EXE，不包含 `Loopstructor 2.AutoPlayer\` 包装目录或第二层产品 ZIP。
+自动更新只支持 `v0.6.68` 起的新发布目录：Updater 固定为 `manager\Loopstructor.AutoPlayer.Updater.exe`，用户入口固定为根部及 `manager\` 内的 `Loopstructor-2-QA-Tool.exe`，不再接受旧 `updater\` 目录、`Loopstructor 2.AutoPlayer\` 顶层目录或 `Loopstructor.AutoPlayer.Manager.exe` 入口。旧版必须手动下载并完整解压 `v0.6.68` 一次；之后相同格式的版本可继续自动更新。Manager 标题区永久显示 `Loopstructor 2 QA Tool` 和 `v<当前版本>`；实际版本及 schema 2 发布目录标记同时记录在 `autoplayer-release.json`。GitHub Actions artifact 解开后直接是扁平程序文件和根部 `Loopstructor-2-QA-Tool.exe`，不包含产品目录包装层或第二层产品 ZIP。
 
 默认发布与更新源为 [`yingyu4451/Loopstructor-2-QA-Tool`](https://github.com/yingyu4451/Loopstructor-2-QA-Tool)，Manager 界面不再显示仓库地址输入框，也无需手工填写。旧版本遗留的空白更新源或已保存的 `yingyu4451/Loopstructor-2-AutoPlayer`、`yingyu4451/gui2` 旧坐标会自动迁移为该默认值；开发测试 fork 时仍可用环境变量 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_OWNER` 和 `LOOPSTRUCTOR_AUTOPLAYER_GITHUB_REPOSITORY` 临时覆盖。
 

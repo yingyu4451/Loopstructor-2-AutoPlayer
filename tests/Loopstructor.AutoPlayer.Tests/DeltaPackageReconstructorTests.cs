@@ -122,17 +122,17 @@ public sealed class DeltaPackageReconstructorTests
     {
         UpdateManifest manifest = new()
         {
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             Version = "0.5.3",
             RuntimeIdentifier = "win-x64",
-            AssetName = "Loopstructor.AutoPlayer-0.5.3-win-x64.zip",
+            AssetName = "Loopstructor-2-QA-Tool-0.5.3-win-x64.zip",
             Sha256 = new string('a', 64),
             Size = 1000
         };
         UpdateDeltaAsset deltaManifest = new()
         {
             FromVersion = "0.5.2+build1",
-            AssetName = "Loopstructor.AutoPlayer-0.5.2+build1-to-0.5.3-win-x64.delta.zip",
+            AssetName = "Loopstructor-2-QA-Tool-0.5.2+build1-to-0.5.3-win-x64.delta.zip",
             Sha256 = new string('b', 64),
             Size = 100
         };
@@ -182,8 +182,8 @@ public sealed class DeltaPackageReconstructorTests
         public string CreateRelease(string name, string version, Action<string>? customize = null)
         {
             string root = Path.Combine(Root, name);
-            WriteFile(root, "Loopstructor.AutoPlayer.Manager.exe", "launcher-" + version);
-            WriteFile(root, "manager", "Loopstructor.AutoPlayer.Manager.exe", "manager-" + version);
+            WriteFile(root, "Loopstructor-2-QA-Tool.exe", "launcher-" + version);
+            WriteFile(root, "manager", "Loopstructor-2-QA-Tool.exe", "manager-" + version);
             WriteFile(root, "manager", "Loopstructor.AutoPlayer.Updater.exe", "updater-" + version);
             WriteFile(root, "payload", "bepinex", "winhttp.dll", "loader");
             WriteFile(root, "payload", "bepinex", "doorstop_config.ini", "enabled=true");
@@ -195,9 +195,10 @@ public sealed class DeltaPackageReconstructorTests
                 Path.Combine(root, "autoplayer-release.json"),
                 JsonSerializer.Serialize(new ReleaseMarker
                 {
+                    SchemaVersion = 2,
                     Version = version,
                     BepInExVersion = "5.4.23.5",
-                    ManagerPath = "Loopstructor.AutoPlayer.Manager.exe",
+                    ManagerPath = "Loopstructor-2-QA-Tool.exe",
                     UpdaterPath = "manager/Loopstructor.AutoPlayer.Updater.exe",
                     BepInExPayloadPath = "payload/bepinex",
                     PluginPayloadPath = "payload/plugin"

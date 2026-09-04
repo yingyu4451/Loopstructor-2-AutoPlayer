@@ -38,13 +38,13 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Equal("v0.1.4", update.ReleaseTag);
         Assert.Equal(
-            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip",
+            "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor-2-QA-Tool-0.1.4-win-x64.zip",
             update.PackageAsset.DownloadUri.ToString());
         Assert.DoesNotContain(handler.Requests, item => item.Uri.Host == "api.github.com");
         Assert.All(handler.Requests, item => Assert.Null(item.Authorization));
         Assert.Contains(
             handler.Requests,
-            item => item.Uri.AbsolutePath == "/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor.AutoPlayer-0.1.4-win-x64.zip");
+            item => item.Uri.AbsolutePath == "/yingyu4451/Loopstructor-2-QA-Tool/releases/download/v0.1.4/Loopstructor-2-QA-Tool-0.1.4-win-x64.zip");
         Assert.DoesNotContain(
             handler.Requests,
             item => item.Uri.AbsolutePath.Contains("/releases/latest/download/Loopstructor.AutoPlayer", StringComparison.Ordinal));
@@ -59,7 +59,7 @@ public sealed class GitHubReleaseClientTests
         UpdateDeltaAsset delta = new()
         {
             FromVersion = "0.5.2",
-            AssetName = "Loopstructor.AutoPlayer-0.5.2-to-0.5.3-win-x64.delta.zip",
+            AssetName = "Loopstructor-2-QA-Tool-0.5.2-to-0.5.3-win-x64.delta.zip",
             Sha256 = Convert.ToHexString(SHA256.HashData(deltaBytes)).ToLowerInvariant(),
             Size = deltaBytes.Length
         };
@@ -99,9 +99,9 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Theory]
-    [InlineData("0.5.3", "Loopstructor.AutoPlayer-0.5.3-to-0.5.3-win-x64.delta.zip")]
+    [InlineData("0.5.3", "Loopstructor-2-QA-Tool-0.5.3-to-0.5.3-win-x64.delta.zip")]
     [InlineData("0.5.2", "wrong.delta.zip")]
-    [InlineData("v0.5.2", "Loopstructor.AutoPlayer-v0.5.2-to-0.5.3-win-x64.delta.zip")]
+    [InlineData("v0.5.2", "Loopstructor-2-QA-Tool-v0.5.2-to-0.5.3-win-x64.delta.zip")]
     public async Task ReleaseResolution_RejectsInvalidDeltaDescriptor(string fromVersion, string assetName)
     {
         byte[] packageBytes = Encoding.UTF8.GetBytes("full package data");
@@ -293,7 +293,7 @@ public sealed class GitHubReleaseClientTests
         byte[] packageBytes = Encoding.UTF8.GetBytes("package");
         UpdateManifest manifest = CreateManifest("0.1.4", packageBytes);
         manifest.Version = version;
-        manifest.AssetName = $"Loopstructor.AutoPlayer-{version}-win-x64.zip";
+        manifest.AssetName = $"Loopstructor-2-QA-Tool-{version}-win-x64.zip";
         byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
         RecordingHandler handler = new(request => PublicManifestResponse(request, "v0.1.4", manifestBytes));
         using HttpClient httpClient = new(handler);
@@ -314,6 +314,23 @@ public sealed class GitHubReleaseClientTests
         GitHubReleaseClient client = new(httpClient, CreateSettings());
 
         await Assert.ThrowsAsync<InvalidDataException>(() => client.ResolveLatestAsync());
+    }
+
+    [Fact]
+    public async Task PublicReleaseResolution_RejectsPreviousManifestSchema()
+    {
+        byte[] packageBytes = Encoding.UTF8.GetBytes("package");
+        UpdateManifest manifest = CreateManifest("0.1.4", packageBytes);
+        manifest.SchemaVersion = 2;
+        byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        RecordingHandler handler = new(request => PublicManifestResponse(request, "v0.1.4", manifestBytes));
+        using HttpClient httpClient = new(handler);
+        GitHubReleaseClient client = new(httpClient, CreateSettings());
+
+        InvalidDataException exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => client.ResolveLatestAsync());
+
+        Assert.Contains("协议版本", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -350,7 +367,7 @@ public sealed class GitHubReleaseClientTests
         UpdateDeltaAsset delta = new()
         {
             FromVersion = "0.1.3",
-            AssetName = "Loopstructor.AutoPlayer-0.1.3-to-0.1.4-win-x64.delta.zip",
+            AssetName = "Loopstructor-2-QA-Tool-0.1.3-to-0.1.4-win-x64.delta.zip",
             Sha256 = Convert.ToHexString(SHA256.HashData(deltaBytes)).ToLowerInvariant(),
             Size = deltaBytes.Length
         };
@@ -434,7 +451,7 @@ public sealed class GitHubReleaseClientTests
         byte[] manifestBytes,
         byte[] packageBytes)
     {
-        string packageName = $"Loopstructor.AutoPlayer-{releaseTag[1..]}-win-x64.zip";
+        string packageName = $"Loopstructor-2-QA-Tool-{releaseTag[1..]}-win-x64.zip";
         return request.RequestUri!.ToString() switch
         {
             "https://github.com/yingyu4451/Loopstructor-2-QA-Tool/releases/latest" => Redirect(
@@ -464,10 +481,10 @@ public sealed class GitHubReleaseClientTests
 
     private static UpdateManifest CreateManifest(string version, byte[] packageBytes) => new()
     {
-        SchemaVersion = 2,
+        SchemaVersion = 3,
         Version = version,
         RuntimeIdentifier = "win-x64",
-        AssetName = $"Loopstructor.AutoPlayer-{version}-win-x64.zip",
+        AssetName = $"Loopstructor-2-QA-Tool-{version}-win-x64.zip",
         Sha256 = Convert.ToHexString(SHA256.HashData(packageBytes)).ToLowerInvariant(),
         Size = packageBytes.Length
     };

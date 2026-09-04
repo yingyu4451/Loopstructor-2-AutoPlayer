@@ -23,7 +23,7 @@ $pluginInfoPath = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\
 $pluginOutput = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\bin\Release\netstandard2.1'
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $packageWorkRoot = Join-Path $artifactsRoot 'package'
-$releaseDirectoryName = 'Loopstructor 2.AutoPlayer'
+$releaseDirectoryName = 'Loopstructor-2-QA-Tool'
 $packageRoot = Join-Path $packageWorkRoot $releaseDirectoryName
 $releaseRoot = Join-Path $artifactsRoot 'release'
 
@@ -457,7 +457,7 @@ Publish-WindowsProject -Project $updaterProject -Output $managerOutput -PackageV
 Publish-RootLauncher -Project $launcherProject -Output $launcherOutput -PackageVersion $packageVersion
 
 foreach ($requiredManagerFile in @(
-    'Loopstructor.AutoPlayer.Manager.exe'
+    'Loopstructor-2-QA-Tool.exe'
     'resources\app.asar'
     'Loopstructor.AutoPlayer.Host.exe'
     'Loopstructor.AutoPlayer.Host.dll'
@@ -477,17 +477,17 @@ foreach ($requiredManagerFile in @(
     }
 }
 
-$bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe'
+$bundledManagerExecutable = Join-Path $managerOutput 'Loopstructor-2-QA-Tool.exe'
 $bundledUpdaterExecutable = Join-Path $managerOutput 'Loopstructor.AutoPlayer.Updater.exe'
 
 $launcherFiles = @(Get-ChildItem -LiteralPath $launcherOutput -Recurse -File -Force)
-$launcherExecutable = Join-Path $launcherOutput 'Loopstructor.AutoPlayer.Launcher.exe'
+$launcherExecutable = Join-Path $launcherOutput 'Loopstructor-2-QA-Tool.exe'
 if ($launcherFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $launcherExecutable -PathType Leaf)) {
     $launcherNames = ($launcherFiles | ForEach-Object { $_.FullName.Substring($launcherOutput.Length + 1) }) -join ', '
     throw "Root launcher must publish as exactly one executable. Found: $launcherNames"
 }
 
-$rootManagerExecutable = Join-Path $packageRoot 'Loopstructor.AutoPlayer.Manager.exe'
+$rootManagerExecutable = Join-Path $packageRoot 'Loopstructor-2-QA-Tool.exe'
 Copy-Item -LiteralPath $launcherExecutable -Destination $rootManagerExecutable
 
 $bepInExArchive = Get-VerifiedBepInExArchive -RuntimeInfo $bepInEx
@@ -511,17 +511,17 @@ Get-ChildItem -LiteralPath $pluginOutput -File | Where-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $pluginPayloadOutput
 }
 
-Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Manager.exe') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor-2-QA-Tool.exe') -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Host.exe') -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $bundledUpdaterExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $rootManagerExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $pluginPayloadOutput 'Loopstructor.AutoPlayer.Plugin.dll') -ExpectedVersion $packageVersion
 
 $marker = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     version = $packageVersion
     runtimeIdentifier = $runtimeIdentifier
-    managerPath = 'Loopstructor.AutoPlayer.Manager.exe'
+    managerPath = 'Loopstructor-2-QA-Tool.exe'
     updaterPath = 'manager/Loopstructor.AutoPlayer.Updater.exe'
     payloadPath = 'payload'
     bepInExPayloadPath = 'payload/bepinex'
@@ -541,7 +541,7 @@ $checksumLines = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force |
     }
 Write-Utf8NoBom -Path (Join-Path $packageRoot 'checksums.sha256') -Content (($checksumLines -join "`n") + "`n")
 
-$zipName = "Loopstructor.AutoPlayer-$packageVersion-$runtimeIdentifier.zip"
+$zipName = "Loopstructor-2-QA-Tool-$packageVersion-$runtimeIdentifier.zip"
 $zipPath = Join-Path $releaseRoot $zipName
 $sevenZipExecutable = Resolve-SevenZipExecutable -RequestedPath $SevenZipPath
 Write-Host "Creating maximum-compression ZIP with $sevenZipExecutable..."
@@ -556,7 +556,7 @@ $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerIn
 Write-Utf8NoBom -Path "$zipPath.sha256" -Content "$zipHash  $zipName`n"
 
 $updateManifest = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     version = $packageVersion
     runtimeIdentifier = $runtimeIdentifier
     assetName = $zipName

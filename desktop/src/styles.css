@@ -124,10 +124,6 @@ button:disabled, .disabled { color: #6f675d; cursor: not-allowed; }
 .status-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border: 1px solid #67553d; background: #2a241c; color: #c9bda9; font: 600 11px/1 Bahnschrift, sans-serif; white-space: nowrap; }
 .status-badge.online { color: #caffe0; border-color: #4e9630; background: #20331a; }
 .status-badge.warning { color: #ffe0a4; border-color: #9d7030; background: #392a18; }
-.cheat-control-bar { min-width: 0; min-height: 54px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 8px 12px; background: #1c1712; border-bottom: 1px solid var(--copper); }
-.cheat-control-title { display: flex; align-items: center; gap: 9px; color: #ead29b; font: 600 13px/1 Bahnschrift, sans-serif; }
-.lock-message { justify-self: center; display: flex; align-items: center; gap: 7px; font-size: 11px; color: #e0b968; min-width: 0; }
-.cheat-control-actions { display: flex; align-items: center; gap: 10px; }
 .switch-control { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .switch-control input, .field-delete-toggle > input { position: absolute; opacity: 0; pointer-events: none; }
 .switch-track { width: 36px; height: 20px; border: 1px solid #67513a; background: #2a241e; padding: 2px; }
@@ -324,14 +320,8 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .save-history-section { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .save-history-heading { align-items: center; }
 .save-history-list { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 7px; padding-right: 3px; }
-.save-history-row { position: relative; min-height: 78px; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 10px; background: #17130f; border: 1px solid #4b3825; box-shadow: inset 3px 0 #2f6a33; }
-.save-history-row::before { content: ""; position: absolute; left: 35px; top: -8px; width: 2px; height: 8px; background: #72502e; }
-.save-history-row:first-child::before { display: none; }
+.save-history-row { position: relative; min-height: 78px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; background: #17130f; border: 1px solid #4b3825; box-shadow: inset 3px 0 #2f6a33; }
 .save-history-row:hover { border-color: #8b6738; background: #1d1812; }
-.save-step-node { width: 43px; height: 43px; display: grid; place-content: center; text-align: center; color: #e8cd8e; background: #272016; border: 2px solid var(--copper); transform: rotate(45deg); }
-.save-step-node span, .save-step-node small { transform: rotate(-45deg); font-family: Bahnschrift, sans-serif; line-height: 1; }
-.save-step-node span { font-size: 15px; font-weight: 700; }
-.save-step-node small { margin-top: 1px; color: var(--green); font-size: 9px; }
 .save-history-copy { min-width: 0; display: grid; gap: 3px; }
 .save-history-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .save-history-title strong { color: #ead9bd; font: 600 14px Bahnschrift, sans-serif; }
@@ -384,7 +374,6 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
   .app-body.sidebar-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
   .rail-sidebar { width: auto; padding-inline: 8px; }
   .rail-sidebar.collapsed { width: 72px; padding-inline: 6px; }
-  .lock-message { font-size: 10px; }
   .automation-workspace,
   .vehicle-workspace,
   .items-workspace,
@@ -540,9 +529,6 @@ input[type="number"], select { width: 100%; height: 36px; border: 1px solid #564
 .app-shell[data-skin] .status-badge.online { border-color: var(--theme-signal); background: #1c452e; color: #e2ffdc; }
 .app-shell[data-skin] .status-badge.warning { border-color: var(--theme-amber); background: #4c351e; color: #ffe5ad; }
 
-.app-shell[data-skin] .cheat-control-bar { min-height: 62px; padding: 10px 18px; background: var(--theme-surface); border-bottom: 1px solid var(--theme-line); box-shadow: 0 8px 20px #0003; }
-.app-shell[data-skin] .cheat-control-title { color: var(--theme-brass); font-size: 14px; }
-.app-shell[data-skin] .lock-message { color: var(--theme-amber); }
 .app-shell[data-skin] .path-display, .app-shell[data-skin] .plugin-facts div, .app-shell[data-skin] .entity-summary div, .app-shell[data-skin] .status-grid div, .app-shell[data-skin] .automation-facts div { background: var(--theme-surface-deep); border-left-color: var(--theme-copper); border-radius: var(--theme-radius-sm); }
 .app-shell[data-skin] .path-display { height: 52px; border: 1px solid var(--theme-line); }
 .app-shell[data-skin] .path-display span { color: var(--theme-text); }

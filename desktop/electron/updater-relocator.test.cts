@@ -9,10 +9,26 @@ import {
   createElectronUpdaterRelocationPlan,
   cleanupElectronUpdaterRuntimeCopy,
   cleanupElectronUpdaterRuntimeCopies,
+  signalUpdaterWindowReady,
+  stripUpdaterTransportArguments,
   isRuntimeOutsideTarget,
   isStagedUpdaterRun,
   stageElectronUpdaterRuntime,
 } from './updater-relocator.cjs'
+
+test('signals a visible updater window and strips transport-only arguments', () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'loopstructor-updater-ready-test-'))
+  try {
+    const signalPath = path.join(temporary, 'ready-test.signal')
+    const args = ['apply', '--window-ready-file', signalPath, '--desktop-staged-run', '--target', 'release']
+
+    assert.equal(signalUpdaterWindowReady(args, temporary, 4321), signalPath)
+    assert.equal(fs.readFileSync(signalPath, 'utf8'), '4321')
+    assert.deepEqual(stripUpdaterTransportArguments(args), ['apply', '--target', 'release'])
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true })
+  }
+})
 
 test('schedules Manager exit when the Host confirms updater startup', async () => {
   let exits = 0
@@ -50,7 +66,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
       target,
       temporaryRuntime,
       4321,
-      '0.6.67',
+      '0.6.68',
       { TEST_ENVIRONMENT: 'preserved' },
     )
 
@@ -59,7 +75,7 @@ test('hands cleanup to the installed updater after the Electron window exits', (
     assert.deepEqual(plan.arguments, [
       'cleanup',
       '--target', target,
-      '--current-version', '0.6.67',
+      '--current-version', '0.6.68',
       '--wait-pid', '4321',
       '--restart-manager',
       '--json',
@@ -77,7 +93,7 @@ test('copies the complete Electron runtime outside the installation tree', () =>
     const source = path.join(root, 'release', 'manager')
     const temporary = path.join(root, 'temporary')
     fs.mkdirSync(path.join(source, 'resources'), { recursive: true })
-    const executable = path.join(source, 'Loopstructor.AutoPlayer.Manager.exe')
+    const executable = path.join(source, 'Loopstructor-2-QA-Tool.exe')
     fs.writeFileSync(executable, 'manager')
     fs.writeFileSync(path.join(source, 'resources', 'app.asar'), 'asar')
 
@@ -111,7 +127,7 @@ test('copies the launcher executable while hard-linking the remaining runtime', 
     const source = path.join(root, 'release', 'manager')
     const temporary = path.join(root, 'temporary')
     fs.mkdirSync(path.join(source, 'resources'), { recursive: true })
-    const executable = path.join(source, 'Loopstructor.AutoPlayer.Manager.exe')
+    const executable = path.join(source, 'Loopstructor-2-QA-Tool.exe')
     const asar = path.join(source, 'resources', 'app.asar')
     fs.writeFileSync(executable, 'manager')
     fs.writeFileSync(asar, 'asar')

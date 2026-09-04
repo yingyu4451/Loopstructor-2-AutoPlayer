@@ -40,6 +40,7 @@ try
     VerifySemanticVersions();
     VerifyDefaultUpdateConfiguration(verificationRoot);
     VerifyLegacyManagerEntryPointRejected(verificationRoot);
+    VerifyPreviousReleaseSchemaRejected(verificationRoot);
     VerifyMissingEntryPointsRejected(verificationRoot);
     VerifyRetiredUpdaterDirectoryRejected(verificationRoot);
     VerifyManagerRestartEntryPoint(verificationRoot);
@@ -348,13 +349,28 @@ static void VerifyWrappedReleaseTransaction(string root)
 static void VerifyLegacyManagerEntryPointRejected(string root)
 {
     string legacy = Path.Combine(root, "legacy-release");
-    CreateRelease(legacy, "0.0.9", "manager/Loopstructor.AutoPlayer.Manager.exe");
+    CreateRelease(legacy, "0.0.9", "manager/Loopstructor-2-QA-Tool.exe");
     ExpectInvalidData(
         () => new ReleasePackageValidator().Validate(legacy, "0.0.9"),
         "legacy nested Manager entry point rejection");
     ExpectInvalidData(
         () => ManagerRestarter.CreateStartInfo(legacy),
         "legacy nested Manager restart rejection");
+}
+
+static void VerifyPreviousReleaseSchemaRejected(string root)
+{
+    string legacy = Path.Combine(root, "previous-schema-release");
+    CreateRelease(legacy, "0.0.9");
+    string markerPath = Path.Combine(legacy, "autoplayer-release.json");
+    ReleaseMarker marker = JsonSerializer.Deserialize<ReleaseMarker>(File.ReadAllText(markerPath))!;
+    marker.SchemaVersion = 1;
+    File.WriteAllText(markerPath, JsonSerializer.Serialize(marker));
+    WriteChecksums(legacy);
+
+    ExpectInvalidData(
+        () => new ReleasePackageValidator().Validate(legacy, "0.0.9"),
+        "previous release schema rejection");
 }
 
 static void VerifyMissingEntryPointsRejected(string root)
@@ -400,7 +416,7 @@ static void VerifyManagerRestartEntryPoint(string root)
     CreateRelease(release, "0.1.1");
     ProcessStartInfo startInfo = ManagerRestarter.CreateStartInfo(release);
     Require(
-        startInfo.FileName == Path.Combine(release, "Loopstructor.AutoPlayer.Manager.exe"),
+        startInfo.FileName == Path.Combine(release, "Loopstructor-2-QA-Tool.exe"),
         "Updater restarts through the root Manager entry point");
     Require(startInfo.WorkingDirectory == release, "root Manager restart working directory");
     Require(
@@ -414,9 +430,9 @@ static void VerifyManagerEntryPointTraversalRejected(string root)
     CreateRelease(release, "0.1.1");
     ReleaseMarker marker = JsonSerializer.Deserialize<ReleaseMarker>(
         File.ReadAllText(Path.Combine(release, "autoplayer-release.json")))!;
-    marker.ManagerPath = "../Loopstructor.AutoPlayer.Manager.exe";
+    marker.ManagerPath = "../Loopstructor-2-QA-Tool.exe";
     File.WriteAllText(Path.Combine(release, "autoplayer-release.json"), JsonSerializer.Serialize(marker));
-    File.WriteAllText(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"), "outside");
+    File.WriteAllText(Path.Combine(root, "Loopstructor-2-QA-Tool.exe"), "outside");
 
     ExpectInvalidData(
         () => new ReleasePackageValidator().Validate(release, "0.1.1"),
@@ -603,14 +619,14 @@ static void VerifyTargetLock(string root)
 static void CreateRelease(
     string root,
     string version,
-    string managerPath = "Loopstructor.AutoPlayer.Manager.exe")
+    string managerPath = "Loopstructor-2-QA-Tool.exe")
 {
     Directory.CreateDirectory(Path.Combine(root, "manager"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "plugin"));
     Directory.CreateDirectory(Path.Combine(root, "payload", "bepinex", "BepInEx", "core"));
-    File.WriteAllText(Path.Combine(root, "Loopstructor.AutoPlayer.Manager.exe"), "root-launcher-" + version);
-    File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Manager.exe"), version);
+    File.WriteAllText(Path.Combine(root, "Loopstructor-2-QA-Tool.exe"), "root-launcher-" + version);
+    File.WriteAllText(Path.Combine(root, "manager", "Loopstructor-2-QA-Tool.exe"), version);
     File.WriteAllText(Path.Combine(root, "manager", "Loopstructor.AutoPlayer.Updater.exe"), version);
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "winhttp.dll"), "x64-loader");
     File.WriteAllText(Path.Combine(root, "payload", "bepinex", "doorstop_config.ini"), "enabled=true");
@@ -622,6 +638,7 @@ static void CreateRelease(
         Path.Combine(root, "autoplayer-release.json"),
         JsonSerializer.Serialize(new ReleaseMarker
         {
+            SchemaVersion = 2,
             Version = version,
             BepInExVersion = "5.4.23.5",
             ManagerPath = managerPath,

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <AssemblyName>Loopstructor.AutoPlayer.Launcher</AssemblyName>
+    <AssemblyName>Loopstructor-2-QA-Tool</AssemblyName>
     <RootNamespace>Loopstructor.AutoPlayer.Launcher</RootNamespace>
     <ApplicationIcon>..\..\assets\branding\manager.ico</ApplicationIcon>
   </PropertyGroup>

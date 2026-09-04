@@ -5,6 +5,8 @@ import path from 'node:path'
 
 const temporaryFolderName = 'LoopstructorAutoPlayerUpdater'
 const copyPrefix = 'electron-'
+const readySignalPrefix = 'ready-'
+const readySignalSuffix = '.signal'
 
 export interface ElectronUpdaterRelocationPlan {
   destinationRoot: string
@@ -30,6 +32,54 @@ export async function applyUpdateAndScheduleManagerExit(
     scheduleExit()
   }
   return response
+}
+
+export function stripUpdaterTransportArguments(argumentsToInspect: readonly string[]): string[] {
+  const result: string[] = []
+  for (let index = 0; index < argumentsToInspect.length; index += 1) {
+    const normalized = argumentsToInspect[index].toLowerCase()
+    if (normalized === '--updater' || normalized === '--desktop-staged-run') continue
+    if (normalized === '--window-ready-file') {
+      index += 1
+      continue
+    }
+    result.push(argumentsToInspect[index])
+  }
+  return result
+}
+
+export function signalUpdaterWindowReady(
+  argumentsToInspect: readonly string[],
+  temporaryBase = path.join(os.tmpdir(), temporaryFolderName),
+  processId = process.pid,
+): string | undefined {
+  const optionIndex = argumentsToInspect.findIndex(argument => argument.toLowerCase() === '--window-ready-file')
+  if (optionIndex < 0) return undefined
+  const requestedPath = argumentsToInspect[optionIndex + 1]
+  if (!requestedPath) throw new Error('更新窗口就绪信号缺少文件路径。')
+  if (!Number.isSafeInteger(processId) || processId <= 0) throw new Error('更新窗口进程 ID 无效。')
+
+  const safeTemporaryBase = path.resolve(temporaryBase)
+  const signalPath = path.resolve(requestedPath)
+  const signalName = path.basename(signalPath)
+  if (!pathsEqual(path.dirname(signalPath), safeTemporaryBase)
+      || !signalName.startsWith(readySignalPrefix)
+      || !signalName.endsWith(readySignalSuffix)) {
+    throw new Error('更新窗口就绪信号路径无效。')
+  }
+
+  fs.mkdirSync(safeTemporaryBase, { recursive: true })
+  const stats = fs.lstatSync(safeTemporaryBase)
+  if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error('更新窗口就绪信号目录无效。')
+  const stagingPath = `${signalPath}.${processId}.tmp`
+  try {
+    fs.writeFileSync(stagingPath, String(processId), { encoding: 'utf8', flag: 'wx' })
+    fs.renameSync(stagingPath, signalPath)
+  } catch (error) {
+    try { fs.rmSync(stagingPath, { force: true }) } catch { /* best effort */ }
+    throw error
+  }
+  return signalPath
 }
 
 export function isStagedUpdaterRun(argumentsToInspect: readonly string[]): boolean {
@@ -211,6 +261,12 @@ function normalizeFile(value: string): string {
 function isContained(parent: string, candidate: string): boolean {
   const relative = path.relative(parent, candidate)
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+function pathsEqual(left: string, right: string): boolean {
+  return process.platform === 'win32'
+    ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase()
+    : path.resolve(left) === path.resolve(right)
 }
 
 function ensureContained(parent: string, candidate: string, message: string): void {

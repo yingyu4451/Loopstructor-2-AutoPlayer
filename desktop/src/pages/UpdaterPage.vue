@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
     <section class="updater-card mechanical-section" aria-live="polite">
       <header class="updater-heading">
         <div>
-          <div class="eyebrow">LOOPSTRUCTOR AUTOPLAYER</div>
+          <div class="eyebrow" translate="no">LOOPSTRUCTOR 2 QA TOOL</div>
           <h1><component :is="statusIcon" :size="22" />{{ statusText }}</h1>
         </div>
         <span class="updater-stage">{{ stageLabel }}</span>

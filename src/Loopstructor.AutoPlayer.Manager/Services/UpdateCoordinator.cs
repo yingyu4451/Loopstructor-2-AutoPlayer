@@ -127,10 +127,11 @@ public sealed class UpdateCoordinator
         };
     }
 
-    public (bool Success, string Message) StartApply(
+    public async Task<(bool Success, string Message)> StartApplyAsync(
         ManagerSettings settings,
         int? gameProcessId = null,
-        int? desktopProcessId = null)
+        int? desktopProcessId = null,
+        CancellationToken cancellationToken = default)
     {
         if (!TryResolveCoordinates(settings, out string owner, out string repository))
         {
@@ -148,6 +149,16 @@ public sealed class UpdateCoordinator
             startInfo.ArgumentList.Add("--updater");
             startInfo.ArgumentList.Add("apply");
             startInfo.ArgumentList.Add("--json-stream");
+        }
+
+        string readySignalPath = string.Empty;
+        if (useElectronUpdater)
+        {
+            string readyDirectory = Path.Combine(Path.GetTempPath(), "LoopstructorAutoPlayerUpdater");
+            Directory.CreateDirectory(readyDirectory);
+            readySignalPath = Path.Combine(readyDirectory, "ready-" + Guid.NewGuid().ToString("N") + ".signal");
+            startInfo.ArgumentList.Add("--window-ready-file");
+            startInfo.ArgumentList.Add(readySignalPath);
         }
 
         startInfo.ArgumentList.Add("--target");
@@ -173,19 +184,67 @@ public sealed class UpdateCoordinator
         }
         startInfo.Environment[GitHubOwnerEnvironmentVariable] = owner;
         startInfo.Environment[GitHubRepositoryEnvironmentVariable] = repository;
-        startInfo.CreateNoWindow = true;
         try
         {
-            Process? process = Process.Start(startInfo);
-            return process == null
-                ? (false, "Windows 未能创建 Updater 进程。")
-                : (true, useElectronUpdater
-                    ? $"Electron 更新窗口已启动（PID {process.Id}），Manager 现在将关闭。"
-                    : $"Updater 已启动（PID {process.Id}），Manager 现在将关闭。");
+            using Process? process = Process.Start(startInfo);
+            if (process == null) return (false, "Windows 未能创建 Updater 进程。");
+            if (!useElectronUpdater)
+            {
+                return (true, $"Updater 已启动（PID {process.Id}），Manager 现在将关闭。");
+            }
+
+            int windowProcessId = await WaitForUpdaterWindowReadyAsync(
+                readySignalPath,
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
+            return (true, $"Electron 更新窗口已显示（PID {windowProcessId}），Manager 现在将关闭。");
         }
         catch (Exception exception)
         {
             return (false, "无法启动 Updater。详细信息：" + exception.Message);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(readySignalPath))
+            {
+                try { File.Delete(readySignalPath); } catch { }
+            }
+        }
+    }
+
+    internal static async Task<int> WaitForUpdaterWindowReadyAsync(
+        string signalPath,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(signalPath);
+        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(timeout);
+        try
+        {
+            while (true)
+            {
+                if (File.Exists(signalPath))
+                {
+                    try
+                    {
+                        string value = await File.ReadAllTextAsync(signalPath, timeoutSource.Token);
+                        if (int.TryParse(value, out int processId) && processId > 0) return processId;
+                        throw new InvalidDataException("更新窗口就绪信号内容无效。");
+                    }
+                    catch (IOException)
+                    {
+                        // The visible updater process may still be completing its atomic write.
+                    }
+                }
+
+                await Task.Delay(50, timeoutSource.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"更新进度窗口未能在 {timeout.TotalSeconds:0} 秒内显示，Manager 将保持打开。");
         }
     }
 
@@ -196,7 +255,8 @@ public sealed class UpdateCoordinator
             startInfo = new ProcessStartInfo(_layout.UpdaterExecutable)
             {
                 WorkingDirectory = Path.GetDirectoryName(_layout.UpdaterExecutable)!,
-                UseShellExecute = false
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
             startInfo.ArgumentList.Add(command);
             return true;
@@ -214,7 +274,7 @@ public sealed class UpdateCoordinator
             {
                 WorkingDirectory = Path.GetDirectoryName(_layout.ElectronExecutable)!,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = false
             };
             return true;
         }

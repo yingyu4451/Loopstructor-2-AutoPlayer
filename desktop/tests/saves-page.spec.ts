@@ -31,6 +31,7 @@ describe('save archive page', () => {
 
     expect(wrapper.text()).toContain('第 2 章 · 第 4 关')
     expect(wrapper.text()).toContain('第 1 章 · 第 3 关')
+    expect(wrapper.findAll('.save-step-node')).toHaveLength(0)
     expect(wrapper.findAll('.restore-save-button')).toHaveLength(2)
   })
 })
@@ -38,7 +39,7 @@ describe('save archive page', () => {
 function snapshot(): HostSnapshot {
   return {
     protocolVersion: 1,
-    version: '0.6.67',
+    version: '0.6.68',
     settings: {
       gameRoot: '', profileName: 'Default', continueExistingProfile: false, gameMode: 'normal',
       overrideGameSpeed: false, speedState: 0, maxRunMinutes: 60, skipStory: false,

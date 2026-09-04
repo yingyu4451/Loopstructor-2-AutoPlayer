@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { gsap } from 'gsap'
 import TitleBar from './components/TitleBar.vue'
 import RailSidebar from './components/RailSidebar.vue'
-import CheatControlBar from './components/CheatControlBar.vue'
 import AppToast from './components/AppToast.vue'
 import AppModal from './components/AppModal.vue'
 import GamePage from './pages/GamePage.vue'
@@ -37,7 +36,6 @@ const pageTitles: Record<keyof typeof pages, string> = {
 }
 const activePage = computed(() => pages[store.route])
 const activeTitle = computed(() => pageTitles[store.route])
-const cheatPage = computed(() => ['vehicles', 'items', 'relics', 'battle', 'objects', 'spawn'].includes(store.route))
 let pageTween: gsap.core.Tween | undefined
 let busyTween: gsap.core.Tween | undefined
 
@@ -96,8 +94,7 @@ onBeforeUnmount(() => {
       <main class="content-shell">
         <img :src="stationArt" alt="" width="256" height="256" class="workspace-station" aria-hidden="true" />
         <div class="workbench-caption" aria-hidden="true">{{ activeTitle }}</div>
-        <CheatControlBar v-if="cheatPage" />
-        <div class="page-host" :class="{ 'with-cheat-bar': cheatPage }">
+        <div class="page-host">
           <component :is="activePage" />
         </div>
       </main>

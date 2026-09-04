@@ -6,7 +6,7 @@ return RootLauncher.Run(args);
 internal static class RootLauncher
 {
     internal const string ManagerDirectoryName = "manager";
-    internal const string ManagerExecutableName = "Loopstructor.AutoPlayer.Manager.exe";
+    internal const string ManagerExecutableName = "Loopstructor-2-QA-Tool.exe";
 
     internal static int Run(IReadOnlyList<string> arguments)
     {
