@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.71-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.72-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -198,6 +199,9 @@ test('installs, authenticates, and disconnects the Unity Editor bridge', async (
   const instanceId = `editor-e2e-${process.pid}`
   const token = 'e2e-private-token-'.padEnd(64, 'x')
   const assemblySha256 = 'a'.repeat(64)
+  const iconBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+AvzZ2QAAAABJRU5ErkJggg==', 'base64')
+  const iconFile = 'catalog-icons/e2e.png'
+  const iconSha256 = createHash('sha256').update(iconBytes).digest('hex')
   const observedCommands: string[] = []
   let observedAuthorization = ''
   mkdirSync(resolve(projectRoot, 'Assets'), { recursive: true })
@@ -205,6 +209,8 @@ test('installs, authenticates, and disconnects the Unity Editor bridge', async (
   mkdirSync(resolve(projectRoot, 'ProjectSettings'), { recursive: true })
   mkdirSync(instancesRoot, { recursive: true })
   mkdirSync(artifactRoot, { recursive: true })
+  mkdirSync(resolve(artifactRoot, 'catalog-icons'), { recursive: true })
+  writeFileSync(resolve(artifactRoot, iconFile), iconBytes)
   writeFileSync(resolve(projectRoot, 'ProjectSettings/ProjectVersion.txt'), 'm_EditorVersion: 2022.3.62f3c1\n')
 
   const bridge = createServer((request, response) => {
@@ -236,7 +242,10 @@ test('installs, authenticates, and disconnects the Unity Editor bridge', async (
           success: true,
           message: 'ok',
           data: command === 'cheat.queryCatalog'
-            ? { vehicles: [], enchantments: [], disposables: [], relics: [], enemies: [], catapultPoints: [] }
+            ? {
+                vehicles: [{ id: 'Vehicle_Shell_L1', name: '测试战车', iconFile, iconSha256 }],
+                enchantments: [], disposables: [], relics: [], enemies: [], catapultPoints: [],
+              }
             : { available: true, enabled: true, enemyIdsVisible: false, enemyBuffsVisible: false, baseGodMode: false, mapSkipEnabled: false },
         }))
       })
@@ -296,6 +305,9 @@ test('installs, authenticates, and disconnects the Unity Editor bridge', async (
     const state = await page.evaluate(() => window.loopstructorDesktop.cheatCommand('cheat.queryState', {}))
     expect(state.success).toBe(true)
     expect(state.data?.enabled).toBe(true)
+    const catalog = await page.evaluate(() => window.loopstructorDesktop.cheatCommand('cheat.queryCatalog', {}))
+    expect(catalog.success).toBe(true)
+    expect(catalog.data?.vehicles?.[0]?.iconDataUrl).toBe(`data:image/png;base64,${iconBytes.toString('base64')}`)
     const snapshot = await page.evaluate(() => window.loopstructorDesktop.getSnapshot())
     const publicJson = JSON.stringify(snapshot)
     expect(snapshot.connection.trusted).toBe(true)

@@ -15,7 +15,7 @@ describe('game page controls', () => {
     const store = useAppStore()
     store.snapshot = {
       protocolVersion: 1,
-      version: '0.6.71',
+      version: '0.6.72',
       settings: {} as never,
       connection: { trusted: false, label: '等待选择游戏', reason: '', cheatAvailable: false, autoplayActive: false },
       logs: [],
@@ -33,7 +33,7 @@ describe('game page controls', () => {
     const store = useAppStore()
     store.snapshot = {
       protocolVersion: 1,
-      version: '0.6.71',
+      version: '0.6.72',
       settings: {} as never,
       editorProject: {
         path: 'D:\\Unity Project\\Loopstructor2', valid: true, unityVersion: '2022.3.62f3c1',

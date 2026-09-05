@@ -37,6 +37,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
 
+## 0.6.72 Unity Editor 目录图标修复
+
+`0.6.72` 修复连接 Unity Editor Play Mode 后，战车、道具、遗物等目录卡片全部退化为占位图的问题。Editor Runtime 原本已经把 PNG 与 `iconFile`、`iconSha256` 正确写入 Editor artifact；Host 的图标内联逻辑却只从 Player 握手的 `ArtifactRoot` 取根目录，Editor 连接没有 Player `hello`，因此提前返回且没有生成 renderer 使用的 `iconDataUrl`。
+
+Host 现在按当前可信目标选择 artifact 根：Editor Target 使用经过实例 Registry 所有权校验的 `ArtifactRoot`，Player Target 继续使用握手返回的 `ArtifactRoot`。两条路径共用原有安全校验，包括相对路径包含检查、重解析点拒绝、4 MiB 大小上限和 SHA-256 固定时间比较。Electron E2E 使用真实 PNG 字节和独立已知 hash，通过公共 `cheat.command` RPC 验证 Editor 目录返回精确 `data:image/png;base64,…`，同时继续验证 token 和端口不进入 renderer。
+
+Player pipe 协议 v3、作弊协议 v7、Editor Bridge 协议 v1、Desktop Host 协议 v1、发布目录 schema 2 和更新清单 schema 3 均未改变；本版以 `v0.6.71` 为同格式增量基线。
+
 ## 0.6.71 Unity Editor 连接
 
 `0.6.71` 在“游戏与插件”页新增 Unity 工程选择、Editor 连接组件安装/更新/卸载、多实例发现和明确连接。Manager 管理嵌入式 UPM 包 `Packages/com.loopstructor.qa-editor-bridge`，不修改工程 `Assets` 或 `Packages/manifest.json`；包中所有源码和程序集仅限 Editor，不进入 Player 构建。发布目录新增兼容的 `payload/editor`，包含 `Loopstructor.AutoPlayer.EditorBridge.Runtime.dll` 和 `Loopstructor.AutoPlayer.Core.dll`。
@@ -284,19 +292,19 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.71 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.72 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor-2-QA-Tool-0.6.71-win-x64.zip
-Loopstructor-2-QA-Tool-0.6.71-win-x64.zip.sha256
+Loopstructor-2-QA-Tool-0.6.72-win-x64.zip
+Loopstructor-2-QA-Tool-0.6.72-win-x64.zip.sha256
 autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.72-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor-2-QA-Tool/
@@ -327,19 +335,12 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 3�
 ```json
 {
   "schemaVersion": 3,
-  "version": "0.6.71",
+  "version": "0.6.72",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor-2-QA-Tool-0.6.71-win-x64.zip",
-  "sha256": "b9e1b0b5b2548a6d83190dc5489446427a75275e2ec5a7ed1a54dcc363be2196",
-  "size": 196371606,
-  "deltaAssets": [
-    {
-      "fromVersion": "0.6.70",
-      "assetName": "Loopstructor-2-QA-Tool-0.6.70-to-0.6.71-win-x64.delta.zip",
-      "sha256": "868b0b06774a5088cfd684dedd0d3f015d8fcbd4498e44c6d8be4e401b00664e",
-      "size": 114412787
-    }
-  ]
+  "assetName": "Loopstructor-2-QA-Tool-0.6.72-win-x64.zip",
+  "sha256": "02d3688408955caead5f5c6aa8550137acdffe1729343184f7aa00e7a266ac4c",
+  "size": 196371461,
+  "deltaAssets": []
 }
 ```
 

@@ -1227,7 +1227,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private void InlineVerifiedCatalogIcons(JObject data)
     {
-        string root = _hello?.ArtifactRoot ?? string.Empty;
+        string root = _editorTrustedInstance?.ArtifactRoot ?? _hello?.ArtifactRoot ?? string.Empty;
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
         foreach (JObject item in data.DescendantsAndSelf().OfType<JObject>())
         {

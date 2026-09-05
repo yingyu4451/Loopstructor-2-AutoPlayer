@@ -1,6 +1,6 @@
 # Loopstructor 2 QA Tool
 
-Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏和 Unity Editor 的本地调试工具。`v0.6.71` 新增 Unity 工程选择、Editor 专用连接组件管理、多实例发现和受鉴权连接；Edit Mode 可读取工程、编译、场景与目录状态，Play Mode 可直接使用现有 QA 调试页面。`.NET 8 Host` 统一负责 Player 与 Editor 两条连接路径、游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
+Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏和 Unity Editor 的本地调试工具。`v0.6.72` 修复连接 Unity Editor 后全部目录图标失效的问题：Host 现在从已验证的 Editor artifact 根目录读取 PNG，并继续执行路径包含、文件大小、重解析点和 SHA-256 校验，再将图标转换为 renderer 可显示的 `data:` URL。`.NET 8 Host` 统一负责 Player 与 Editor 两条连接路径、游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
 Editor 连接组件是工具管理的嵌入式 UPM 包，只安装到所选工程的 `Packages/com.loopstructor.qa-editor-bridge`。它不修改 `Assets` 或 `Packages/manifest.json`，不进入 Player 构建，也不把 BepInEx、Harmony 或 Player 插件 DLL 放入 Unity 工程。Editor Play Mode 通过独立运行程序集复用现有作弊反射核心；自动游玩和需要 Harmony 的地图自由跳转仍只在打包 Player 插件模式提供。
 
@@ -27,20 +27,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.71 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.72 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.71
+.\scripts\package.ps1 -Version 0.6.72
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor-2-QA-Tool\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor-2-QA-Tool-0.6.72-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor-2-QA-Tool\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor-2-QA-Tool.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
@@ -169,7 +169,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到采用同一发布格式且可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 用于手动下载、首次安装、跨格式升级和完整包回退，内部只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录。
+push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到采用同一发布格式且可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor-2-QA-Tool-0.6.72-win-x64.zip` 用于手动下载、首次安装、跨格式升级和完整包回退，内部只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 
