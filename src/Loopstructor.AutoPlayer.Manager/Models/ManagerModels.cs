@@ -111,6 +111,7 @@ public sealed class ManagerSettings
     public const string PreviousGitHubRepository = "Loopstructor-2-AutoPlayer";
 
     public string GameRoot { get; set; } = string.Empty;
+    public string UnityProjectRoot { get; set; } = string.Empty;
     public string ProfileName { get; set; } = "player-default";
     public bool ContinueExistingProfile { get; set; }
     public AutomationGameMode GameMode { get; set; } = AutomationGameMode.Common;

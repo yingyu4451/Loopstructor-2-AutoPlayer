@@ -20,6 +20,7 @@ watch(() => store.connected, async (connected) => {
 })
 
 const status = computed(() => store.snapshot?.status)
+const editorTarget = computed(() => store.snapshot?.connection.target === 'editor')
 const runState = computed(() => String(status.value?.runState ?? 'standby').toLowerCase())
 const isRunning = computed(() => runState.value === 'running')
 const isPaused = computed(() => runState.value === 'paused')
@@ -34,6 +35,7 @@ const setupAllowsStart = computed(() => {
   return draft.value?.gameMode === 'random' || characters.value.some(item => item.cfgIndex === draft.value?.characterCfgIndex)
 })
 const canStart = computed(() => store.connected
+  && !editorTarget.value
   && !status.value?.needsProcessRestart
   && ['standby', 'completed', 'faulted'].includes(runState.value)
   && setupAllowsStart.value)
@@ -48,7 +50,7 @@ const speedChoice = computed({
 })
 
 async function refreshSetup() {
-  if (!store.connected || setupLoading.value) return
+  if (!store.connected || editorTarget.value || setupLoading.value) return
   setupLoading.value = true
   try {
     const response = await store.refreshAutomationSetup()
@@ -78,7 +80,7 @@ onMounted(refreshSetup)
   <div class="page-grid autoplay-page">
     <section class="page-heading">
       <div><span class="eyebrow">AUTOMATION</span><h1>自动游玩</h1></div>
-      <button class="btn btn-outline btn-sm button secondary compact" :disabled="!store.connected || setupLoading || ui.busy" @click="refreshSetup">
+      <button class="btn btn-outline btn-sm button secondary compact" :disabled="!store.connected || editorTarget || setupLoading || ui.busy" @click="refreshSetup">
         <RefreshCw :size="16" />刷新可玩内容
       </button>
     </section>
@@ -92,7 +94,7 @@ onMounted(refreshSetup)
       <section class="card mechanical-section automation-config">
         <header class="section-heading compact-heading">
           <div class="heading-with-icon"><Bot :size="21" /><div><h2>运行配置</h2><p>可玩模式和角色直接读取当前已连接的游戏。</p></div></div>
-          <span class="status-badge" :class="{ online: store.connected, warning: !store.connected }">{{ store.connected ? '游戏已连接' : '等待游戏连接' }}</span>
+          <span class="status-badge" :class="{ online: store.connected && !editorTarget, warning: !store.connected || editorTarget }">{{ editorTarget ? 'Editor 不支持自动游玩' : store.connected ? '游戏已连接' : '等待游戏连接' }}</span>
         </header>
         <div v-if="draft" class="automation-form" :class="{ locked: isActive }">
           <label><span>游戏模式</span><select v-model="draft.gameMode" class="select select-bordered" name="game-mode" autocomplete="off" :disabled="isActive"><option v-for="mode in modes" :key="mode.mode" :value="mode.mode" :disabled="!mode.available" :title="mode.reason">{{ mode.displayName }}{{ mode.available ? '' : ' · 不可用' }}</option></select></label>

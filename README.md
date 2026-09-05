@@ -1,14 +1,15 @@
 # Loopstructor 2 QA Tool
 
-Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏的本地调试工具。`v0.6.70` 在安装更新前明确询问是否关闭 QA 工具；游戏仍在运行时用一次确认说明会同时关闭游戏与工具。更新窗口显示后，Manager 会立即隐藏主窗口，等待后台 `.NET Host` 正常退出，超时才终止自己创建的 Host，确认整套工具退出后 Updater 才替换文件。`.NET 8 Host` 继续负责游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
+Loopstructor 2 QA Tool 是一个面向 Windows x64 打包游戏和 Unity Editor 的本地调试工具。`v0.6.71` 新增 Unity 工程选择、Editor 专用连接组件管理、多实例发现和受鉴权连接；Edit Mode 可读取工程、编译、场景与目录状态，Play Mode 可直接使用现有 QA 调试页面。`.NET 8 Host` 统一负责 Player 与 Editor 两条连接路径、游戏验证、插件安装、可信会话、存档、自动游玩、作弊命令和更新交接。
 
-当前插件不能直接作为 Unity Editor 扩展使用：入口依赖打包后游戏目录中的 BepInEx、Manager 本机握手和 Player 运行时。若后续需要在 Play Mode 中使用，应单独实现 Editor 启动桥接，而不是把当前插件 DLL 直接放入 Unity 工程。
+Editor 连接组件是工具管理的嵌入式 UPM 包，只安装到所选工程的 `Packages/com.loopstructor.qa-editor-bridge`。它不修改 `Assets` 或 `Packages/manifest.json`，不进入 Player 构建，也不把 BepInEx、Harmony 或 Player 插件 DLL 放入 Unity 工程。Editor Play Mode 通过独立运行程序集复用现有作弊反射核心；自动游玩和需要 Harmony 的地图自由跳转仍只在打包 Player 插件模式提供。
 
-> 本仓库只包含自动化工具代码，不包含、复制或发布任何游戏 DLL。工具不会改写磁盘上的 `Assembly-CSharp.dll`；它只读取该文件的 SHA-256 以确认游戏构建。玩家模式使用当前 Windows 用户下、绑定游戏目录与程序集指纹的本机控制注册；隔离 QA 模式仍使用一次性激活上下文。
+> 本仓库只包含自动化工具代码，不包含、复制或发布任何游戏 DLL。工具不会改写磁盘上的 `Assembly-CSharp.dll`；它只读取该文件的 SHA-256 以确认 Player 或 Editor 工程。玩家模式使用当前 Windows 用户下、绑定游戏目录与程序集指纹的本机控制注册；Editor 使用带心跳的本机实例登记和随机 Bearer token；隔离 QA 模式仍使用一次性激活上下文。
 
 ## 适用范围
 
 - Windows x64、Unity `2022.3.62f3c1`、Mono 后端的 Loopstructor 2 测试包。
+- Unity Editor 连接支持包含完整 `Assets`、`Packages` 和 `ProjectSettings/ProjectVersion.txt` 的 Unity `2022.3` 工程。
 - 游戏包必须包含与当前源码一致的 `GuiGameAutomation.Runtime` 公共自动化契约。
 - 当前 BepInEx 与该 Unity Mono 构建组合要求完整游戏路径只含 ASCII 字符；可包含英文字母、数字和空格。该限制来自注入后的运行时兼容性，未安装 BepInEx 的游戏本体不受影响。
 - 玩家模式用于本地单机游玩，直接使用当前玩家存档和平台行为；Manager 可在章节关卡变化后自动复制稳定快照，但不会自动回滚。需要可重复、可审计且不接触正常存档的回归时，应使用隔离 QA 模式和专用测试账号。
@@ -26,26 +27,33 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Configuration Release
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
-.\scripts\package.ps1 -Version 0.6.70 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.71 -SkipBuild
 ```
 
 若只想一步生成发布包，可以在 bootstrap 后运行：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.70
+.\scripts\package.ps1 -Version 0.6.71
 ```
 
 产物位于 `artifacts\release`。详细发布流程见 [docs/release.md](docs/release.md)。
 
 ## 使用发布包
 
-1. 将 `Loopstructor-2-QA-Tool-0.6.70-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor-2-QA-Tool\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
+1. 将 `Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 完整解压；压缩包内只有一个固定的 `Loopstructor-2-QA-Tool\` 顶层目录，不在目录名中附加版本号。不要直接在资源管理器的 ZIP 预览中运行程序。
 2. 进入该目录并启动根部的 `Loopstructor-2-QA-Tool.exe`。发布包内已包含 Electron、`.NET 8 Host` 和无窗口事务用 .NET Updater，无需另外安装 Node.js 或系统 .NET；内部程序均位于 `manager\` 目录。发现更新时会复用同一个 Electron Manager，以 `--updater` 模式显示更新页面。
 3. 选择打包游戏的 EXE 或游戏根目录。不要选择 Unity 工程目录。Manager 会在安装前拒绝包含中文或其他非 ASCII 字符的完整游戏路径，并给出移动目录的中文提示。
 4. 安装或更新测试载荷。管理器只应安装包内 `payload\bepinex` 和 `payload\plugin` 的已知文件。
 5. 安装完成后，Manager 会为该游戏目录创建当前 Windows 用户专用的玩家模式本机控制注册；注册绑定游戏根目录、插件协议和 `Assembly-CSharp.dll` SHA-256，不会开放网络端口。
 6. 可以先手动启动游戏，也可以点击 Manager 的“启动游戏”。游戏已运行时 Manager 只连接现有进程，不会重复启动。
 7. Manager 会核验插件回传的真实游戏 PID、可执行文件路径、程序集指纹、运行时契约和本机令牌。握手通过后可随时开始、暂停、恢复或停止自动游玩。
+
+### 连接 Unity Editor
+
+1. 在“游戏与插件”页选择 Unity 工程根目录，然后安装或更新 Editor 连接组件。
+2. 返回 Unity 并等待脚本编译完成。Manager 每 2 秒发现一次当前 Windows 用户下的活动 Editor 实例，同一工程打开多个实例时会分别显示 PID、模式和场景。
+3. 在对应实例上点击“连接”。Edit Mode 保持只读工程状态；进入 Play Mode 后，Host 会再次核验 Unity 进程路径、PID、实例 ID 和 `Assembly-CSharp.dll` SHA-256，再开放 QA 调试命令。
+4. Editor 退出、域重载超过 10 秒或鉴权状态不一致时，Host 自动撤销可信状态；随机 token 和端口只保留在 Host 内，不会发送给 renderer。
 
 “运行轨道”区域可选择是否跳过普通事件剧情，以及“优先拿战车”或“优先拿弹射点”两种决策方向。剧情开关只作用于带剧情的普通事件；每章首个轨神事件仍按游戏原流程直接选择。设置会保存在当前 Manager 配置中。战斗维护以游戏容量服务返回的动态容量为准，轨道占用统一计算运行战车与 FIFO 等待战车；没有容量堵塞时，再按每辆战车的基础输出、独立速度、轨道长度和站点数估算扩轨吞吐。右侧目标型道具只会使用 MCP 当前返回且条件通过的真实目标，轨道扩建资源不会被当作战斗道具消耗。
 
@@ -54,7 +62,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```text
 %LOCALAPPDATA%\LoopstructorAutoPlayer\
   control\installed-<game-root-id>.json
+  editor-instances\editor-<pid>.json
   profiles\<game-id>\<qa-profile-id>\
+  artifacts\editor\<project-id>\
   artifacts\<game-id>\<run-id>\
   save-backups\<game-id>\第01章-第003关-20260831-123456\
   tickets\launch-<game-root-id>.json
@@ -62,11 +72,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 独立的“存档”页面可启用或关闭自动备份、设置最多保留 1–100 个步骤存档，并列出全部受管快照。Host 只处理正式玩家模式：检测到章节或关卡变化后先等待游戏写盘稳定，再在临时目录中复制；复制前后文件指纹一致才原子完成。目录名使用“章节 + 关卡号 + 本地日期时间”，超过上限时只删除工具自己管理且名称严格匹配的最旧备份。选择读档后，Manager 会请求 Skyspine 正常关闭，把快照完整校验后以临时事务替换当前玩家存档；失败会恢复读档前状态，成功后自动重启游戏。隔离 QA 存档不会进入玩家备份目录。
 
-玩家模式的本机注册使用稳定的 pipe 基础名与高熵 token，使手动启动的游戏也能被同一用户的 Manager 找到；每个实际游戏进程使用带 PID 的专属端点，握手后每条请求还必须匹配随机进程实例标识。插件和 Manager 同时校验目录、PID、进程启动时间、进程实例、程序集指纹及运行时契约；检测到多个未绑定的同目录游戏进程时会拒绝任意选择。隔离 QA 模式的启动票据在读取后立即删除，最长有效期为 10 分钟，并为每次启动重新生成 pipe 与 token。两类 token 都不得写入日志或提交到 Git。
+玩家模式的本机注册使用稳定的 pipe 基础名与高熵 token，使手动启动的游戏也能被同一用户的 Manager 找到；每个实际游戏进程使用带 PID 的专属端点，握手后每条请求还必须匹配随机进程实例标识。Editor Bridge 只监听 `127.0.0.1`，每个 Editor 实例使用独立随机端口和 Bearer token，并通过原子登记文件发布心跳；renderer 只能取得移除凭据后的实例 DTO。插件、Bridge 和 Manager 分别校验目录、PID、进程路径、实例与程序集指纹；检测到多个实例时要求用户明确选择。隔离 QA 模式的启动票据在读取后立即删除，最长有效期为 10 分钟。所有 token 都不得写入日志、renderer 快照或 Git。
 
 ### 作弊调试模式
 
-通过安全握手的游戏进程可以在统一工具窗口的“作弊”分组中手动开启或关闭作弊模式。战车、道具、遗物、战斗、对象属性和生成均为同一窗口中的独立页面；自动游玩遗留会话存在时，只读查询与敌人 ID/Buff 显示仍可用，其他写操作锁定。玩家模式会直接修改当前玩家存档，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
+通过安全握手的 Player 或 Editor Play Mode 进程默认启用 QA 调试能力。战车、道具、遗物、战斗、对象属性和生成均为同一窗口中的独立页面；自动游玩遗留会话存在时，只读查询与敌人 ID/Buff 显示仍可用，其他写操作锁定。Player 玩家模式和 Editor Play Mode 都会直接修改当前游戏状态，使用前应自行备份；隔离 QA 模式才把修改限制在可丢弃测试档。
 
 战车、附魔、消耗品、弹射点和遗物目录直接读取当前游戏程序集与配置，怪物目录另行保留安全生成筛选；各目录优先显示游戏配置中的简体中文名称及图标，同时保留内部枚举名和 ID 便于诊断，配置缺少显示资料时才回退到内部 ID 和占位图。战车底层目录仍保留内部过渡形态用于旧数据诊断，但快捷投放区每个系列只显示“初始形态 / 升级形态”。新增或设置附魔的选择器不显示已停用的群组专属附魔；旧存档已有项仍可在对象详情中查看和移除。插件不会为了读取中文名而切换游戏的全局语言。
 
@@ -141,9 +151,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```text
 src/Loopstructor.AutoPlayer.Core/      共享协议、状态模型与决策引擎
 src/Loopstructor.AutoPlayer.Plugin/    netstandard2.1 BepInEx 5 插件
+src/Loopstructor.AutoPlayer.EditorBridge.Runtime/  无 BepInEx/Harmony 的 Editor Play Mode 运行层
 src/Loopstructor.AutoPlayer.Launcher/  根目录单文件启动器
 src/Loopstructor.AutoPlayer.Host/      .NET 8 无窗口服务与 JSON 行 RPC
 desktop/                               Electron 44 + Vue 3 统一桌面界面
+resources/unity-package/               随 Manager 发布的 Editor-only UPM 包
 src/Loopstructor.AutoPlayer.Manager/   Host 复用的安装、会话、存档与更新服务源
 src/Loopstructor.AutoPlayer.Updater/   独立更新进程
 tests/                                 自动化测试
@@ -157,7 +169,7 @@ docs/                                  架构、安全与发布说明
 
 ## GitHub 与自动更新
 
-push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到采用同一发布格式且可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor-2-QA-Tool-0.6.70-win-x64.zip` 用于手动下载、首次安装、跨格式升级和完整包回退，内部只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录。
+push 和 pull request 会运行 .NET、Vue、TypeScript、Vitest 和 Electron Playwright 测试；推送 `v*` tag 会生成完整的 Windows x64 Release ZIP、对应 SHA-256 和 `autoplayer-update-manifest.json`，随后发布 GitHub Release。找到采用同一发布格式且可验证的上一正式版本时，工作流还会生成“上一版本 → 当前版本”的文件级增量 ZIP。`Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 用于手动下载、首次安装、跨格式升级和完整包回退，内部只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录。
 
 从安装了 `v0.5.3` 开始，Updater 会在当前安装版本与清单中的 `fromVersion` 精确一致、当前文件校验通过且增量包小于完整包时，只下载发生变化的文件。它会在空 staging 目录中把本地未变文件和增量文件重建成完整新版，逐文件校验通过后再沿用原有事务安装与回滚。没有匹配增量、跳过版本或旧客户端时自动使用完整 ZIP。`v0.5.2 → v0.5.3` 仍需完整下载一次，因为已发布的 `v0.5.2` Updater 不识别增量清单；后续相邻版本才会使用增量更新。
 

@@ -88,7 +88,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\test.ps1 -Configuration Release -NoRestore -NoBuild
 ```
 
-预期版本面均为 `0.6.70`：
+预期版本面均为 `0.6.71`：
 
 - `Directory.Build.props` 的 `VersionPrefix`；
 - `src/Loopstructor.AutoPlayer.Plugin/PluginInfo.cs`；
@@ -112,12 +112,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ### 3. 不在仓库中的项目数据
 
-- Unity 游戏工程必须单独迁移。旧电脑曾使用 `D:\Unity Project\Loopstructor2`，但新路径可以不同；本工具仓库不包含游戏源码。
+- Unity 游戏工程必须单独迁移。旧电脑曾使用 `D:\Unity Project\Loopstructor2`，但新路径可以不同；本工具仓库不包含游戏源码。迁移后在 Manager 中重新选择工程并安装 Editor 连接组件，不要手工复制旧的 `Editor/Managed`。
 - 打包测试游戏也要单独迁移，并放在完整路径只含 ASCII 字符的位置。Manager 中应选择打包游戏 EXE 或根目录，不能选择 Unity 工程目录。
 - 仓库根的 `artifacts` 被 Git 忽略。只有确实需要保留的失败日志、截图、校验记录和测试报告才单独复制，并在分享前检查账号名、绝对路径和未公开内容。
 - 玩家备份默认位于 `%LOCALAPPDATA%\LoopstructorAutoPlayer\save-backups`。需要保留玩家读档点时只复制该目录，并在新电脑首次使用前再次备份。
 - `profiles` 是隔离 QA 数据，原则上应新建；只有为了复现实验才有选择地迁移。不要把旧 profile 当作玩家正式存档。
-- 不迁移 `%LOCALAPPDATA%\LoopstructorAutoPlayer\control` 或 `tickets`。它们绑定旧电脑的用户、游戏目录、程序集指纹、pipe 和高熵令牌；新电脑应由 Manager 重新安装并生成。
+- 不迁移 `%LOCALAPPDATA%\LoopstructorAutoPlayer\control`、`editor-instances` 或 `tickets`。它们绑定旧电脑的用户、进程、目录、程序集指纹和高熵令牌；新电脑应由 Manager 或 Editor Bridge 重新生成。
 
 ### 4. 绝不能提交或普通分享的数据
 

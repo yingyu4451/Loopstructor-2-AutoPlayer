@@ -11,6 +11,7 @@
 | BepInEx 编译包 | `BepInEx.Core 5.4.21` |
 | Unity 编译引用 | `UnityEngine.Modules 2022.3.62` |
 | 插件目标框架 | `netstandard2.1`（对应当前 Unity 2022 项目的 `apiCompatibilityLevel: 6`） |
+| Editor Bridge | Unity `2022.3` Editor-only UPM 包；运行层为 `netstandard2.1` |
 | Desktop | Electron `44.x`、Node `24` 构建链、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS `4.3.3`、daisyUI `5.7.22`、离线 Iconify |
 | Host/Updater RID | `win-x64`；Host 与无窗口 .NET Updater 均随包发布，无需系统 .NET |
 
@@ -35,6 +36,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 `bootstrap.ps1` 下载固定 SDK zip、验证 SHA-512 后安装到 `.dotnet`。`build.ps1` 使用仓库的 `NuGet.config`，仅启用 nuget.org 和 BepInEx 官方 feed，并通过冻结的 pnpm lockfile 构建 Electron/Vue 前端。`test.ps1` 把 TRX 写入 `artifacts\TestResults`，并运行 TypeScript、ESLint 与 Vitest 验证。
+
+## 0.6.71 Unity Editor 连接
+
+`0.6.71` 在“游戏与插件”页新增 Unity 工程选择、Editor 连接组件安装/更新/卸载、多实例发现和明确连接。Manager 管理嵌入式 UPM 包 `Packages/com.loopstructor.qa-editor-bridge`，不修改工程 `Assets` 或 `Packages/manifest.json`；包中所有源码和程序集仅限 Editor，不进入 Player 构建。发布目录新增兼容的 `payload/editor`，包含 `Loopstructor.AutoPlayer.EditorBridge.Runtime.dll` 和 `Loopstructor.AutoPlayer.Core.dll`。
+
+每个 Unity Editor 进程通过 `%LOCALAPPDATA%\LoopstructorAutoPlayer\editor-instances` 发布 2 秒心跳，使用独立随机回环端口和 Bearer token。Host 只接受 10 秒内、路径属于工具数据目录且协议为 v1 的登记，并在 Play Mode 连接前交叉核验项目路径、Unity 可执行文件、PID、实例 ID 和 `Assembly-CSharp.dll` SHA-256；端口和 token 不进入 renderer DTO 或 Host 快照。域重载短暂消失时保持 10 秒容忍，超时自动撤销并清除连接。
+
+Editor Play Mode 使用独立运行程序集链接现有作弊反射核心，不加载 BepInEx、Harmony 或 Player 插件，从而避免 Unity 工程现有 Harmony 版本冲突。QA 调试默认启用；自动游玩及依赖 Harmony 的地图自由跳转仍只在打包 Player 模式提供。真实 Unity `2022.3.62f3c1` 已完成 Edit Mode 状态/目录、401 未授权拒绝、Play Mode 可信连接、状态查询和敌人 ID 开关可逆写入验证；Electron E2E 覆盖安装、鉴权、凭据隔离和 rendezvous 消失后的自动断连。
+
+Player pipe 协议 v3、作弊协议 v7、Desktop Host 协议 v1、发布目录 schema 2 和更新清单 schema 3 均未改变；Editor Bridge 使用独立协议 v1。本版以 `v0.6.70` 为同格式增量基线。
 
 ## 0.6.70 更新关闭确认与 Host 完整退出
 
@@ -273,19 +284,19 @@ Host 新增向后兼容的自动游玩白名单 RPC，并继续使用现有插�
 已经完成同版本 Release 构建时：
 
 ```powershell
-.\scripts\package.ps1 -Version 0.6.70 -SkipBuild
+.\scripts\package.ps1 -Version 0.6.71 -SkipBuild
 ```
 
 版本必须是 SemVer。脚本生成：
 
 ```text
 artifacts/release/
-Loopstructor-2-QA-Tool-0.6.70-win-x64.zip
-Loopstructor-2-QA-Tool-0.6.70-win-x64.zip.sha256
+Loopstructor-2-QA-Tool-0.6.71-win-x64.zip
+Loopstructor-2-QA-Tool-0.6.71-win-x64.zip.sha256
 autoplayer-update-manifest.json
 ```
 
-完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.70-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
+完整 Release ZIP `Loopstructor-2-QA-Tool-0.6.71-win-x64.zip` 用于手动下载、首次安装、跨格式升级和增量不可用时的回退。必须先完整解压，不能直接在资源管理器的 ZIP 预览中运行。压缩包内只有固定的 `Loopstructor-2-QA-Tool\` 顶层目录，目录名不包含版本号；进入该目录后才是程序根目录：
 
 ```text
 Loopstructor-2-QA-Tool/
@@ -298,6 +309,7 @@ Loopstructor-2-QA-Tool/
     Loopstructor.AutoPlayer.Updater.exe  无窗口 .NET 更新事务入口
   payload/
     bepinex/
+    editor/
     plugin/
   autoplayer-release.json
   version.json
@@ -306,7 +318,7 @@ Loopstructor-2-QA-Tool/
 
 固定目录无需随版本升级而重命名。完整解压后运行根部 `Loopstructor-2-QA-Tool.exe` 无需安装 Node.js 或系统 .NET；根启动器、Electron Desktop、.NET Host 与无窗口 .NET Updater 均包含在发布包中。发布包不再创建或接受旧 `updater\` 目录、`Loopstructor 2.AutoPlayer\` 包装目录或 `Loopstructor.AutoPlayer.Manager.exe` 入口。更新应用前，Updater 会把自身和所需运行时一起复制到临时目录，因此仍能安全替换整个程序目录。实际版本与 schema 2 发布目录标记同时记录在程序根部的 `autoplayer-release.json`。
 
-`payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
+`payload\bepinex` 必须是经过固定哈希验证的 BepInEx `5.4.23.5` Windows x64 运行时；不得在打包时自动漂移到最新版。`payload\plugin` 只包含 AutoPlayer Plugin、Core 和必要的第三方运行依赖。`payload\editor` 只包含 Editor Runtime 与 Core，不得包含 BepInEx、Harmony 或 Player Plugin。发布包不得包含 `Assembly-CSharp.dll`、其他游戏 DLL、Unity 测试引用、QA profile、Player.log、状态/截图等测试工件、token 或启动票据；`Assembly-CSharp.dll` 也不得被复制或修改。
 
 ## 更新清单
 
@@ -315,19 +327,12 @@ GitHub Release 根资产 `autoplayer-update-manifest.json` 的协议版本为 3�
 ```json
 {
   "schemaVersion": 3,
-  "version": "0.6.70",
+  "version": "0.6.71",
   "runtimeIdentifier": "win-x64",
-  "assetName": "Loopstructor-2-QA-Tool-0.6.70-win-x64.zip",
-  "sha256": "747cdc55606243a858bbf5406d184dbc9b451be3a3eb2eb5ada964deba6aaa5a",
-  "size": 196163355,
-  "deltaAssets": [
-    {
-      "fromVersion": "0.6.69",
-      "assetName": "Loopstructor-2-QA-Tool-0.6.69-to-0.6.70-win-x64.delta.zip",
-      "sha256": "565a3a0295f3799dba6691ee25bca9a62aadb89f2a6effa31ecea91d7b56396b",
-      "size": 114204272
-    }
-  ]
+  "assetName": "Loopstructor-2-QA-Tool-0.6.71-win-x64.zip",
+  "sha256": "848e2e723ec823987601b018e0b58faa947ade0b4244b9774b3b1a67db24dbcc",
+  "size": 196371919,
+  "deltaAssets": []
 }
 ```
 

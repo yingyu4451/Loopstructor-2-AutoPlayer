@@ -22,4 +22,7 @@
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj" />
     <ProjectReference Include="..\..\src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\resources\unity-package\com.loopstructor.qa-editor-bridge\Editor\QaBridgeWorkItem.cs" Link="UnityEditorBridge\QaBridgeWorkItem.cs" />
+  </ItemGroup>
 </Project>

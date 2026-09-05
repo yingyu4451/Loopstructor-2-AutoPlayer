@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { FolderOpen, ShieldCheck, PlugZap, Plug, Trash2, Play, RefreshCw } from '../icons'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { FolderOpen, ShieldCheck, PlugZap, Plug, Trash2, Play, RefreshCw, MonitorCog } from '../icons'
 import { useAppStore } from '../stores/app'
 import { useUiStore } from '../stores/ui'
 
@@ -10,6 +10,21 @@ const pluginState = computed(() => store.snapshot?.plugin?.state ?? 'notInstalle
 const pluginStateLabel = computed(() => ({
   enabled: '已启用', disabled: '已停用', incomplete: '需要修复', notInstalled: '未安装',
 }[pluginState.value]))
+const editorProject = computed(() => store.snapshot?.editorProject)
+const editorConnection = computed(() => store.snapshot?.editorConnection)
+const editorInstances = computed(() => {
+  const selected = editorProject.value?.path.toLowerCase()
+  return (store.snapshot?.editorInstances ?? []).filter(instance => !selected || instance.projectPath.toLowerCase() === selected)
+})
+let editorRefreshTimer: number | undefined
+
+onMounted(() => {
+  void store.refreshEditorInstances()
+  editorRefreshTimer = window.setInterval(() => void store.refreshEditorInstances(), 2000)
+})
+onBeforeUnmount(() => {
+  if (editorRefreshTimer) window.clearInterval(editorRefreshTimer)
+})
 </script>
 
 <template>
@@ -29,6 +44,42 @@ const pluginStateLabel = computed(() => ({
       <div class="validation-strip" :class="store.snapshot?.game ? 'valid' : 'waiting'">
         <ShieldCheck :size="18" />
         <span>{{ store.snapshot?.game ? '游戏构建与运行时合同已验证' : '选择游戏目录后才能管理插件' }}</span>
+      </div>
+    </section>
+
+    <section class="card mechanical-section editor-section">
+      <header class="section-heading">
+        <div class="heading-with-icon"><MonitorCog :size="21" /><div><h2 translate="no">Unity Editor</h2><p>{{ editorConnection?.runtimeReady ? 'Play Mode 运行控制已就绪' : editorConnection?.success ? 'Edit Mode 已连接' : editorProject?.bridgeInstalled ? '连接组件已安装' : '等待选择工程' }}</p></div></div>
+        <button v-tooltip="'刷新 Editor 实例'" class="btn btn-square btn-ghost btn-sm icon-button" aria-label="刷新 Editor 实例" :disabled="ui.busy" @click="store.refreshEditorInstances"><RefreshCw :size="17" /></button>
+      </header>
+      <div class="path-row">
+        <div class="path-display">
+          <span>{{ editorProject?.path || '尚未选择 Unity 工程' }}</span>
+          <small v-if="editorProject?.valid">Unity {{ editorProject.unityVersion }} · {{ editorProject.bridgeInstalled ? '连接组件已安装' : '连接组件未安装' }}</small>
+        </div>
+        <button class="btn btn-outline button secondary" :disabled="ui.busy" @click="store.selectUnityProject"><FolderOpen :size="17" />选择工程</button>
+      </div>
+      <div class="editor-bridge-actions">
+        <button class="btn btn-primary button primary" :disabled="!editorProject?.valid || ui.busy" @click="store.installEditorBridge"><PlugZap :size="17" />{{ editorProject?.bridgeInstalled ? '更新连接组件' : '安装连接组件' }}</button>
+        <button class="btn btn-error btn-sm button danger compact" :disabled="!editorProject?.bridgeInstalled || ui.busy" @click="store.uninstallEditorBridge"><Trash2 :size="16" />卸载连接组件</button>
+        <span v-if="editorProject" class="editor-bridge-state" aria-live="polite">{{ editorProject.message }}</span>
+      </div>
+      <div class="editor-instance-list" aria-live="polite">
+        <div v-for="instance in editorInstances" :key="instance.instanceId" class="editor-instance-row">
+          <span class="signal-dot" :class="instance.runtimeReady ? 'is-online' : 'is-waiting'" />
+          <div class="editor-instance-copy">
+            <strong>{{ instance.displayName }}</strong>
+            <small>PID {{ instance.processId }} · {{ instance.mode === 'editor-play' ? 'Play Mode' : 'Edit Mode' }} · {{ instance.sceneName || '未打开场景' }}</small>
+          </div>
+          <button
+            v-if="editorConnection?.instanceId !== instance.instanceId"
+            class="btn btn-outline btn-sm button secondary compact"
+            :disabled="ui.busy"
+            @click="store.connectEditor(instance.instanceId)"
+          ><Plug :size="16" />连接</button>
+          <button v-else class="btn btn-error btn-sm button danger compact" :disabled="ui.busy" @click="store.disconnectEditor">断开</button>
+        </div>
+        <p v-if="editorInstances.length === 0" class="empty-state">未发现运行中的 Unity Editor 实例。</p>
       </div>
     </section>
 

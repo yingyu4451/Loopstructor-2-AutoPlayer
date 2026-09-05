@@ -4,6 +4,7 @@ export type SkinId = 'skyspine'
 
 export interface ManagerSettings {
   gameRoot: string
+  unityProjectRoot?: string
   profileName: string
   continueExistingProfile: boolean
   gameMode: string
@@ -45,11 +46,45 @@ export interface PluginStatus {
   detail: string
 }
 
+export interface UnityProjectInspection {
+  path: string
+  valid: boolean
+  unityVersion: string
+  bridgeInstalled: boolean
+  message: string
+}
+
+export interface EditorBridgeInstance {
+  instanceId: string
+  kind: 'editor'
+  processId: number
+  displayName: string
+  projectPath: string
+  unityVersion: string
+  gameVersion: string
+  sceneName: string
+  mode: 'editor-edit' | 'editor-play'
+  runtimeReady: boolean
+  lastSeenAt: string
+}
+
+export interface EditorBridgeConnection {
+  success: boolean
+  message: string
+  instanceId: string
+  processId: number
+  mode: 'editor-edit' | 'editor-play'
+  runtimeReady: boolean
+  sceneName: string
+  assemblySha256: string
+}
+
 export interface ConnectionState {
   trusted: boolean
   label: string
   reason: string
   processId?: number
+  target?: 'none' | 'player' | 'editor'
   cheatAvailable: boolean
   autoplayActive: boolean
 }
@@ -167,6 +202,9 @@ export interface HostSnapshot {
   settings: ManagerSettings
   game?: GameValidation
   plugin?: PluginStatus
+  editorProject?: UnityProjectInspection
+  editorInstances?: EditorBridgeInstance[]
+  editorConnection?: EditorBridgeConnection
   connection: ConnectionState
   hello?: Record<string, unknown>
   status?: AutoPlayerStatus
@@ -211,6 +249,13 @@ export interface DesktopApi {
   saveSettings(settings: ManagerSettings): Promise<ManagerSettings>
   selectGameDirectory(): Promise<unknown>
   validateGame(path: string): Promise<unknown>
+  selectUnityProject(): Promise<UnityProjectInspection | null>
+  validateUnityProject(path: string): Promise<UnityProjectInspection>
+  installEditorBridge(): Promise<{ success: boolean; message: string; inspection?: UnityProjectInspection }>
+  uninstallEditorBridge(): Promise<{ success: boolean; message: string; inspection?: UnityProjectInspection }>
+  listEditorInstances(): Promise<EditorBridgeInstance[]>
+  connectEditor(instanceId: string): Promise<EditorBridgeConnection>
+  disconnectEditor(): Promise<{ success: boolean; message: string }>
   installPlugin(): Promise<unknown>
   setPluginEnabled(enabled: boolean): Promise<unknown>
   uninstallPlugin(): Promise<unknown>

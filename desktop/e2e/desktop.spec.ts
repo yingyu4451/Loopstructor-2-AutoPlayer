@@ -1,5 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -8,7 +10,7 @@ const releaseHostPath = resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Hos
 const hostPath = existsSync(releaseHostPath)
   ? releaseHostPath
   : resolve(repositoryRoot, 'src/Loopstructor.AutoPlayer.Host/bin/Debug/net8.0-windows/Loopstructor.AutoPlayer.Host.exe')
-const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.70-electron')
+const screenshotRoot = resolve(repositoryRoot, 'artifacts/ui/v0.6.71-electron')
 
 test('unified desktop is sandboxed and responsive across every route', async () => {
   const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-electron-e2e-'))
@@ -184,6 +186,136 @@ test('unified desktop is sandboxed and responsive across every route', async () 
     expect(rendererErrors).toEqual([])
   } finally {
     await app.close()
+    rmSync(dataRoot, { recursive: true, force: true })
+  }
+})
+
+test('installs, authenticates, and disconnects the Unity Editor bridge', async () => {
+  const dataRoot = mkdtempSync(resolve(tmpdir(), 'loopstructor-editor-bridge-e2e-'))
+  const projectRoot = resolve(dataRoot, 'Loopstructor2')
+  const instancesRoot = resolve(dataRoot, 'editor-instances')
+  const artifactRoot = resolve(dataRoot, 'artifacts/editor/e2e')
+  const instanceId = `editor-e2e-${process.pid}`
+  const token = 'e2e-private-token-'.padEnd(64, 'x')
+  const assemblySha256 = 'a'.repeat(64)
+  const observedCommands: string[] = []
+  let observedAuthorization = ''
+  mkdirSync(resolve(projectRoot, 'Assets'), { recursive: true })
+  mkdirSync(resolve(projectRoot, 'Packages'), { recursive: true })
+  mkdirSync(resolve(projectRoot, 'ProjectSettings'), { recursive: true })
+  mkdirSync(instancesRoot, { recursive: true })
+  mkdirSync(artifactRoot, { recursive: true })
+  writeFileSync(resolve(projectRoot, 'ProjectSettings/ProjectVersion.txt'), 'm_EditorVersion: 2022.3.62f3c1\n')
+
+  const bridge = createServer((request, response) => {
+    observedAuthorization = request.headers.authorization ?? ''
+    if (observedAuthorization !== `Bearer ${token}`) {
+      response.writeHead(401, { 'content-type': 'application/json' })
+      response.end('{"success":false,"error":"unauthorized"}')
+      return
+    }
+    if (request.method === 'GET' && request.url === '/api/status') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({
+        success: true, schemaVersion: 1, protocolVersion: 1, instanceId, processId: process.pid, projectPath: projectRoot,
+        unityVersion: '2022.3.62f3c1', gameVersion: '1.390', sceneName: 'StartGameScene',
+        mode: 'editor-play', runtimeReady: true, compiling: false, assemblySha256,
+        message: 'Unity Editor Play Mode 运行控制已启动。',
+      }))
+      return
+    }
+    if (request.method === 'POST' && request.url === '/api/command') {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', chunk => { body += chunk })
+      request.on('end', () => {
+        const command = (JSON.parse(body) as { command: string }).command
+        observedCommands.push(command)
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({
+          success: true,
+          message: 'ok',
+          data: command === 'cheat.queryCatalog'
+            ? { vehicles: [], enchantments: [], disposables: [], relics: [], enemies: [], catapultPoints: [] }
+            : { available: true, enabled: true, enemyIdsVisible: false, enemyBuffsVisible: false, baseGodMode: false, mapSkipEnabled: false },
+        }))
+      })
+      return
+    }
+    response.writeHead(404, { 'content-type': 'application/json' })
+    response.end('{"success":false,"error":"route_not_found"}')
+  })
+  await new Promise<void>((accept, reject) => {
+    bridge.once('error', reject)
+    bridge.listen(0, '127.0.0.1', accept)
+  })
+  const port = (bridge.address() as AddressInfo).port
+  const instancePath = resolve(instancesRoot, `${instanceId}.json`)
+  const writeHeartbeat = () => writeFileSync(instancePath, JSON.stringify({
+    schemaVersion: 1, protocolVersion: 1, instanceId, kind: 'editor', processId: process.pid,
+    displayName: 'Unity Editor · Loopstructor2', projectPath: projectRoot,
+    unityExecutablePath: process.execPath, unityVersion: '2022.3.62f3c1', gameVersion: '1.390',
+    sceneName: 'StartGameScene', mode: 'editor-play', runtimeReady: true, port, token,
+    assemblySha256, artifactRoot, lastSeenAt: new Date().toISOString(),
+  }))
+  writeHeartbeat()
+  const heartbeat = setInterval(writeHeartbeat, 2_000)
+
+  const app = await electron.launch({
+    args: ['.'],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      LOCALAPPDATA: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_DESKTOP_USER_DATA_ROOT: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_HOST_PATH: hostPath,
+      LOOPSTRUCTOR_AUTOPLAYER_HOST_DATA_ROOT: dataRoot,
+      LOOPSTRUCTOR_AUTOPLAYER_DISTRIBUTION_ROOT: repositoryRoot,
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+    await expect(page.getByText('Loopstructor 2 QA Tool', { exact: true })).toBeVisible()
+    await expect(page.locator('.titlebar-status')).not.toContainText('正在启动 Host', { timeout: 15_000 })
+    const inspection = await page.evaluate(project => window.loopstructorDesktop.validateUnityProject(project), projectRoot)
+    expect(inspection.valid).toBe(true)
+    const installed = await page.evaluate(() => window.loopstructorDesktop.installEditorBridge())
+    expect(installed.success).toBe(true)
+    const managedRoot = resolve(projectRoot, 'Packages/com.loopstructor.qa-editor-bridge/Editor/Managed')
+    expect(existsSync(resolve(managedRoot, 'Loopstructor.AutoPlayer.EditorBridge.Runtime.dll'))).toBe(true)
+    expect(existsSync(resolve(managedRoot, 'Loopstructor.AutoPlayer.Core.dll'))).toBe(true)
+    expect(existsSync(resolve(managedRoot, 'BepInEx.dll'))).toBe(false)
+    expect(existsSync(resolve(managedRoot, '0Harmony.dll'))).toBe(false)
+
+    await expect.poll(async () => (await page.evaluate(() => window.loopstructorDesktop.listEditorInstances())).length).toBe(1)
+    await expect(page.getByText('Unity Editor · Loopstructor2', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '连接', exact: true }).click()
+    await expect(page.locator('.titlebar-status')).toContainText('Unity Editor Play Mode 已安全连接')
+
+    const state = await page.evaluate(() => window.loopstructorDesktop.cheatCommand('cheat.queryState', {}))
+    expect(state.success).toBe(true)
+    expect(state.data?.enabled).toBe(true)
+    const snapshot = await page.evaluate(() => window.loopstructorDesktop.getSnapshot())
+    const publicJson = JSON.stringify(snapshot)
+    expect(snapshot.connection.trusted).toBe(true)
+    expect(publicJson).not.toContain(token)
+    expect(publicJson).not.toContain('"port"')
+    expect(publicJson).not.toContain('pipeName')
+    expect(observedAuthorization).toBe(`Bearer ${token}`)
+    expect(observedCommands).toContain('cheat.queryState')
+    await page.getByRole('button', { name: '自动游玩', exact: true }).click()
+    await expect(page.getByText('Editor 不支持自动游玩', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '开始', exact: true })).toBeDisabled()
+
+    clearInterval(heartbeat)
+    rmSync(instancePath, { force: true })
+    await expect.poll(async () => (await page.evaluate(() => window.loopstructorDesktop.getSnapshot())).connection.trusted).toBe(false)
+    await expect(page.locator('.titlebar-status')).toContainText('Unity Editor 连接已断开', { timeout: 15_000 })
+  } finally {
+    clearInterval(heartbeat)
+    await app.close()
+    await new Promise<void>(resolveClose => bridge.close(() => resolveClose()))
     rmSync(dataRoot, { recursive: true, force: true })
   }
 })

@@ -506,6 +506,10 @@ foreach ($requiredFile in @(
     'manager/hostfxr.dll'
     'manager/hostpolicy.dll'
     'manager/coreclr.dll'
+    'manager/resources/unity-package/com.loopstructor.qa-editor-bridge/package.json'
+    'manager/resources/unity-package/com.loopstructor.qa-editor-bridge/Editor/QaBridgeServer.cs'
+    'payload/editor/Loopstructor.AutoPlayer.EditorBridge.Runtime.dll'
+    'payload/editor/Loopstructor.AutoPlayer.Core.dll'
 )) {
     if (-not ($packagePaths -ccontains $requiredFile)) {
         throw "Release archive is missing required file: $requiredFile"
@@ -521,13 +525,22 @@ foreach ($requiredDirectory in @('manager/', 'payload/')) {
         throw "Release archive is missing required directory content: $requiredDirectory"
     }
 }
+if (@($packagePaths | Where-Object {
+    $_.StartsWith('payload/editor/', [StringComparison]::Ordinal) -and
+    ($_.EndsWith('/BepInEx.dll', [StringComparison]::OrdinalIgnoreCase) -or
+     $_.EndsWith('/0Harmony.dll', [StringComparison]::OrdinalIgnoreCase) -or
+     $_.EndsWith('/Loopstructor.AutoPlayer.Plugin.dll', [StringComparison]::OrdinalIgnoreCase))
+}).Count -ne 0) {
+    throw 'Editor payload must not contain BepInEx, Harmony, or the Player Plugin.'
+}
 
 $markerEntryName = "$prefix" + 'autoplayer-release.json'
 $marker = Read-ZipEntryText -Path $archivePath -EntryName $markerEntryName | ConvertFrom-Json
 if ([int]$marker.schemaVersion -ne 2 -or
     -not [StringComparer]::Ordinal.Equals([string]$marker.version, $packageVersion) -or
     -not [StringComparer]::Ordinal.Equals([string]$marker.managerPath, 'Loopstructor-2-QA-Tool.exe') -or
-    -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'manager/Loopstructor.AutoPlayer.Updater.exe')) {
+    -not [StringComparer]::Ordinal.Equals([string]$marker.updaterPath, 'manager/Loopstructor.AutoPlayer.Updater.exe') -or
+    -not [StringComparer]::Ordinal.Equals([string]$marker.editorRuntimePayloadPath, 'payload/editor')) {
     throw 'Release marker schema, version, root Manager entry point, or Updater entry point is incorrect.'
 }
 

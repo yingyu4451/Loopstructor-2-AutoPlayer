@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { AutomationSetup, CatalogItem, ControlResponse, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey, SaveBackupCatalog, SaveBackupEntry } from '../types'
+import type { AutomationSetup, CatalogItem, ControlResponse, EditorBridgeInstance, HostLogEntry, HostSnapshot, ManagerSettings, RouteKey, SaveBackupCatalog, SaveBackupEntry } from '../types'
 import { useUiStore } from './ui'
 
 const mutationCommands = new Set([
@@ -87,6 +87,51 @@ export const useAppStore = defineStore('app', {
     async selectGame() {
       const ui = useUiStore()
       await ui.run(() => window.loopstructorDesktop.selectGameDirectory(), '游戏目录已验证。')
+    },
+    async selectUnityProject() {
+      const inspection = await useUiStore().run(() => window.loopstructorDesktop.selectUnityProject(), 'Unity 工程已验证。')
+      if (inspection && this.snapshot) this.snapshot.editorProject = inspection
+      return inspection
+    },
+    async installEditorBridge() {
+      const ui = useUiStore()
+      const result = await ui.run(() => window.loopstructorDesktop.installEditorBridge())
+      if (result?.inspection && this.snapshot) this.snapshot.editorProject = result.inspection
+      if (result?.success) ui.toast(result.message, 'success')
+      return result
+    },
+    async uninstallEditorBridge() {
+      const ui = useUiStore()
+      if (!await ui.confirm({
+        title: '卸载 Editor 连接组件',
+        message: '从所选 Unity 工程卸载 Loopstructor Editor 连接组件？这不会修改 Assets 或 Player 构建。',
+        confirmText: '卸载连接组件',
+        cancelText: '保留',
+        danger: true,
+      })) return undefined
+      const result = await ui.run(() => window.loopstructorDesktop.uninstallEditorBridge())
+      if (result?.inspection && this.snapshot) this.snapshot.editorProject = result.inspection
+      if (result?.success) ui.toast(result.message, 'success')
+      return result
+    },
+    async refreshEditorInstances() {
+      try {
+        const instances = await window.loopstructorDesktop.listEditorInstances()
+        if (this.snapshot) this.snapshot.editorInstances = instances
+        return instances
+      } catch {
+        return [] as EditorBridgeInstance[]
+      }
+    },
+    async connectEditor(instanceId: string) {
+      const connection = await useUiStore().run(() => window.loopstructorDesktop.connectEditor(instanceId), 'Unity Editor 已连接。')
+      if (connection && this.snapshot) this.snapshot.editorConnection = connection
+      return connection
+    },
+    async disconnectEditor() {
+      const result = await useUiStore().run(() => window.loopstructorDesktop.disconnectEditor(), 'Unity Editor 已断开。')
+      if (result && this.snapshot) this.snapshot.editorConnection = undefined
+      return result
     },
     async installPlugin() {
       await useUiStore().run(() => window.loopstructorDesktop.installPlugin(), '插件已安装。')

@@ -2,7 +2,7 @@
 
 ## 设计目标
 
-AutoPlayer 把“桌面呈现”“控制编排”和“游戏内执行”分开：Electron + Vue Desktop 负责统一可见界面，.NET 8 Host 掌握安装、进程连接、玩家存档备份与事务恢复、自动游玩、更新和本机 IPC；BepInEx 插件只接受当前 Windows 用户下、绑定游戏目录和程序集指纹的本机授权。玩家常驻模式允许手动启动游戏后随时连接，隔离 QA 模式继续使用单次授权与独立测试数据。`0.6.56` 的更新入口先把 Electron 更新运行时迁移到系统临时目录，再由临时副本托管 Vue 进度界面和 .NET 事务，从而避免正式安装目录被可见更新窗口占用；更新 renderer 不再继承 Manager 的固定最小画布。
+AutoPlayer 把“桌面呈现”“控制编排”和“游戏内执行”分开：Electron + Vue Desktop 负责统一可见界面，.NET 8 Host 掌握安装、目标选择、可信连接、玩家存档备份与事务恢复、自动游玩、更新和本机 IPC。打包 Player 由 BepInEx 插件执行；Unity Editor 由 Editor-only UPM Bridge 执行，两条路径在 Host 的同一 QA 命令边界收口。玩家常驻模式允许手动启动游戏后随时连接，Editor 支持多实例明确选择，隔离 QA 模式继续使用单次授权与独立测试数据。
 
 工具不携带游戏 DLL，也不修改 `Assembly-CSharp.dll`。插件通过反射发现打包游戏中已有的 `GuiGameAutomation.Runtime` 类型，因此游戏更新后可以先完成指纹和契约检查，再决定是否运行。
 
@@ -12,6 +12,10 @@ flowchart LR
     M -->|"安装经 SHA-256 校验的载荷"| G["游戏目录"]
     M -->|"玩家本机注册或一次性 QA ActivationContext"| P["BepInEx 5 Plugin"]
     M <-->|"本机 Named Pipe + Token"| P
+    M -->|"安装 Editor-only UPM 包"| E["Unity Editor Bridge"]
+    M <-->|"Loopback HTTP + Bearer Token"| E
+    E --> X["Editor Runtime Adapter"]
+    X --> H
     P --> C["Core 决策引擎"]
     P -->|"反射调用 JSON 契约"| R["GuiGameAutomation.Runtime"]
     R --> S["Loopstructor 2 游戏状态与正常流程"]
@@ -28,11 +32,13 @@ flowchart LR
 |---|---|---|
 | `Loopstructor.AutoPlayer.Launcher` | .NET 8 NativeAOT 自包含单文件 | 位于发布根目录，原样转发参数并启动内部 Manager 后立即退出 |
 | `desktop` / `Loopstructor-2-QA-Tool.exe` | Electron 44、Vue 3、TypeScript、Vite、Pinia、Tailwind CSS 4、daisyUI 5、GSAP | 单实例统一窗口、路由、响应式布局、可持久化皮肤、目录呈现、Tooltip、Toast、模态窗和严格 IPC 白名单；renderer 开启 sandbox/contextIsolation 且不具有 Node 能力 |
-| `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责游戏验证、插件安装、可信会话、命名管道、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
+| `Loopstructor.AutoPlayer.Host` | .NET 8 Windows 自包含 | 无窗口 JSON 行 RPC Host；负责 Player/Editor 目标验证、连接组件安装、可信会话、两种本机 transport、玩家存档稳定快照、自动游玩、作弊命令、设置、日志和更新交接 |
 | `Loopstructor.AutoPlayer.Updater` | .NET 8 `net8.0` 自包含无窗口进程 | 在 Electron 与 Host 退出后从临时副本校验并替换工具文件，避免运行中的文件被覆盖；通过 `--json-stream` 向 Electron 更新页报告进度 |
 | `--updater` Electron 模式 | Electron 44 + Vue 3 | 复用 Manager 运行时显示统一更新窗口，不启动 Host，只托管隐藏的 .NET 更新事务 |
 | `Loopstructor.AutoPlayer.Core` | `netstandard2.0` | IPC 数据模型、协议版本、构建/会话标识和可单元测试的游玩决策 |
 | `Loopstructor.AutoPlayer.Plugin` | `netstandard2.1` | BepInEx 生命周期、激活校验、兼容性检查、隔离补丁、Named Pipe 服务、作弊调试桥接、证据采集 |
+| `Loopstructor.AutoPlayer.EditorBridge.Runtime` | `netstandard2.1` | 无 BepInEx/Harmony 依赖的 Editor Play Mode 运行层；链接共享作弊反射核心并提供统一命令结果 |
+| `com.loopstructor.qa-editor-bridge` | Unity 2022.3 Editor-only UPM 包 | Editor 实例登记、心跳、回环 HTTP 鉴权、主线程派发、Edit Mode 目录读取和 Play Mode 运行层生命周期 |
 | `GuiGameAutomation.Runtime` | 游戏构建 | 暴露查询和动作命令；属于 Loopstructor2 源码与最终游戏构建，不属于本仓库发布物 |
 
 皮肤契约位于 `desktop/src/theme/skins.ts`。Tailwind CSS 4 提供布局工具层，daisyUI 5 提供 `card`、`btn`、`input`、`tabs`、`modal`、`alert` 和 `progress` 等共享控件接口；`styles.css` 的低优先级 `app-base` cascade layer 与自定义 `skyspine` daisyUI theme 负责共同语义，游戏原生材质实现在独立的 `skyspine.css` 与 `desktop/src/assets/skins/skyspine`。Skyspine 模块拥有 rest、hover、active、selected、focus-visible 和 disabled 的完整状态接口；选中态只改变四边一致的轮廓和内材质，不再绘制左侧绿色竖条。外轮廓与内材质使用同一 polygon 分层绘制，内容只进入工作台 chrome 声明的安全区。各路由不再重复显示工作台木牌标题；`page-host` 直接占满内容区域，道具宽屏双栏共同拉伸、窄屏纵向滚动。目录路由每次进入和游戏重连时重新查询完整目录，避免先前缓存阻止遗物显示。`ManagerSettings.SkinId` 由 Host 归一化并随设置持久化，未知或旧版值回退到 `skyspine`。GSAP 只用于可中断的 transform/opacity 过渡、齿轮啮合和进度 scale，系统启用 `prefers-reduced-motion` 时停用。
@@ -50,6 +56,14 @@ flowchart LR
 9. `IsolatedQa` 安装 QA 存档路径补丁，并通过运行中的 `SaveManager.GetSaveFolderPath` 验证实际路径位于本次 profile；随后安装四个必需的平台写入/重启补丁和诊断产物重定向。四项隔离状态必须全部为 true。
 10. 插件在 `hello` 中回传自身真实 PID、随机进程实例标识、激活模式、指纹、运行时契约和隔离状态。Host 只在该 PID 仍存活、启动时间未变化、可执行文件路径等于所选游戏且模式门禁相符时接受握手；后续每条请求都必须继续匹配 PID 与进程实例标识。
 11. 连接成功后插件保持 Standby。`0.6.53` 即使自动游玩未启动也会低频读取当前章节、关卡与玩家存档根，以支持 Host 自动备份；自动游玩页通过白名单 RPC 读取可玩模式和角色并发送运行控制。作弊能力在可信会话建立后默认自动开启，不再需要前端手动开关。
+
+### Unity Editor 连接
+
+1. Host 验证 Unity 工程结构后，只管理 `Packages/com.loopstructor.qa-editor-bridge` 这一拥有明确 package name 的目录；更新使用 staging/backup 原子替换，外来同名目录拒绝覆盖或删除。包不修改 `Assets` 和 `Packages/manifest.json`，全部程序集位于 Editor 范围，不进入 Player 构建。
+2. 每个 Editor 进程创建随机回环端口和 256-bit Bearer token，每 2 秒原子更新 `editor-instances/editor-<pid>.json`。Host 只接受 10 秒内的 schema/protocol v1 登记，并验证项目、Unity 可执行文件、artifact 路径和程序集 SHA-256；renderer DTO 会移除端口和 token。
+3. Edit Mode 仅允许认证的状态和目录读取。进入 Play Mode 后，Bridge 启动独立 Editor Runtime Adapter；它链接现有 `CheatRuntimeBridge` 源码，但不加载 BepInEx、Harmony 或 Player 插件，避免与 Unity 工程现有 Harmony 版本冲突。
+4. Host 连接 Play Mode 前交叉确认 HTTP 状态与登记中的实例 ID、PID 和 `Assembly-CSharp.dll` SHA-256。QA 命令通过 `POST /api/command` 在 Unity 主线程执行；登记消失时立即撤销可信状态，超过 10 秒域重载容忍窗口后清除所选实例。
+5. Editor Runtime Adapter 默认启用 QA 调试，场景切换或退出 Play Mode 时重置瞬态效果。自动游玩和依赖 Harmony 的地图自由跳转保持 Player-only。
 
 支持的环境变量由共享协议定义：
 
@@ -74,6 +88,8 @@ IPC 使用本机 Named Pipe，每个连接传输一个 UTF-8 JSON 请求和响�
 ```json
 {"id":"request-1","token":"<session-token>","command":"status"}
 ```
+
+Editor transport 使用独立协议 v1：`GET /api/status` 和 `GET /api/catalog` 提供状态与 Edit Mode 目录，`POST /api/command` 提交 Play Mode QA 命令。所有端点只监听 `127.0.0.1` 并要求随机 Bearer token；Host 不把 transport 凭据交给 Electron renderer。
 
 基础命令如下：
 
@@ -174,7 +190,9 @@ Core 中的 `DecisionEngine` 不直接访问 Unity。插件先查询状态，再
 ```text
 %LOCALAPPDATA%\LoopstructorAutoPlayer\
   control\installed-<root-id>.json            玩家模式本机注册
+  editor-instances\editor-<pid>.json           Unity Editor 短期实例登记
   profiles\<game-id>\<profile-name>\          QA 存档或玩家模式作弊标记状态
+  artifacts\editor\<project-id>\               Editor QA 产物
   artifacts\<game-id>\<run-id-or-player>\     状态、时间线、日志、失败截图
   tickets\launch-<root-id>.json                隔离 QA 单次启动票据，消费后删除
 ```

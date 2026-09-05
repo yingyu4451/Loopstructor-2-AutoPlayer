@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>Loopstructor.AutoPlayer.EditorBridge.Runtime</AssemblyName>
+    <RootNamespace>Loopstructor.AutoPlayer.EditorBridge.Runtime</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Loopstructor.AutoPlayer.Core\Loopstructor.AutoPlayer.Core.csproj" />
+    <PackageReference Include="UnityEngine.Modules" Version="2022.3.62" IncludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" IncludeAssets="compile" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Loopstructor.AutoPlayer.Plugin\CheatRuntimeBridge.cs" Link="Runtime\CheatRuntimeBridge.cs" />
+  </ItemGroup>
+</Project>

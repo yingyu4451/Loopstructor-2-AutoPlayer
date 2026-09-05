@@ -1,0 +1,10 @@
+{
+  "name": "com.loopstructor.qa-editor-bridge",
+  "version": "0.6.71",
+  "displayName": "Loopstructor 2 QA Editor Bridge",
+  "description": "Editor-only bridge for Loopstructor 2 QA Tool. This package is excluded from Player builds.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
+}

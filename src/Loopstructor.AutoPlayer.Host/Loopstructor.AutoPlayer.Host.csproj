@@ -13,11 +13,14 @@
   <ItemGroup>
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Models\ManagerModels.cs" Link="Manager\Models\ManagerModels.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Models\ManagerProductInfo.cs" Link="Manager\Models\ManagerProductInfo.cs" />
+    <Compile Include="..\Loopstructor.AutoPlayer.Manager\Models\UnityEditorModels.cs" Link="Manager\Models\UnityEditorModels.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\ActivationSessionFactory.cs" Link="Manager\Services\ActivationSessionFactory.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\AtomicFile.cs" Link="Manager\Services\AtomicFile.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\BepInExConfigWriter.cs" Link="Manager\Services\BepInExConfigWriter.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\BepInExInstaller.cs" Link="Manager\Services\BepInExInstaller.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\DistributionLayout.cs" Link="Manager\Services\DistributionLayout.cs" />
+    <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\EditorBridgeClient.cs" Link="Manager\Services\EditorBridgeClient.cs" />
+    <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\EditorBridgeRegistry.cs" Link="Manager\Services\EditorBridgeRegistry.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\GameInstallValidator.cs" Link="Manager\Services\GameInstallValidator.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\GameLauncher.cs" Link="Manager\Services\GameLauncher.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\GameUpdateShutdownCoordinator.cs" Link="Manager\Services\GameUpdateShutdownCoordinator.cs" />
@@ -28,6 +31,7 @@
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\PipeControlClient.cs" Link="Manager\Services\PipeControlClient.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\SaveBackupService.cs" Link="Manager\Services\SaveBackupService.cs" />
     <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\UpdateCoordinator.cs" Link="Manager\Services\UpdateCoordinator.cs" />
+    <Compile Include="..\Loopstructor.AutoPlayer.Manager\Services\UnityProjectBridgeInstaller.cs" Link="Manager\Services\UnityProjectBridgeInstaller.cs" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Loopstructor.AutoPlayer.Tests" />

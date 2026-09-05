@@ -35,6 +35,9 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
     private readonly GameLauncher _gameLauncher;
     private readonly UpdateCoordinator _updates;
     private readonly SaveBackupService _saveBackups;
+    private readonly UnityProjectBridgeInstaller _editorBridgeInstaller;
+    private readonly EditorBridgeRegistry _editorBridgeRegistry;
+    private readonly EditorBridgeClient _editorBridgeClient = new();
     private readonly CancellationTokenSource _pollLifetime;
     private ManagerSettings _settings;
     private GameInstallValidation? _game;
@@ -43,6 +46,12 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
     private BridgeHello? _hello;
     private AutoPlayerStatus? _status;
     private ManagerUpdateStatus? _updateStatus;
+    private UnityProjectInspection? _editorProject;
+    private IReadOnlyList<EditorBridgeInstance> _editorInstances = Array.Empty<EditorBridgeInstance>();
+    private EditorBridgeConnectionResult? _editorConnection;
+    private TrustedEditorBridgeInstance? _editorTrustedInstance;
+    private string _selectedEditorInstanceId = string.Empty;
+    private DateTime? _editorMissingSinceUtc;
     private bool _trusted;
     private bool _pollConnectedLastTime;
     private DateTime _nextAutomaticCheatEnableUtc;
@@ -65,6 +74,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _gameLauncher = new GameLauncher(new ActivationSessionFactory(), _configWriter);
         _updates = new UpdateCoordinator(_distribution);
         _saveBackups = new SaveBackupService(Path.Combine(dataRoot, "save-backups"));
+        _editorBridgeInstaller = new UnityProjectBridgeInstaller(_distribution);
+        _editorBridgeRegistry = new EditorBridgeRegistry(Path.Combine(dataRoot, "editor-instances"), dataRoot: dataRoot);
         _saveBackups.EnsureBackupRoot(_settings.GameRoot);
         if (!string.IsNullOrWhiteSpace(warning)) AddLog("warn", warning);
     }
@@ -79,6 +90,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     public async Task InitializeAsync()
     {
+        if (!string.IsNullOrWhiteSpace(_settings.UnityProjectRoot))
+            _editorProject = _editorBridgeInstaller.Inspect(_settings.UnityProjectRoot);
         if (!string.IsNullOrWhiteSpace(_settings.GameRoot))
         {
             try
@@ -106,6 +119,12 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
                 "app.getSnapshot" => Serialize(BuildSnapshot()),
                 "settings.save" => await SaveSettingsAsync(parameters),
                 "game.validate" => await ValidateGameAsync(RequiredString(parameters, "path")),
+                "editor.validateProject" => ValidateEditorProject(RequiredString(parameters, "path")),
+                "editor.installBridge" => InstallEditorBridge(),
+                "editor.uninstallBridge" => UninstallEditorBridge(),
+                "editor.listInstances" => ListEditorInstances(),
+                "editor.connect" => await ConnectEditorAsync(RequiredString(parameters, "instanceId")),
+                "editor.disconnect" => DisconnectEditor(),
                 "plugin.install" => await InstallPluginAsync(),
                 "plugin.setEnabled" => SetPluginEnabled(parameters?.Value<bool?>("enabled") == true),
                 "plugin.uninstall" => UninstallPlugin(),
@@ -140,6 +159,7 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         ManagerSettings incoming = parameters?.ToObject<ManagerSettings>()
                                    ?? throw new InvalidOperationException("设置内容为空。");
         incoming.GameRoot = _settings.GameRoot;
+        incoming.UnityProjectRoot = _settings.UnityProjectRoot;
         incoming.GitHubOwner = _settings.GitHubOwner;
         incoming.GitHubRepository = _settings.GitHubRepository;
         incoming.ProfileName = string.IsNullOrWhiteSpace(incoming.ProfileName)
@@ -168,6 +188,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task ValidateGameCoreAsync(string root)
     {
+        ClearEditorTarget();
+        ResetSession();
         GameInstallValidation validation = await _validator.ValidateAsync(root, _lifetime);
         if (!validation.IsValid)
         {
@@ -186,6 +208,87 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         AddLog("safe", $"已验证 Skyspine {Display(validation.ProductVersion)} / {ShortHash(validation.AssemblySha256)}。");
         foreach (string warning in validation.Warnings) AddLog("warn", warning);
         if (_pluginStatus?.State == PluginState.Enabled) PrepareInstalledSession(selectProfile: false);
+    }
+
+    private JToken ValidateEditorProject(string root)
+    {
+        UnityProjectInspection inspection = _editorBridgeInstaller.Inspect(root);
+        if (!string.IsNullOrWhiteSpace(_selectedEditorInstanceId)
+            && (_editorProject == null || !SamePath(_editorProject.Path, inspection.Path)))
+        {
+            ClearEditorTarget();
+            ResetSession();
+            if (_pluginStatus?.State == PluginState.Enabled) PrepareInstalledSession(selectProfile: false);
+        }
+        _editorProject = inspection;
+        if (!inspection.Valid) throw new InvalidOperationException(inspection.Message);
+        _settings.UnityProjectRoot = inspection.Path;
+        _settingsStore.Save(_settings);
+        AddLog("safe", $"已验证 Unity 工程 {inspection.UnityVersion}：{inspection.Path}");
+        _ = EmitSnapshotAsync();
+        return Serialize(inspection);
+    }
+
+    private JToken InstallEditorBridge()
+    {
+        string projectRoot = RequireEditorProject();
+        EditorBridgeOperationResult result = _editorBridgeInstaller.Install(projectRoot);
+        _editorProject = result.Inspection ?? _editorBridgeInstaller.Inspect(projectRoot);
+        AddLog(result.Success ? "success" : "error", result.Message);
+        _ = EmitSnapshotAsync();
+        return Serialize(result);
+    }
+
+    private JToken UninstallEditorBridge()
+    {
+        string projectRoot = RequireEditorProject();
+        EditorBridgeOperationResult result = _editorBridgeInstaller.Uninstall(projectRoot);
+        _editorProject = result.Inspection ?? _editorBridgeInstaller.Inspect(projectRoot);
+        if (result.Success)
+        {
+            ClearEditorTarget();
+            ResetSession();
+            if (_pluginStatus?.State == PluginState.Enabled) PrepareInstalledSession(selectProfile: false);
+        }
+        AddLog(result.Success ? "success" : "error", result.Message);
+        _ = EmitSnapshotAsync();
+        return Serialize(result);
+    }
+
+    private JToken ListEditorInstances()
+    {
+        _editorInstances = _editorBridgeRegistry.ListInstances();
+        _ = EmitSnapshotAsync();
+        return Serialize(_editorInstances);
+    }
+
+    private async Task<JToken> ConnectEditorAsync(string instanceId)
+    {
+        if (!_editorBridgeRegistry.TryGetTrusted(instanceId, out TrustedEditorBridgeInstance instance, out string error))
+            throw new InvalidOperationException(error);
+        if (_editorProject == null || !_editorProject.Valid || !SamePath(_editorProject.Path, instance.ProjectPath))
+            throw new InvalidOperationException("该 Unity Editor 实例不属于当前选择的 Unity 工程。");
+        EditorBridgeConnectionResult connection = await _editorBridgeClient.ConnectAsync(instance, _lifetime);
+        if (!connection.Success) throw new InvalidOperationException(connection.Message);
+        ResetSession();
+        _selectedEditorInstanceId = instance.InstanceId;
+        _editorTrustedInstance = instance;
+        _editorConnection = connection;
+        _editorMissingSinceUtc = null;
+        _connectionLabel = connection.RuntimeReady ? "正在验证 Unity Editor Play Mode" : "Editor 已连接 · 未进入 Play Mode";
+        _connectionReason = connection.Message;
+        if (connection.RuntimeReady) TrustEditor(instance, connection);
+        await EmitSnapshotAsync();
+        return Serialize(connection);
+    }
+
+    private JToken DisconnectEditor()
+    {
+        ClearEditorTarget();
+        ResetSession();
+        if (_pluginStatus?.State == PluginState.Enabled) PrepareInstalledSession(selectProfile: false);
+        _ = EmitSnapshotAsync();
+        return Serialize(new { success = true, message = "Unity Editor 已断开。" });
     }
 
     private async Task<JToken> InstallPluginAsync()
@@ -267,14 +370,19 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         string command = RequiredString(parameters, "command");
         if (!CheatCommands.All.Contains(command, StringComparer.Ordinal))
             throw new InvalidOperationException("该作弊命令不在 Host 白名单中。");
-        if (!_trusted || _session == null)
+        bool editor = !string.IsNullOrWhiteSpace(_selectedEditorInstanceId);
+        if ((editor && (!_trusted || _editorTrustedInstance == null))
+            || (!editor && (!_trusted || _session == null)))
             throw new InvalidOperationException("尚未与当前游戏建立安全连接。");
 
         JObject? arguments = parameters?["arguments"] as JObject;
-        PipeCallResult call = await _pipeClient.SendCheatAsync(_session, command, arguments, _lifetime);
+        PipeCallResult call = editor
+            ? await _editorBridgeClient.SendCheatAsync(_editorTrustedInstance!, command, arguments, _lifetime)
+            : await _pipeClient.SendCheatAsync(_session!, command, arguments, _lifetime);
         if (!call.TransportSuccess)
         {
             InvalidateTrust();
+            if (editor) _status = null;
             bool unknown = call.RequestMayHaveExecuted && CheatCommands.IsMutationCommand(command);
             string error = unknown
                 ? "命令可能已经执行，但结果尚未确认；为避免重复写入，请重新连接后先读取状态。"
@@ -284,6 +392,16 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         }
 
         ControlResponse response = call.Response!;
+        if (editor)
+        {
+            if (response.Data != null) ApplyEditorState(response.Data);
+            if (response.Success && CheatCommands.IsMutationCommand(command) && _status != null)
+            {
+                _status.CheatUsed = true;
+                _status.CheatActionCount++;
+            }
+            response.Status = _status;
+        }
         if (response.Status != null) _status = response.Status;
         if (response.Data != null) InlineVerifiedCatalogIcons(response.Data);
         if (!response.Success || !string.Equals(command, CheatCommands.QueryState, StringComparison.Ordinal))
@@ -305,6 +423,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task<ControlResponse> QueryAutomationSetupCoreAsync()
     {
+        if (!string.IsNullOrWhiteSpace(_selectedEditorInstanceId))
+            throw new InvalidOperationException("Unity Editor 连接仅提供 QA 运行控制；自动游玩请连接 Player 构建。");
         if (!_trusted || _session == null)
             throw new InvalidOperationException("连接游戏后才能读取可玩的模式和角色。");
         PipeCallResult call = await _pipeClient.QueryAutomationSetupAsync(_session, _lifetime);
@@ -323,6 +443,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task<JToken> StartAutomationAsync()
     {
+        if (!string.IsNullOrWhiteSpace(_selectedEditorInstanceId))
+            throw new InvalidOperationException("Unity Editor 连接仅提供 QA 运行控制；自动游玩请连接 Player 构建。");
         RunControlAvailability availability = RunControlAvailability.From(_trusted, _status);
         if (!availability.CanStart)
             throw new InvalidOperationException(BuildUnavailableAutomationMessage("开始"));
@@ -382,6 +504,8 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task<JToken> SendAutomationControlAsync(string command, AutomationRunOptions? options)
     {
+        if (!string.IsNullOrWhiteSpace(_selectedEditorInstanceId))
+            throw new InvalidOperationException("Unity Editor 连接仅提供 QA 运行控制；自动游玩请连接 Player 构建。");
         if (!_trusted || _session == null)
             throw new InvalidOperationException("尚未与当前游戏建立安全连接。");
 
@@ -609,6 +733,12 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
     private async Task PollOnceAsync()
     {
+        if (!string.IsNullOrWhiteSpace(_selectedEditorInstanceId))
+        {
+            await PollEditorAsync();
+            return;
+        }
+
         if (_game == null || _pluginStatus?.State != PluginState.Enabled)
         {
             _connectionLabel = _game == null ? "等待选择游戏" : "插件未启用";
@@ -643,6 +773,87 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
 
         foreach (string line in _logTail.ReadAvailable(120)) AddLog("game", line, emit: false);
 
+        await PollPipeSessionAsync();
+    }
+
+    private async Task PollEditorAsync()
+    {
+        _editorInstances = _editorBridgeRegistry.ListInstances();
+        if (!_editorBridgeRegistry.TryGetTrusted(
+                _selectedEditorInstanceId,
+                out TrustedEditorBridgeInstance instance,
+                out _))
+        {
+            _editorMissingSinceUtc ??= DateTime.UtcNow;
+            InvalidateTrust();
+            _status = null;
+            _editorConnection = new EditorBridgeConnectionResult
+            {
+                InstanceId = _selectedEditorInstanceId,
+                Message = "Unity Editor Bridge 正在重新加载或已断开。"
+            };
+            _connectionLabel = "等待 Unity Editor Bridge";
+            _connectionReason = _editorConnection.Message;
+            if (DateTime.UtcNow - _editorMissingSinceUtc > TimeSpan.FromSeconds(10))
+            {
+                ClearEditorTarget();
+                ResetSession();
+                _connectionLabel = "Unity Editor 连接已断开";
+            }
+            await EmitSnapshotAsync();
+            return;
+        }
+
+        _editorMissingSinceUtc = null;
+        EditorBridgeConnectionResult connection = await _editorBridgeClient.ConnectAsync(instance, _lifetime);
+        _editorConnection = connection;
+        if (!connection.Success)
+        {
+            InvalidateTrust();
+            _status = null;
+            _connectionLabel = "Unity Editor Bridge 无响应";
+            _connectionReason = connection.Message;
+            await EmitSnapshotAsync();
+            return;
+        }
+
+        bool sessionChanged = _editorTrustedInstance == null
+                              || !string.Equals(_editorTrustedInstance.Token, instance.Token, StringComparison.Ordinal)
+                              || !string.Equals(_editorTrustedInstance.AssemblySha256, instance.AssemblySha256, StringComparison.OrdinalIgnoreCase);
+        _editorTrustedInstance = instance;
+        if (sessionChanged) _status = null;
+        if (!connection.RuntimeReady)
+        {
+            InvalidateTrust();
+            _status = null;
+            _connectionLabel = "Editor 已连接 · 未进入 Play Mode";
+            _connectionReason = connection.Message;
+            await EmitSnapshotAsync();
+            return;
+        }
+
+        bool wasTrusted = _trusted;
+        try
+        {
+            TrustEditor(instance, connection);
+        }
+        catch (InvalidOperationException exception)
+        {
+            InvalidateTrust();
+            _status = null;
+            _connectionLabel = "Unity Editor 安全验证未通过";
+            _connectionReason = exception.Message;
+            await EmitSnapshotAsync();
+            return;
+        }
+        if (sessionChanged || !wasTrusted)
+            AddLog("safe", "Editor Bridge、Unity 进程和 Assembly-CSharp 指纹已经交叉验证。", emit: false);
+        await EmitSnapshotAsync();
+    }
+
+    private async Task PollPipeSessionAsync()
+    {
+        if (_session == null) return;
         PipeCallResult call = !_trusted || _hello == null
             ? await _pipeClient.HelloAsync(_session, _lifetime)
             : await _pipeClient.StatusAsync(_session, _lifetime);
@@ -770,6 +981,58 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _session.ProcessInstanceId = string.Empty;
     }
 
+    private void TrustEditor(TrustedEditorBridgeInstance instance, EditorBridgeConnectionResult connection)
+    {
+        if (!ValidateGameProcess(instance.ProcessId, instance.UnityExecutablePath, out string processError))
+            throw new InvalidOperationException(processError);
+        if (connection.ProcessId != instance.ProcessId
+            || !string.Equals(connection.InstanceId, instance.InstanceId, StringComparison.Ordinal)
+            || !string.Equals(connection.AssemblySha256, instance.AssemblySha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Editor Bridge 状态与本机实例登记不一致。");
+        }
+
+        _session = null;
+        _hello = null;
+        _trusted = true;
+        _pollConnectedLastTime = true;
+        _connectionLabel = "Unity Editor Play Mode 已安全连接";
+        _connectionReason = string.Empty;
+        _status ??= new AutoPlayerStatus
+        {
+            PluginVersion = ManagerProductInfo.Version,
+            ActivationMode = AutoPlayerActivationMode.ResidentPlayer,
+            RunState = AutoPlayerRunState.Standby,
+            Stage = AutomationStage.WaitingForGame,
+            ProductName = "Loopstructor2 Editor",
+            ProductIdentityValid = true,
+            FingerprintAccepted = true,
+            RuntimeContractAvailable = true,
+            CheatSessionAuthorized = true,
+            CheatAvailable = true,
+            CheatModeEnabled = true,
+            ArtifactDirectory = instance.ArtifactRoot,
+            EvidenceDirectory = instance.ArtifactRoot,
+            StartedAtUtc = DateTime.UtcNow
+        };
+        _status.Scene = connection.SceneName;
+        _status.GameVersion = instance.GameVersion;
+        _status.UnityVersion = instance.UnityVersion;
+        _status.AssemblySha256 = instance.AssemblySha256;
+        _status.StageDetail = "Unity Editor Play Mode QA 运行控制已就绪。";
+        _status.LastMessage = connection.Message;
+    }
+
+    private void ApplyEditorState(JObject data)
+    {
+        if (_status == null) return;
+        if (data.Value<bool?>("enabled") is bool enabled) _status.CheatModeEnabled = enabled;
+        if (data.Value<bool?>("enemyIdsVisible") is bool enemyIds) _status.EnemyIdsVisible = enemyIds;
+        if (data.Value<bool?>("enemyBuffsVisible") is bool enemyBuffs) _status.EnemyBuffsVisible = enemyBuffs;
+        if (data.Value<bool?>("baseGodMode") is bool baseGodMode) _status.BaseGodModeEnabled = baseGodMode;
+        if (data.Value<bool?>("mapSkipEnabled") is bool mapSkip) _status.MapSkipEnabled = mapSkip;
+    }
+
     private void ResetSession()
     {
         _session = null;
@@ -781,6 +1044,14 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         _lastAutomaticCheatEnableError = string.Empty;
         _connectionLabel = "等待游戏连接";
         _connectionReason = string.Empty;
+    }
+
+    private void ClearEditorTarget()
+    {
+        _selectedEditorInstanceId = string.Empty;
+        _editorTrustedInstance = null;
+        _editorConnection = null;
+        _editorMissingSinceUtc = null;
     }
 
     private void InvalidateTrust()
@@ -853,12 +1124,16 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
         settings = _settings,
         game = _game,
         plugin = _pluginStatus,
+        editorProject = _editorProject,
+        editorInstances = _editorInstances,
+        editorConnection = _editorConnection,
         connection = new
         {
             trusted = _trusted,
             label = _connectionLabel,
             reason = _connectionReason,
-            processId = _session?.ProcessId,
+            processId = _editorTrustedInstance?.ProcessId ?? _session?.ProcessId,
+            target = !string.IsNullOrWhiteSpace(_selectedEditorInstanceId) ? "editor" : _game != null ? "player" : "none",
             cheatAvailable = _hello?.CheatAvailable == true || _status?.CheatAvailable == true,
             autoplayActive = _status?.RunState is AutoPlayerRunState.Running or AutoPlayerRunState.Paused
         },
@@ -978,6 +1253,10 @@ internal sealed class DesktopHostEngine : IAsyncDisposable
     }
 
     private GameInstallValidation RequireGame() => _game ?? throw new InvalidOperationException("请先选择并验证游戏目录。");
+
+    private string RequireEditorProject() => _editorProject is { Valid: true }
+        ? _editorProject.Path
+        : throw new InvalidOperationException("请先选择并验证 Unity 工程。");
 
     private static string RequiredString(JObject? parameters, string name)
     {

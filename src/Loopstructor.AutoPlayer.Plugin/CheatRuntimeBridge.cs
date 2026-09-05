@@ -2044,12 +2044,12 @@ internal sealed class CheatRuntimeBridge
                 try
                 {
                     DeleteFieldCatapult(target);
-                    Debug.Log($"[AutoPlayer] 作弊点击删除场上弹射点成功：runtimeId={runtimeId}");
+                    _warningLogger?.Invoke($"作弊点击删除场上弹射点成功：runtimeId={runtimeId}");
                 }
                 catch (Exception exception)
                 {
-                    Debug.LogError(
-                        $"[AutoPlayer] 作弊点击删除场上弹射点失败：runtimeId={runtimeId}；{Unwrap(exception).Message}");
+                    _warningLogger?.Invoke(
+                        $"作弊点击删除场上弹射点失败：runtimeId={runtimeId}；{Unwrap(exception).Message}");
                     throw;
                 }
             }

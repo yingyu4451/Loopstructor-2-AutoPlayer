@@ -19,8 +19,10 @@ $launcherProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Launch
 $hostProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Host\Loopstructor.AutoPlayer.Host.csproj'
 $updaterProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Updater\Loopstructor.AutoPlayer.Updater.csproj'
 $pluginProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\Loopstructor.AutoPlayer.Plugin.csproj'
+$editorRuntimeProject = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.EditorBridge.Runtime\Loopstructor.AutoPlayer.EditorBridge.Runtime.csproj'
 $pluginInfoPath = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\PluginInfo.cs'
 $pluginOutput = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.Plugin\bin\Release\netstandard2.1'
+$editorRuntimeOutput = Join-Path $repositoryRoot 'src\Loopstructor.AutoPlayer.EditorBridge.Runtime\bin\Release\netstandard2.1'
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $packageWorkRoot = Join-Path $artifactsRoot 'package'
 $releaseDirectoryName = 'Loopstructor-2-QA-Tool'
@@ -405,7 +407,7 @@ function Assert-ProductVersion {
     }
 }
 
-foreach ($requiredProject in @($launcherProject, $hostProject, $updaterProject, $pluginProject)) {
+foreach ($requiredProject in @($launcherProject, $hostProject, $updaterProject, $pluginProject, $editorRuntimeProject)) {
     if (-not (Test-Path -LiteralPath $requiredProject -PathType Leaf)) {
         throw "Required release project not found: $requiredProject"
     }
@@ -429,6 +431,9 @@ if (-not $SkipBuild) {
 if (-not (Test-Path -LiteralPath (Join-Path $pluginOutput 'Loopstructor.AutoPlayer.Plugin.dll') -PathType Leaf)) {
     throw "Plugin output is missing. Run scripts\build.ps1 before packaging."
 }
+if (-not (Test-Path -LiteralPath (Join-Path $editorRuntimeOutput 'Loopstructor.AutoPlayer.EditorBridge.Runtime.dll') -PathType Leaf)) {
+    throw "Editor Bridge runtime output is missing. Run scripts\build.ps1 before packaging."
+}
 
 foreach ($directory in @($packageWorkRoot, $releaseRoot)) {
     if (Test-Path -LiteralPath $directory) {
@@ -442,6 +447,7 @@ $launcherOutput = Join-Path $packageWorkRoot 'launcher'
 $payloadOutput = Join-Path $packageRoot 'payload'
 $bepInExPayloadOutput = Join-Path $payloadOutput 'bepinex'
 $pluginPayloadOutput = Join-Path $payloadOutput 'plugin'
+$editorPayloadOutput = Join-Path $payloadOutput 'editor'
 
 # Electron owns the visible Manager and updater pages. The headless Host and
 # console transaction Updater share one self-contained .NET runtime directory.
@@ -494,6 +500,7 @@ $bepInExArchive = Get-VerifiedBepInExArchive -RuntimeInfo $bepInEx
 New-Item -ItemType Directory -Path $bepInExPayloadOutput -Force | Out-Null
 Expand-Archive -LiteralPath $bepInExArchive -DestinationPath $bepInExPayloadOutput
 New-Item -ItemType Directory -Path $pluginPayloadOutput -Force | Out-Null
+New-Item -ItemType Directory -Path $editorPayloadOutput -Force | Out-Null
 
 $excludedRuntimePatterns = @(
     'BepInEx*',
@@ -511,11 +518,19 @@ Get-ChildItem -LiteralPath $pluginOutput -File | Where-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $pluginPayloadOutput
 }
 
+foreach ($editorRuntimeFile in @(
+    'Loopstructor.AutoPlayer.EditorBridge.Runtime.dll'
+    'Loopstructor.AutoPlayer.Core.dll'
+)) {
+    Copy-Item -LiteralPath (Join-Path $editorRuntimeOutput $editorRuntimeFile) -Destination $editorPayloadOutput
+}
+
 Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor-2-QA-Tool.exe') -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $managerOutput 'Loopstructor.AutoPlayer.Host.exe') -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $bundledUpdaterExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path $rootManagerExecutable -ExpectedVersion $packageVersion
 Assert-ProductVersion -Path (Join-Path $pluginPayloadOutput 'Loopstructor.AutoPlayer.Plugin.dll') -ExpectedVersion $packageVersion
+Assert-ProductVersion -Path (Join-Path $editorPayloadOutput 'Loopstructor.AutoPlayer.EditorBridge.Runtime.dll') -ExpectedVersion $packageVersion
 
 $marker = [ordered]@{
     schemaVersion = 2
@@ -527,6 +542,7 @@ $marker = [ordered]@{
     bepInExPayloadPath = 'payload/bepinex'
     pluginPayloadPath = 'payload/plugin'
     pluginPath = 'payload/plugin/Loopstructor.AutoPlayer.Plugin.dll'
+    editorRuntimePayloadPath = 'payload/editor'
     bepInExVersion = $bepInEx.Version
 }
 $markerJson = $marker | ConvertTo-Json -Depth 4
